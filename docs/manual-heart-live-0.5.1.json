@@ -1,0 +1,17 @@
+{
+  "version": "0.5.1",
+  "extensionReloaded": true,
+  "notifications": {
+    "disabled": false,
+    "editor": "\n",
+    "pressed": "true",
+    "toolbar": "已处理 0 条 · 从当前页选择，略过已回复。\n♥ 已点\n跳过\n发送并下一条"
+  },
+  "home": {
+    "disabled": false,
+    "editor": "\n",
+    "pressed": "false",
+    "toolbar": "主页 · 已处理 0 条 · 从当前页选择，略过已回复。\n♡ 点赞\n跳过\n发送并下一条"
+  },
+  "performedPublicInteractions": false
+}

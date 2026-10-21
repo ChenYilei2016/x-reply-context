@@ -33,7 +33,7 @@
   .demo-note { color:#8a6c2d; background:#fff6df; padding:10px 15px; font-size:12px; }
   .demo-dialog { position:fixed; z-index:10; top:20%; left:50%; transform:translateX(-50%); width:580px; max-width:90vw; padding:20px; border-radius:16px; background:white; box-shadow:0 0 0 100vmax #0005; }
   .demo-dialog h2 { margin:0; font-size:18px; }
-  #layout-status,#height-status { white-space:pre-wrap; }
+  #layout-status,#height-status,#heart-status { white-space:pre-wrap; }
   .actions button { border:0; padding:0; background:none; color:#087ebd; font:inherit; cursor:pointer; }
   .demo-composer,.demo-save-sheet { position:fixed; z-index:20; top:12%; left:50%; transform:translateX(-50%); width:600px; max-width:90vw; max-height:80vh; overflow:auto; padding:20px; border-radius:16px; background:white; box-shadow:0 0 0 100vmax #0005; }
   .demo-composer [contenteditable] { min-height:140px; border:1px solid #b5c4cd; border-radius:6px; padding:12px; outline:none; white-space:pre-wrap; }
@@ -66,6 +66,9 @@
       <button id="check-heights">检查：新消息与行高</button>
       <p id="height-status" role="status"></p>
       <label>模拟发送结果 <select id="reply-result-mode"><option value="success">成功</option><option value="note">长评论接口成功</option><option value="failed">失败</option><option value="delayed">延迟成功</option><option value="new-message">成功时到达新通知</option><option value="wrong-target">回执目标不匹配</option><option value="typing">XReply 逐字填入</option></select></label>
+      <label>模拟红心结果 <select id="heart-result-mode"><option value="success">成功</option><option value="failed">失败</option><option value="delayed">延迟成功</option></select></label>
+      <button id="check-hearts">检查：手动红心</button>
+      <p id="heart-status" role="status"></p>
       <p id="composer-evidence" role="status"></p>
     </aside>
   </div>

@@ -1,6 +1,7 @@
 import { users, demoTweets, homeTweets, post } from "./fixtures.mjs";
 import { checkLayout } from "./layout-check.mjs";
 import { checkHeights } from "./height-check.mjs";
+import { checkHearts } from "./heart-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
@@ -26,6 +27,7 @@ globalThis.chrome = {
         document.querySelector("#composer-evidence").dataset.replyWrites = JSON.stringify(Object.fromEntries(replyWrites));
         document.querySelector("#composer-evidence").dataset.homeRecords = JSON.stringify(
           homeTweets.map(tweet => core.classify(state,message.account,tweet.id)));
+        document.querySelector("#composer-evidence").dataset.likeRecords = JSON.stringify(state.likes);
         for (const listener of storageListeners) listener({ replyContext:{} },"local");
         return { ok:true };
       }
@@ -56,7 +58,7 @@ function addNotification(tweet,prepend = false) {
         <a href="/${author.handle}/status/${tweet.id}"><time>2 分钟</time></a></div>
       ${tweet.parentId ? '<div class="replying">回复 <a href="/my_account">@my_account</a></div>' : ''}
       <div class="text-shell"><div data-testid="tweetText">${tweet.text}</div></div>
-      <div class="actions-shell"><div role="group" class="actions"><button type="button" data-testid="reply" aria-label="回复 ${author.handle}">回复</button><span>♡ 1</span><span>↗</span><span>▥ 12</span></div></div>
+      <div class="actions-shell"><div role="group" class="actions"><button type="button" data-testid="reply" aria-label="回复 ${author.handle}">回复</button><button type="button" data-testid="${state.likes[`101:${tweet.id}`]?.liked ? 'unlike' : 'like'}" aria-label="红心 ${author.handle}">${state.likes[`101:${tweet.id}`]?.liked ? '♥' : '♡'} 1</button><span>↗</span><span>▥ 12</span></div></div>
     </div>`;
   if (prepend) timeline.prepend(article); else timeline.append(article);
 }
@@ -140,4 +142,9 @@ document.querySelector("#check-heights").addEventListener("click",async event =>
     }] },"my_account");
     for (const listener of storageListeners) listener({ replyContext:{} },"local");
   });
+});
+document.querySelector("#check-hearts").addEventListener("click",async event => {
+  event.target.disabled = true;
+  await checkHearts();
+  event.target.disabled = false;
 });

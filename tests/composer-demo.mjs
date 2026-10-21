@@ -6,6 +6,8 @@ export function installComposerDemo({ state,core,addNotification }) {
   let sequence = 0;
   let requests = 0;
   let sent = 0;
+  let heartRequests = 0;
+  let heartSucceeded = 0;
   let dialog;
   const evidence = document.querySelector("#composer-evidence");
   let returnPath;
@@ -15,10 +17,24 @@ export function installComposerDemo({ state,core,addNotification }) {
     evidence.dataset.drafts = JSON.stringify([...drafts].map(([id,text]) => ({ id,text })));
     evidence.dataset.requests = String(requests);
     evidence.dataset.sent = String(sent);
+    evidence.dataset.heartRequests = String(heartRequests);
+    evidence.dataset.heartSucceeded = String(heartSucceeded);
   };
   updateEvidence();
 
   window.fetch = async function (url,options) {
+    const reaction = String(url).match(/\/i\/api\/graphql\/demo\/(FavoriteTweet|UnfavoriteTweet)$/)?.[1];
+    if (reaction) {
+      heartRequests++;
+      updateEvidence();
+      const mode = document.querySelector("#heart-result-mode").value;
+      await new Promise(resolve => setTimeout(resolve,mode === "delayed" ? 1600 : 150));
+      const ok = mode !== "failed";
+      if (ok) { heartSucceeded++; updateEvidence(); }
+      return new Response(JSON.stringify(ok ? { data:{
+        [reaction === "FavoriteTweet" ? "favorite_tweet" : "unfavorite_tweet"]:"Done"
+      } } : { errors:[{ message:"模拟点赞失败" }] }),{ headers:{ "content-type":"application/json" } });
+    }
     if (!/\/i\/api\/graphql\/demo\/Create(?:Note)?Tweet$/.test(String(url))) return originalFetch(url,options);
     requests++;
     updateEvidence();
@@ -165,8 +181,23 @@ export function installComposerDemo({ state,core,addNotification }) {
     editor.focus();
   }
 
-  document.addEventListener("click",event => {
+  document.addEventListener("click",async event => {
     const article = event.target.closest('[data-testid="reply"]')?.closest('article[data-testid="tweet"]');
     if (article) open(article.dataset.demoId);
+    const heart = event.target.closest('[data-testid="like"],[data-testid="unlike"]');
+    if (!heart || heart.disabled) return;
+    const id = heart.closest('article[data-testid="tweet"]').dataset.demoId;
+    const liked = heart.dataset.testid === "unlike";
+    const display = value => {
+      heart.dataset.testid = value ? "unlike" : "like";
+      heart.textContent = value ? "♥ 1" : "♡ 1";
+    };
+    heart.disabled = true;
+    display(!liked);
+    const response = await window.fetch(`/i/api/graphql/demo/${liked ? 'UnfavoriteTweet' : 'FavoriteTweet'}`,{
+      method:"POST",body:JSON.stringify({ variables:{ tweet_id:id } })
+    });
+    if ((await response.json()).errors) display(liked);
+    heart.disabled = false;
   });
 }

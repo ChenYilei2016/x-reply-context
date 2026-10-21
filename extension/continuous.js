@@ -38,6 +38,21 @@
         .filter(article => !article.closest(COMPOSER));
     }
 
+    function nativeHeart(s) {
+      const article = articles(s).find(node => tweetId(node) === s.current.id);
+      return Array.from(article?.querySelectorAll('[data-testid="like"],[data-testid="unlike"]') || [])
+        .find(button => button.closest('article[data-testid="tweet"]') === article);
+    }
+
+    function toggleHeart(s) {
+      if (!currentSession(s) || !["ready","failed"].includes(s.phase)) return;
+      const heart = nativeHeart(s);
+      if (!enabled(heart)) return;
+      // Only this explicit click invokes X's native control; its response uses the existing save path.
+      heart.click();
+      refresh();
+    }
+
     function clearNotice() {
       clearTimeout(noticeTimer);
       notice?.remove();
@@ -288,11 +303,15 @@
         skip.textContent = "跳过";
         skip.title = "只跳过本轮；未发送内容优先保存到 X 草稿，不标记已回复。";
         skip.addEventListener("click",() => closeForNext(s));
+        const heart = document.createElement("button");
+        heart.type = "button";
+        heart.className = "xrc-flow-heart";
+        heart.addEventListener("click",() => toggleHeart(s));
         const send = document.createElement("button");
         send.type = "button";
         send.className = "xrc-flow-send";
         send.addEventListener("click",() => sendNext(s));
-        bar.append(status,skip,send);
+        bar.append(status,heart,skip,send);
       }
       if (nativeToolbar.nextElementSibling !== bar) nativeToolbar.after(bar);
       const busy = draftBusy(s);
@@ -300,6 +319,17 @@
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;
       const canAct = ["ready","failed"].includes(s.phase);
+      const native = nativeHeart(s);
+      const heart = bar.querySelector(".xrc-flow-heart");
+      const liked = native?.getAttribute("data-testid") === "unlike";
+      const heartText = native ? liked ? "♥ 已点" : "♡ 点赞" : "♡ 不可用";
+      if (heart.textContent !== heartText) heart.textContent = heartText;
+      const pressed = String(liked);
+      if (heart.getAttribute("aria-pressed") !== pressed) heart.setAttribute("aria-pressed",pressed);
+      heart.disabled = !canAct || !enabled(native);
+      heart.title = native ?
+        `${liked ? "取消" : "给"}当前正在回复的这条帖子${liked ? "的点赞" : "点赞"}，不影响文字回复或下一条；结果以 X 原生状态为准。` :
+        "当前帖子已移出列表或缺少原生红心控件，请关闭回复框后从列表重新打开。";
       bar.querySelector(".xrc-flow-skip").disabled = !canAct || busy;
       const send = bar.querySelector(".xrc-flow-send");
       const sendText = s.phase === "sent" ? "下一条" : s.phase === "sending" ? "发送中…" : "发送并下一条";
