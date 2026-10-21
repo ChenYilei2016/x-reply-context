@@ -1,4 +1,10 @@
 /* Reserve the slot before X measures a virtual row, even before our labels exist. */
+/* Keep a measurable pixel for X's virtual row observer instead of removing its node. */
+article[data-xrc-home-hidden] {
+  height: 1px !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important;
+  overflow: hidden !important; visibility: hidden !important; pointer-events: none !important;
+}
+article[data-xrc-home-hidden] > * { display: none !important; }
 /* Opening compose deselects every tab; the notification links still identify this column. */
 [data-testid="primaryColumn"]:has(a[role="tab"][href^="/notifications"]) article[data-testid="tweet"]
   :has(> [data-testid="tweetText"]):not([role="link"], [role="link"] *, [role="dialog"] *),

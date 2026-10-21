@@ -17,3 +17,6 @@ a[hidden] { display: none; }
 details { margin-top: 18px; font-size: 12px; }
 summary { cursor: pointer; }
 footer { margin-top: 20px; font-size: 11px; opacity: .65; }
+.home-filter-setting { border: 1px solid #8293a43b; border-radius: 10px; padding: 12px; margin-top: 14px; }
+.home-filter-setting label { display: flex; gap: 8px; align-items: flex-start; font-weight: 650; }
+.home-filter-setting input { margin-top: 4px; accent-color: #087ebd; }

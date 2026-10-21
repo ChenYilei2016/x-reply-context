@@ -15,6 +15,7 @@ core.ingest(state,{ likes:[demoTweets[1].id,demoTweets[8].id].map(id => ({
 })) },"my_account");
 const storageListeners = [];
 const replyWrites = new Map();
+const settings = { hideCompletedHome:false };
 globalThis.chrome = {
   runtime:{
     onMessage:{ addListener() {} },
@@ -39,7 +40,20 @@ globalThis.chrome = {
       return { ok:true };
     }
   },
-  storage:{ onChanged:{ addListener:listener => storageListeners.push(listener) } }
+  storage:{
+    local:{
+      async get(key) { return { [key]:settings[key] }; },
+      async set(values) {
+        const changes = {};
+        for (const [key,newValue] of Object.entries(values)) {
+          changes[key] = { oldValue:settings[key],newValue };
+          settings[key] = newValue;
+        }
+        for (const listener of storageListeners) listener(changes,"local");
+      }
+    },
+    onChanged:{ addListener:listener => storageListeners.push(listener) }
+  }
 };
 
 const timeline = document.querySelector("#timeline");
@@ -91,10 +105,14 @@ if (home) {
 }
 installComposerDemo({ state,core,addNotification });
 await import("/extension/observe.js");
+await import("/extension/home-filter.js");
 await import("/extension/continuous.js");
 const script = document.createElement("script");
 script.src = "/extension/content.js";
 document.body.append(script);
+document.querySelector("#demo-hide-completed").addEventListener("change",event => {
+  void chrome.storage.local.set({ hideCompletedHome:event.target.checked });
+});
 document.querySelector("#simulate").addEventListener("click",event => {
   core.ingest(state,{ tweets:[
     post("2112500000000000014","101","2112500000000000001","2112500000000000013","505","欢迎来交流！")

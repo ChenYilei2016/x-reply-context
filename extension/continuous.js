@@ -35,7 +35,7 @@
     function articles(s) {
       const column = feedColumn(s);
       return Array.from(column?.querySelectorAll('article[data-testid="tweet"]') || [])
-        .filter(article => !article.closest(COMPOSER));
+        .filter(article => !article.closest(COMPOSER) && !article.hasAttribute("data-xrc-home-hidden"));
     }
 
     function nativeHeart(s) {
@@ -113,11 +113,7 @@
     function entryFeed(article) {
       if (article.closest(COMPOSER)) return "";
       if (/^\/notifications(?:\/|$)/.test(location.pathname) && article.closest(columnSelector)) return "notifications";
-      if (!/^\/home\/?$/.test(location.pathname)) return "";
-      const firstTab = article.closest(PRIMARY_COLUMN)?.querySelector('[role="tab"]');
-      // The real home tabs can be DIVs; only the first (For you) tab starts this flow.
-      return firstTab?.getAttribute("aria-selected") === "true" &&
-        !firstTab.getAttribute("href")?.startsWith("/notifications") ? "home" : "";
+      return globalThis.XReplyHomeFilter.column()?.contains(article) ? "home" : "";
     }
 
     function start(article,feed) {

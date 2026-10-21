@@ -9,6 +9,10 @@
   let lastSignature = "";
   const pending = [];
   let continuous;
+  let hideCompletedHome = false;
+  const homeFilter = globalThis.XReplyHomeFilter.create({
+    accountHandle,tweetId,message,holdLayout,enabled:() => hideCompletedHome
+  });
 
   function accountHandle() {
     const profile = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
@@ -133,17 +137,19 @@
     running = true;
     try {
       const account = accountHandle();
-      if (!account) return;
+      if (!account) { homeFilter.reset(); return; }
       if (account !== lastAccount) {
         document.querySelectorAll(".xrc-labels").forEach(node => node.remove());
         lastAccount = account;
         lastSignature = "";
+        homeFilter.reset();
       }
       if (pending.length) {
         const batches = pending.splice(0);
         for (const batch of batches) await message({ type:"INGEST",batch,account });
         lastSignature = "";
       }
+      await homeFilter.refresh();
       // Fixed label slots let counts refresh behind a composer without moving rows.
       if (!/^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout()) {
         document.querySelectorAll(".xrc-labels").forEach(node => node.remove());
@@ -191,7 +197,7 @@
       const saved = data.type === "REPLY_RESULT" && data.status === "sent" &&
         data.account === accountHandle() && data.batch ?
         message({ type:"INGEST",account:data.account,batch:data.batch }) : null;
-      if (saved) void saved.then(() => { lastSignature = ""; schedule(); },
+      if (saved) void saved.then(() => { lastSignature = ""; homeFilter.invalidate(); schedule(); },
         error => console.warn("回过了：",error.message));
       void continuous?.receiveReply(data,saved);
       return;
@@ -204,8 +210,17 @@
     if (request?.type === "GET_ACCOUNT") respond({ account:accountHandle() });
   });
   chrome.storage.onChanged.addListener((changes,area) => {
-    if (area === "local" && changes.replyContext) { lastSignature = ""; schedule(); }
+    if (area !== "local") return;
+    if (changes.replyContext) { lastSignature = ""; homeFilter.invalidate(); schedule(); }
+    if (changes.hideCompletedHome) {
+      hideCompletedHome = changes.hideCompletedHome.newValue === true;
+      homeFilter.invalidate(); schedule();
+    }
   });
+  void chrome.storage.local.get("hideCompletedHome").then(saved => {
+    hideCompletedHome = saved.hideCompletedHome === true;
+    homeFilter.invalidate(); schedule();
+  },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
     if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice"))) schedule();
   });
