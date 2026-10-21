@@ -15,6 +15,7 @@ export async function checkNotificationFilter(arrive) {
   };
   const toggle = () => document.querySelector(".xrc-notification-filter");
   const hidden = () => document.querySelectorAll('[data-xrc-notification-hidden]');
+  const arrange = () => document.querySelector('.xrc-filter-apply');
   const card = id => document.querySelector(`[data-demo-id="${id}"]`);
   output.dataset.result = "running";
   try {
@@ -36,8 +37,11 @@ export async function checkNotificationFilter(arrive) {
       document.querySelector('[data-testid="notification"]').getBoundingClientRect().height > 1);
     check("按钮切换不新增标题行高度",document.querySelector(".demo-title").getBoundingClientRect().height === headerHeight);
     arrive();
+    await wait(() => arrange() && !arrange().hidden);
+    check("阅读区域的新通知先保留，等待手动整理",!card("2112500000000070001").hasAttribute("data-xrc-notification-hidden"));
+    arrange().click();
     await wait(() => hidden().length === 2);
-    check("新消息沿用同原帖同人的已确认状态",card("2112500000000070001").hasAttribute("data-xrc-notification-hidden"));
+    check("手动整理沿用同原帖同人的已确认状态",card("2112500000000070001").hasAttribute("data-xrc-notification-hidden"));
     document.querySelector("#demo-hide-completed").click();
     await new Promise(resolve => setTimeout(resolve,350));
     check("主页开关与通知筛选独立",hidden().length === 2 && toggle().getAttribute("aria-pressed") === "true");
@@ -48,8 +52,11 @@ export async function checkNotificationFilter(arrive) {
     await wait(() => document.querySelector("#composer-evidence").dataset.likeRecords?.includes('"id":"2112500000000000013"'));
     check("回复框打开时不隐藏当前评论",!card("2112500000000000013").hasAttribute("data-xrc-notification-hidden"));
     document.querySelector('[data-testid="app-bar-close"]').click();
+    await wait(() => arrange() && !arrange().hidden);
+    check("关闭回复框不自动收起当前评论",!card("2112500000000000013").hasAttribute("data-xrc-notification-hidden"));
+    arrange().click();
     await wait(() => hidden().length === 3);
-    check("关闭回复框后应用已保存的两项状态",card("2112500000000000013").hasAttribute("data-xrc-notification-hidden"));
+    check("手动整理后应用已保存的两项状态",card("2112500000000000013").hasAttribute("data-xrc-notification-hidden"));
     toggle().click();
     await wait(() => hidden().length === 0);
     check("关闭筛选恢复全部卡片，保留已回和红心标签",

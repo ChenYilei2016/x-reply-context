@@ -7,6 +7,7 @@
   let again = false;
   let lastAccount = "";
   let lastSignature = "";
+  let annotationRevision = 0;
   const pending = [];
   let continuous;
   let hideCompletedHome = false;
@@ -17,7 +18,7 @@
     accountHandle,tweetId,message,holdLayout,enabled:() => hideCompletedHome
   });
   const notificationFilter = globalThis.XReplyNotificationFilter.create({
-    accountHandle,tweetId,message,holdLayout,columnSelector:NOTIFICATION_COLUMN,
+    accountHandle,tweetId,message,holdLayout,schedule,columnSelector:NOTIFICATION_COLUMN,
     enabled:() => hideCompletedNotifications,ready:() => notificationSettingLoaded,
     save:async value => {
       await chrome.storage.local.set({ hideCompletedNotifications:value });
@@ -54,6 +55,8 @@
     if (timer) return;
     timer = setTimeout(() => { timer = undefined; void refresh(); },250);
   }
+
+  function invalidateAnnotations() { lastSignature = ""; annotationRevision++; }
 
   async function message(payload) {
     const reply = await chrome.runtime.sendMessage(payload);
@@ -153,14 +156,14 @@
       if (account !== lastAccount) {
         document.querySelectorAll(".xrc-labels").forEach(node => node.remove());
         lastAccount = account;
-        lastSignature = "";
+        invalidateAnnotations();
         homeFilter.reset();
         notificationFilter.reset();
       }
       if (pending.length) {
         const batches = pending.splice(0);
         for (const batch of batches) await message({ type:"INGEST",batch,account });
-        lastSignature = "";
+        invalidateAnnotations();
       }
       await homeFilter.refresh();
       await notificationFilter.refresh();
@@ -173,17 +176,22 @@
       const column = document.querySelector(NOTIFICATION_COLUMN);
       if (!column) return;
       const articles = Array.from(column?.querySelectorAll('article[data-testid="tweet"]') || [])
-        .filter(article => !article.closest('[role="dialog"],[aria-modal="true"]')).slice(0,100);
+        .filter(article => !article.closest('[role="dialog"],[aria-modal="true"]'));
       const ids = articles.map(tweetId);
       const signature = account + ":" + ids.join(",");
       const annotationsPresent = articles.every((article,index) => !ids[index] ||
         (article.dataset.xrcId === ids[index] &&
          (["self","not-reply"].includes(article.dataset.xrcStatus) || article.querySelector(".xrc-labels"))));
       if (signature === lastSignature && annotationsPresent) return;
-      const result = await message({ type:"CLASSIFY",account,ids:ids.filter(Boolean) });
-      if (accountHandle() !== account || document.querySelector(NOTIFICATION_COLUMN) !== column ||
-          (!/^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout())) return;
-      const byId = new Map(result.rows.map(row => [row.id,row]));
+      const observedRevision = annotationRevision;
+      const byId = new Map();
+      for (let offset = 0; offset < ids.length; offset += 100) {
+        const result = await message({ type:"CLASSIFY",account,ids:ids.slice(offset,offset+100).filter(Boolean) });
+        if (observedRevision !== annotationRevision) { again = true; return; }
+        if (accountHandle() !== account || document.querySelector(NOTIFICATION_COLUMN) !== column ||
+            (!/^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout())) return;
+        for (const row of result.rows) byId.set(row.id,row);
+      }
       for (const article of articles) {
         const row = byId.get(tweetId(article));
         if (article.isConnected && row) render(article,row);
@@ -212,7 +220,7 @@
         data.account === accountHandle() && data.batch ?
         message({ type:"INGEST",account:data.account,batch:data.batch }) : null;
       if (saved) void saved.then(() => {
-        lastSignature = ""; homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
+        invalidateAnnotations(); homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
       },
         error => console.warn("回过了：",error.message));
       void continuous?.receiveReply(data,saved);
@@ -228,7 +236,7 @@
   chrome.storage.onChanged.addListener((changes,area) => {
     if (area !== "local") return;
     if (changes.replyContext) {
-      lastSignature = ""; homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
+      invalidateAnnotations(); homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
     }
     if (changes.hideCompletedHome) {
       hideCompletedHome = changes.hideCompletedHome.newValue === true;
@@ -249,10 +257,12 @@
     homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
-    if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-filter"))) schedule();
+    if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-filter,.xrc-filter-apply"))) {
+      homeFilter.syncKnown(); notificationFilter.syncKnown(); schedule();
+    }
   });
   observer.observe(document,{ childList:true,subtree:true,attributes:true,
-    attributeFilter:["aria-selected","data-testid","aria-disabled","disabled"] });
+    attributeFilter:["aria-selected","data-testid","aria-disabled","disabled","href"] });
   window.addEventListener("popstate",schedule);
   document.addEventListener("visibilitychange",() => { if (!document.hidden) schedule(); });
   window.postMessage({ channel:CHANNEL,type:"READY" },location.origin);

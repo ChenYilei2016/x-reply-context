@@ -5,15 +5,17 @@ article[data-xrc-home-hidden],article[data-xrc-notification-hidden] {
   overflow: hidden !important; visibility: hidden !important; pointer-events: none !important;
 }
 article[data-xrc-home-hidden] > *,article[data-xrc-notification-hidden] > * { display: none !important; }
-.xrc-notification-filter {
+.xrc-notification-filter,.xrc-filter-apply {
   width: 112px; height: 30px; box-sizing: border-box; flex-shrink: 0; margin-right: 8px;
   padding: 3px 6px; border: 1px solid #8293a470; border-radius: 16px;
   background: transparent; color: inherit; font: 12px/1.5 system-ui,sans-serif;
   white-space: nowrap; cursor: pointer;
 }
 .xrc-notification-filter[aria-pressed="true"] { color: #087ebd; border-color: #087ebd; background: #1d9bf01a; }
-.xrc-notification-filter:disabled { opacity: .5; cursor: default; }
-.xrc-notification-filter:focus-visible { outline: 2px solid #1d9bf0; outline-offset: 2px; }
+.xrc-notification-filter:disabled,.xrc-filter-apply:disabled { opacity: .5; cursor: default; }
+.xrc-notification-filter:focus-visible,.xrc-filter-apply:focus-visible { outline: 2px solid #1d9bf0; outline-offset: 2px; }
+.xrc-filter-apply { width: 104px; color: #087ebd; border-color: #087ebd; }
+.xrc-filter-apply[hidden] { display: none; }
 /* Opening compose deselects every tab; the notification links still identify this column. */
 [data-testid="primaryColumn"]:has(a[role="tab"][href^="/notifications"]) article[data-testid="tweet"]
   :has(> [data-testid="tweetText"]):not([role="link"], [role="link"] *, [role="dialog"] *),

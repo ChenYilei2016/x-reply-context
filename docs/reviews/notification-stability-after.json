@@ -1,0 +1,85 @@
+{
+  "cases": [
+    {
+      "operation": "TweetDetail",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true
+    },
+    {
+      "operation": "TweetDetail",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true
+    },
+    {
+      "operation": "TweetResultByRestId",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true
+    },
+    {
+      "operation": "TweetResultByRestId",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true
+    },
+    {
+      "operation": "NotificationsTimeline",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true
+    },
+    {
+      "operation": "NotificationsTimeline",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true
+    },
+    {
+      "operation": "HomeTimeline",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true
+    },
+    {
+      "operation": "HomeTimeline",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true
+    }
+  ],
+  "stable": true
+}

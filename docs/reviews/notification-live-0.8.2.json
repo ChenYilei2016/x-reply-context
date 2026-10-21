@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-21",
+  "versionMarker": "0.8.2 stable-reading controls",
+  "completedEmptyComposer": {
+    "before": {
+      "scrollY": 861,
+      "top": 251
+    },
+    "after": {
+      "scrollY": 861,
+      "top": 251
+    }
+  },
+  "unknownEmptyComposer": {
+    "before": {
+      "height": 177,
+      "scrollY": 0,
+      "top": 107
+    },
+    "after": {
+      "scrollY": 0,
+      "top": 107,
+      "height": 177,
+      "hidden": false,
+      "status": "文字-待确认"
+    }
+  },
+  "fastScroll": {
+    "observationMs": 10734,
+    "beforeScrollY": 2660,
+    "afterScrollY": 2660,
+    "beforeTop": 720,
+    "afterTop": 720,
+    "invalidHiddenMarkers": 0
+  },
+  "arrange": {
+    "pendingHidden": true,
+    "unknownRemainsVisible": true,
+    "allCompletedHidden": true,
+    "incompleteRemainVisible": true
+  },
+  "caveat": "First composer open shifted the entire page by 127px without changing card heights; not reproduced in subsequent completed/unknown composer checks. Cause not isolated.",
+  "publicWritesPerformed": 0
+}

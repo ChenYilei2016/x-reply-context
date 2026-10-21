@@ -1,0 +1,269 @@
+{
+  "cases": [
+    {
+      "operation": "TweetDetail",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "TweetDetail",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "TweetResultByRestId",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "TweetResultByRestId",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "NotificationsTimeline",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "NotificationsTimeline",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "HomeTimeline",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "HomeTimeline",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "HomeLatestTimeline",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "HomeLatestTimeline",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "UserRepliesTimeline",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "UserRepliesTimeline",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "REST-all",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "REST-all",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "REST-mentions",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "REST-mentions",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "REST-verified",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "REST-verified",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "CreateTweet",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 1,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "CreateTweet",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 1,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "CreateNoteTweet",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 1,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "CreateNoteTweet",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "replied",
+      "evidence": "2112500000000099999",
+      "createRequests": 1,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "TweetDetail-no-history",
+      "transport": "fetch",
+      "before": "unknown",
+      "after": "unknown",
+      "evidence": "",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    },
+    {
+      "operation": "TweetDetail-no-history",
+      "transport": "xhr",
+      "before": "unknown",
+      "after": "unknown",
+      "evidence": "",
+      "createRequests": 0,
+      "hiddenAfterEmptyClose": false,
+      "stable": true,
+      "correctlyRecorded": true
+    }
+  ],
+  "stable": true
+}

@@ -3,6 +3,7 @@ import { checkLayout } from "./layout-check.mjs";
 import { checkHeights } from "./height-check.mjs";
 import { checkHearts } from "./heart-check.mjs";
 import { checkNotificationFilter } from "./notification-filter-check.mjs";
+import { checkNotificationStability } from "./notification-stability-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
@@ -17,6 +18,8 @@ core.ingest(state,{ likes:[demoTweets[1].id,demoTweets[8].id].map(id => ({
 const storageListeners = [];
 const replyWrites = new Map();
 const settings = { hideCompletedHome:false,hideCompletedNotifications:false };
+let pauseClassification = false;
+let releaseClassification;
 globalThis.chrome = {
   runtime:{
     onMessage:{ addListener() {} },
@@ -33,11 +36,18 @@ globalThis.chrome = {
         for (const listener of storageListeners) listener({ replyContext:{} },"local");
         return { ok:true };
       }
-      if (message.type === "CLASSIFY") return {
-        ok:true,rows:message.ids.map(id => core.classify(state,message.account,id)),
-        replyCount:Object.keys(state.replies).length,
-        likeCount:Object.values(state.likes).filter(like => like.liked).length
-      };
+      if (message.type === "CLASSIFY") {
+        const snapshot = {
+          ok:true,rows:message.ids.map(id => core.classify(state,message.account,id)),
+          replyCount:Object.keys(state.replies).length,
+          likeCount:Object.values(state.likes).filter(like => like.liked).length
+        };
+        if (pauseClassification) {
+          pauseClassification = false;
+          await new Promise(resolve => { releaseClassification = resolve; });
+        }
+        return snapshot;
+      }
       return { ok:true };
     }
   },
@@ -79,6 +89,7 @@ function addNotification(tweet,prepend = false) {
       <div class="actions-shell"><div role="group" class="actions"><button type="button" data-testid="reply" aria-label="回复 ${author.handle}">回复</button><button type="button" data-testid="${state.likes[`101:${tweet.id}`]?.liked ? 'unlike' : 'like'}" aria-label="红心 ${author.handle}">${state.likes[`101:${tweet.id}`]?.liked ? '♥' : '♡'} 1</button><span>↗</span><span>▥ 12</span></div></div>
     </div>`;
   if (prepend) timeline.prepend(article); else timeline.append(article);
+  return article;
 }
 if (home) {
   document.querySelector("h1").textContent = "主页";
@@ -183,6 +194,30 @@ document.querySelector("#check-notification-filter").addEventListener("click",as
     core.ingest(state,{ tweets:[incoming] },"my_account");
     addNotification(incoming,true);
     for (const listener of storageListeners) listener({ replyContext:{} },"local");
+  });
+  event.target.disabled = false;
+});
+let diagnosticSequence = 0;
+const notifyDiagnosticChange = () => storageListeners.forEach(listener => listener({ replyContext:{} },"local"));
+document.querySelector("#check-stability").addEventListener("click",async event => {
+  event.target.disabled = true;
+  await checkNotificationStability({
+    pauseLabels() { pauseClassification = true; notifyDiagnosticChange(); },
+    paused:() => Boolean(releaseClassification),
+    releaseLabels() { releaseClassification?.(); releaseClassification = undefined; },
+    lateReply(id) {
+      const target = state.tweets[id];
+      core.ingest(state,{ tweets:[post(String(2112500000000800000n+BigInt(++diagnosticSequence)),"101",
+        target.conversationId,id,target.authorId,"稍晚读取到的历史回复，并非当前发送")] },"my_account");
+      notifyDiagnosticChange();
+    },
+    burst(count) {
+      const tweets = Array.from({ length:count },(_,i) => post(String(2112500000000810000n+BigInt(i)),"202",
+        demoTweets[0].id,demoTweets[2].id,"101",`新增的已完成对话通知 ${i+1}`));
+      core.ingest(state,{ tweets },"my_account");
+      const rows = tweets.map(tweet => addNotification(tweet,true));
+      notifyDiagnosticChange(); return rows;
+    }
   });
   event.target.disabled = false;
 });
