@@ -1,0 +1,22 @@
+{
+  "before": {
+    "gap": 6,
+    "height": 157,
+    "padding": "36px"
+  },
+  "after": {
+    "allTabsDeselected": true,
+    "editorEmpty": true,
+    "gap": 6,
+    "height": 157,
+    "insideNativeFooter": true,
+    "padding": "36px",
+    "status": "本批 1/1 · 后续略过已回复；新消息留到下一批。\n跳过\n发送并下一条"
+  },
+  "closed": {
+    "composerCount": 0,
+    "gap": 6,
+    "height": 157,
+    "padding": "36px"
+  }
+}

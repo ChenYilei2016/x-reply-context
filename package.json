@@ -1,0 +1,12 @@
+{
+  "name": "x-reply-context",
+  "version": "0.4.1",
+  "private": true,
+  "type": "module",
+  "description": "在 X 通知里识别原帖归属和已经回应的对话",
+  "scripts": {
+    "test": "node --test tests/core.test.mjs",
+    "preview": "node scripts/preview.mjs",
+    "package": "node scripts/package.mjs"
+  }
+}

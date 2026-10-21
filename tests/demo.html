@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>回过了 · 通知效果演示</title>
+<link rel="stylesheet" href="/extension/content.css">
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,sans-serif; color:#182b36; background:#f5f7f8; }
+  .shell { display:grid; grid-template-columns:190px minmax(380px,620px) 250px; max-width:1120px; margin:35px auto; gap:22px; padding:0 15px; }
+  nav { display:flex; flex-direction:column; gap:24px; padding:20px 12px; font-size:19px; }
+  nav strong { font-size:28px; }
+  nav a { color:inherit; text-decoration:none; font-size:13px; }
+  main { border:1px solid #e1e7eb; border-radius:16px; background:white; overflow:hidden; }
+  h1 { font-size:21px; margin:0; padding:18px 20px 10px; }
+  .tabs { display:flex; justify-content:space-around; padding:12px; border-bottom:1px solid #e1e7eb; font-size:14px; }
+  .tabs a { color:inherit; text-decoration:none; }
+  .tabs [aria-selected="true"] { color:#087ebd; font-weight:700; }
+  article { display:flex; gap:12px; padding:20px 18px; border-bottom:1px solid #e8edf0; }
+  .avatar { display:grid; place-items:center; height:39px; width:39px; flex:none; border-radius:50%; background:#d9e9ee; color:#2b6475; font-weight:700; }
+  .body { flex:1; min-width:0; }
+  .user { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .user a { color:inherit; text-decoration:none; }
+  .muted,time { color:#6b7982; font-size:13px; }
+  .replying { color:#6b7982; font-size:13px; margin:4px 0; }
+  .replying a { color:#1d9bf0; text-decoration:none; }
+  [data-testid="tweetText"] { margin:5px 0 12px; }
+  .actions { display:flex; gap:48px; color:#7b8c96; font-size:13px; }
+  .aside { padding:10px 4px; }
+  .aside h2 { font-size:18px; margin:4px 0 15px; }
+  .aside p { font-size:13px; line-height:1.85; color:#5d707c; }
+  .aside button { display:block; margin:10px 0; padding:9px 14px; border:1px solid #bbd2c8; background:#edf7f1; color:#235944; border-radius:20px; cursor:pointer; }
+  .demo-note { color:#8a6c2d; background:#fff6df; padding:10px 15px; font-size:12px; }
+  .demo-dialog { position:fixed; z-index:10; top:20%; left:50%; transform:translateX(-50%); width:580px; max-width:90vw; padding:20px; border-radius:16px; background:white; box-shadow:0 0 0 100vmax #0005; }
+  .demo-dialog h2 { margin:0; font-size:18px; }
+  #layout-status,#height-status { white-space:pre-wrap; }
+  .actions button { border:0; padding:0; background:none; color:#087ebd; font:inherit; cursor:pointer; }
+  .demo-composer,.demo-save-sheet { position:fixed; z-index:20; top:12%; left:50%; transform:translateX(-50%); width:600px; max-width:90vw; max-height:80vh; overflow:auto; padding:20px; border-radius:16px; background:white; box-shadow:0 0 0 100vmax #0005; }
+  .demo-composer [contenteditable] { min-height:140px; border:1px solid #b5c4cd; border-radius:6px; padding:12px; outline:none; white-space:pre-wrap; }
+  .demo-composer > button,.demo-save-sheet button { margin:6px; padding:7px 14px; border:1px solid #9baeb9; border-radius:18px; background:white; cursor:pointer; }
+  .demo-save-sheet { z-index:30; top:25%; width:360px; }
+  .demo-composer > [data-testid="tweetButton"] { color:white; background:#087ebd; }
+  .demo-composer button:disabled { opacity:.45; }
+  #reply-result-mode { max-width:100%; }
+  @media(max-width:900px) { .shell { grid-template-columns:minmax(300px,620px); justify-content:center; } nav,.aside{ display:none; } }
+</style>
+<body>
+  <div class="shell">
+    <nav><strong>𝕏</strong><span>⌂　主页</span><span>⌕　探索</span><b>♧　通知</b><span>✉　聊天</span><a data-testid="AppTabBar_Profile_Link" href="/my_account">◯　@my_account</a></nav>
+    <main data-testid="primaryColumn">
+      <div class="demo-note">本地效果演示 · 虚构对话数据 · 未连接 X 账号</div>
+      <h1>通知</h1><div class="tabs"><a href="/notifications" role="tab" aria-selected="true">全部</a><span>优先</span><span>提及</span></div>
+      <section role="region" aria-label="时间线：通知" id="timeline"></section>
+    </main>
+    <aside class="aside">
+      <h2>互动过几篇，一眼看清。</h2>
+      <p>蓝色“我原帖”，紫色“别人原帖”。我评他 / 他评我，分别统计评论对方的原帖数，同一篇只算 1。</p>
+      <p>NEW：他首次评论我的原帖，且我评他为 0。点赞或在自己帖下回他不影响标记。</p>
+      <p>通知页仅保留每条标签；总览、补历史和完整口径都在扩展弹窗中。</p>
+      <p>原帖内的回复、红心仍单独判断；不主动补抓历史。</p>
+      <button id="simulate">演示：回复新来访</button>
+      <button id="simulate-heart">演示：给 Bob 点红心</button>
+      <p id="simulation-status" role="status"></p>
+      <button id="check-layout">检查：弹窗与列表稳定性</button>
+      <p id="layout-status" role="status"></p>
+      <button id="check-heights">检查：新消息与行高</button>
+      <p id="height-status" role="status"></p>
+      <label>模拟发送结果 <select id="reply-result-mode"><option value="success">成功</option><option value="failed">失败</option><option value="delayed">延迟成功</option><option value="new-message">成功时到达新通知</option><option value="wrong-target">回执目标不匹配</option><option value="typing">XReply 逐字填入</option></select></label>
+      <p id="composer-evidence" role="status"></p>
+    </aside>
+  </div>
+  <script src="/extension/core.js"></script>
+  <script type="module" src="/tests/demo.mjs"></script>
+</body>
+</html>

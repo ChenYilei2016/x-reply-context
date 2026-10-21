@@ -1,0 +1,1 @@
+[{"name":"新通知补入标签时不改变初次测量高度","before":146,"after":181.2,"ok":false},{"name":"新通知的标签不再二次推动下面的旧通知","before":506.7,"after":541.89,"ok":false},{"name":"窄卡片回复和点赞后 NEW 不换行改变高度","before":211.39,"after":181.2,"ok":false},{"name":"卡片重绘移除标签的一瞬间不收缩","before":181.2,"after":146,"ok":false},{"name":"恢复标签后高度保持","before":181.2,"after":181.2,"ok":true}]

@@ -1,0 +1,58 @@
+/* Reserve the slot before X measures a virtual row, even before our labels exist. */
+/* Opening compose deselects every tab; the notification links still identify this column. */
+[data-testid="primaryColumn"]:has(a[role="tab"][href^="/notifications"]) article[data-testid="tweet"]
+  :has(> [data-testid="tweetText"]):not([role="link"], [role="link"] *, [role="dialog"] *),
+[data-testid="primaryColumn"]:has(a[role="tab"][href^="/notifications"]) article[data-testid="tweet"]:not(:has([data-testid="tweetText"]:not([role="link"] *)))
+  :has(> [role="group"]):not([role="link"], [role="link"] *, [role="dialog"] *) {
+  position: relative; padding-block-start: 36px;
+}
+.xrc-labels {
+  position: absolute; inset: 4px 0 auto; height: 26px; box-sizing: border-box;
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 5px;
+  margin: 0; font: 12px/1.6 system-ui,sans-serif; color: inherit; max-width: 100%;
+}
+.xrc-main-labels {
+  display: flex; flex: 0 1 auto; flex-wrap: nowrap; align-items: center; gap: 5px; min-width: 0;
+  height: 26px; max-width: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+}
+.xrc-main-labels::-webkit-scrollbar { display: none; }
+.xrc-main-labels > *, .xrc-new-person { flex-shrink: 0; white-space: nowrap; }
+.xrc-labels .xrc-origin, .xrc-labels .xrc-status, .xrc-labels .xrc-heart, .xrc-labels .xrc-person {
+  padding: 2px 6px; border: 1px solid #8293a43b; border-radius: 5px;
+  background: #8293a410; white-space: nowrap;
+}
+.xrc-labels .xrc-origin { font-weight: 750; }
+.xrc-labels[data-origin="mine"] .xrc-origin { color: #fff; background: #0969da; border-color: #0969da; }
+.xrc-labels[data-origin="others"] .xrc-origin { color: #fff; background: #7540b5; border-color: #7540b5; }
+.xrc-labels .xrc-person { font-variant-numeric: tabular-nums; }
+.xrc-labels .xrc-new-person {
+  color: #552d00; background: #ffdb69; border: 1px solid #b86d00;
+  border-radius: 12px; padding: 2px 7px; font-weight: 800; white-space: nowrap;
+}
+.xrc-labels .xrc-status[data-confirmed="true"] {
+  background: #00a2671c; border-color: #00a26770; font-weight: 650;
+}
+.xrc-labels .xrc-heart[data-confirmed="true"] {
+  background: #f9188014; border-color: #f9188066; font-weight: 650;
+}
+.xrc-labels a.xrc-status, .xrc-labels a.xrc-heart { color: inherit; }
+.xrc-labels a { color: #1d9bf0; text-decoration: none; }
+.xrc-labels a:hover { text-decoration: underline; }
+.xrc-labels a:focus-visible { outline: 2px solid #1d9bf0; outline-offset: 3px; }
+.xrc-continuous {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0; align-self: stretch;
+  padding: 10px 16px; border-top: 1px solid #8293a43b; font: 12px/1.5 system-ui,sans-serif;
+}
+.xrc-flow-status { flex: 1; min-width: 0; }
+.xrc-continuous button,.xrc-flow-notice button {
+  flex-shrink: 0; border: 1px solid #8293a470; border-radius: 18px; padding: 7px 12px;
+  font: inherit; font-weight: 650; cursor: pointer; color: inherit; background: transparent;
+}
+.xrc-continuous .xrc-flow-send { color: white; background: #087ebd; border-color: #087ebd; }
+.xrc-continuous button:disabled { opacity: .45; cursor: default; }
+.xrc-flow-notice {
+  position: fixed; z-index: 2147483647; bottom: 24px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; max-width: min(90vw,640px); padding: 12px 16px;
+  border-radius: 12px; color: white; background: #183443; box-shadow: 0 4px 20px #0003;
+  font: 13px/1.5 system-ui,sans-serif;
+}
