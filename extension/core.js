@@ -45,7 +45,8 @@
       if (!legacy.retweeted_status && !legacy.retweeted_status_result) {
         const embedded = node.core?.user_results?.result;
         const parent = node.referenced_tweets?.find?.(reference => reference.type === "replied_to");
-        const hasBody = typeof legacy.full_text === "string" || typeof node.text === "string";
+        const noteText = node.note_tweet?.note_tweet_results?.result?.text;
+        const hasBody = typeof legacy.full_text === "string" || typeof node.text === "string" || typeof noteText === "string";
         if (hasBody) {
           const tweet = cleanTweet({
             id: node.rest_id || legacy.id_str || node.id,
@@ -53,7 +54,7 @@
             parentId: legacy.in_reply_to_status_id_str || parent?.id,
             recipientId: legacy.in_reply_to_user_id_str || node.in_reply_to_user_id,
             conversationId: legacy.conversation_id_str || node.conversation_id,
-            text: legacy.full_text || node.text
+            text: noteText || legacy.full_text || node.text
           });
           if (tweet) {
             // An explicit non-reply is its own root; never infer this for a partial object.
@@ -131,6 +132,13 @@
         };
       }
     }
+  }
+
+  function commentOnRoot(state, actorId, rootId) {
+    return Object.values(state.replies).find(reply =>
+      reply.actorId === actorId && reply.conversationId === rootId) ||
+      Object.values(state.tweets).find(tweet => tweet.authorId === actorId &&
+        tweet.parentId && conversationOf(state,tweet) === rootId);
   }
 
   function retainRecords(records, now) {
@@ -259,18 +267,20 @@
     const directLike = me && state.likes?.[`${me.id}:${result.id}`];
     if (directLike?.liked) result.likeEvidenceId = directLike.id;
     if (!tweet) return result;
-    if (!tweet.parentId && tweet.conversationId === tweet.id) return { ...result, status: "not-reply" };
-    if (me && tweet.authorId === me.id) return { ...result, status: "self" };
+    const original = !tweet.parentId && tweet.conversationId === tweet.id;
+    if (!original && me && tweet.authorId === me.id) return { ...result, status: "self" };
     const rootId = conversationOf(state, tweet);
     const rootAuthorId = state.roots[rootId]?.authorId;
     const origin = rootAuthorId && me ? (rootAuthorId === me.id ? "mine" : "others") : "unknown";
-    const evidence = me && rootId ? state.replies[`${me.id}:${rootId}:${tweet.authorId}`] : null;
+    const evidence = me && rootId ?
+      state.replies[`${me.id}:${rootId}:${tweet.authorId}`] ||
+        (original ? commentOnRoot(state,me.id,rootId) : null) : null;
     const like = me && rootId ? Object.values(state.likes || {}).find(item =>
       item.liked && item.actorId === me.id && item.conversationId === rootId &&
       item.recipientId === tweet.authorId) : null;
     const person = me ? state.people?.[`${me.id}:${tweet.authorId}`] : null;
     return {
-      ...result, origin, rootId, status: evidence ? "replied" : "unknown",
+      ...result, origin, rootId, status: original ? "not-reply" : evidence ? "replied" : "unknown",
       rootHandle: state.users[rootAuthorId]?.handle || "",
       evidenceId: evidence?.id || "", evidenceText: evidence?.text || "",
       likeEvidenceId: result.likeEvidenceId || like?.id || "",

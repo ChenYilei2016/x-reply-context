@@ -209,7 +209,7 @@
   const observer = new MutationObserver(records => {
     if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice"))) schedule();
   });
-  observer.observe(document,{ childList:true,subtree:true });
+  observer.observe(document,{ childList:true,subtree:true,attributes:true,attributeFilter:["aria-selected"] });
   window.addEventListener("popstate",schedule);
   document.addEventListener("visibilitychange",() => { if (!document.hidden) schedule(); });
   window.postMessage({ channel:CHANNEL,type:"READY" },location.origin);

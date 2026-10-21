@@ -3,6 +3,7 @@
   const core = globalThis.XReplyContext;
   const CHANNEL = "x-reply-context-v1";
   const MAX_BYTES = 8 * 1024 * 1024;
+  const REPLY_RESULTS = { CreateTweet:"create_tweet",CreateNoteTweet:"notetweet_create" };
   const pendingUsers = new Map();
   const pendingTweets = new Map();
   const pendingLikes = new Map();
@@ -16,7 +17,7 @@
       const url = new URL(value, location.href);
       if (url.origin !== location.origin) return "";
       if (/^\/i\/api\/2\/notifications\/(?:all|mentions|verified)\.json$/.test(url.pathname)) return "Notifications";
-      return url.pathname.match(/^\/i\/api\/graphql\/[\w-]+\/(TweetDetail|TweetResultByRestId|TweetResultsByRestIds|UserTweets|UserTweetsAndReplies|UserRepliesTimeline|UserByScreenName|HomeTimeline|HomeLatestTimeline|NotificationsTimeline|SearchTimeline|CreateTweet|Likes|FavoriteTweet|UnfavoriteTweet)$/)?.[1] || "";
+      return url.pathname.match(/^\/i\/api\/graphql\/[\w-]+\/(TweetDetail|TweetResultByRestId|TweetResultsByRestIds|UserTweets|UserTweetsAndReplies|UserRepliesTimeline|UserByScreenName|HomeTimeline|HomeLatestTimeline|NotificationsTimeline|SearchTimeline|CreateTweet|CreateNoteTweet|Likes|FavoriteTweet|UnfavoriteTweet)$/)?.[1] || "";
     } catch { return ""; }
   }
 
@@ -67,7 +68,7 @@
   }
 
   function watchReply(context,body) {
-    if (context.operation !== "CreateTweet") return;
+    if (!REPLY_RESULTS[context.operation]) return;
     context.requestId = `${context.observedAt}:${++replySequence}`;
     // Keep only the reply target, never the outgoing draft or media payload.
     context.replyParent = Promise.resolve(body).then(replyParentId,() => "");
@@ -80,13 +81,13 @@
   }
 
   async function replyResult(context,status,payload) {
-    if (context.operation !== "CreateTweet" || context.replyFinished) return;
+    if (!REPLY_RESULTS[context.operation] || context.replyFinished) return;
     context.replyFinished = true;
     const parentId = await context.replyParent;
     if (!parentId || !context.account || context.account !== currentAccount()) return;
     let batch;
     if (payload) {
-      const result = payload.data?.create_tweet?.tweet_results?.result;
+      const result = payload.data?.[REPLY_RESULTS[context.operation]]?.tweet_results?.result;
       const parsed = core.extract(payload);
       const createdId = core.id(result?.rest_id || result?.tweet?.rest_id || result?.legacy?.id_str);
       const tweet = parsed.tweets.find(item => item.id === createdId && item.parentId === parentId);
@@ -122,7 +123,7 @@
 
   async function accept(payload,context) {
     try {
-      if (context.operation === "CreateTweet") {
+      if (REPLY_RESULTS[context.operation]) {
         const sent = await replyResult(context,"unknown",payload);
         // Validated replies use one immediate save path, including native replies.
         if (sent || payload.errors?.length) return;
@@ -214,7 +215,7 @@
         catch { context.tweetId = ""; }
       }
     }
-    if (context?.operation === "CreateTweet") {
+    if (context && REPLY_RESULTS[context.operation]) {
       const body = args[1]?.body !== undefined ? args[1].body :
         typeof Request !== "undefined" && request instanceof Request ? replyBody(request) : "";
       watchReply(context,body);

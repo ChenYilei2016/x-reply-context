@@ -1,0 +1,8 @@
+{
+  "scenario": "failed reply stops; skip saves draft and advances",
+  "evidence": {
+    "drafts": "[{\"id\":\"2112500000000050001\",\"text\":\"本地模拟：失败保留草稿\"}]",
+    "requests": "1",
+    "sent": "0"
+  }
+}

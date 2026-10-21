@@ -1,0 +1,8 @@
+{
+  "version": "0.5.0",
+  "scenario": "real X For you: native reply entry, skip opens next loaded card; no real send",
+  "backgroundLabels": 0,
+  "editorText": "\n",
+  "path": "/compose/post",
+  "toolbar": "主页 · 已处理 1 条 · 从当前页选择，略过已回复。\n跳过\n发送并下一条"
+}

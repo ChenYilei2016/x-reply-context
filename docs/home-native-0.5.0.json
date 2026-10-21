@@ -1,0 +1,10 @@
+{
+  "scenario": "local Following native reply, no continuous toolbar",
+  "evidence": {
+    "drafts": "[]",
+    "homeRecords": "[{\"id\":\"2112500000000000001\",\"origin\":\"mine\",\"status\":\"not-reply\",\"rootId\":\"2112500000000000001\",\"evidenceId\":\"2112500000000000003\",\"likeEvidenceId\":\"\",\"personStats\":{\"myCommentedPosts\":0,\"theirCommentedPosts\":0},\"newPerson\":false,\"rootHandle\":\"my_account\",\"evidenceText\":\"谢谢，欢迎交流！\"},{\"id\":\"2112500000000000006\",\"origin\":\"others\",\"status\":\"not-reply\",\"rootId\":\"2112500000000000006\",\"evidenceId\":\"2112500000000000007\",\"likeEvidenceId\":\"\",\"personStats\":{\"myCommentedPosts\":1,\"theirCommentedPosts\":2},\"newPerson\":false,\"rootHandle\":\"alice\",\"evidenceText\":\"学到了，感谢分享。\"},{\"id\":\"2112500000000050001\",\"origin\":\"others\",\"status\":\"not-reply\",\"rootId\":\"2112500000000050001\",\"evidenceId\":\"2112500000000010001\",\"likeEvidenceId\":\"\",\"personStats\":{\"myCommentedPosts\":1,\"theirCommentedPosts\":1},\"newPerson\":false,\"rootHandle\":\"carol\",\"evidenceText\":\"本地模拟：正在关注的原生回复\"},{\"id\":\"2112500000000050002\",\"origin\":\"others\",\"status\":\"not-reply\",\"rootId\":\"2112500000000050002\",\"evidenceId\":\"\",\"likeEvidenceId\":\"2112500000000050002\",\"personStats\":{\"myCommentedPosts\":0,\"theirCommentedPosts\":1},\"newPerson\":false,\"rootHandle\":\"bob\",\"evidenceText\":\"\"},{\"id\":\"2112500000000000009\",\"origin\":\"others\",\"status\":\"unknown\",\"rootId\":\"2112500000000000006\",\"evidenceId\":\"\",\"likeEvidenceId\":\"2112500000000000009\",\"personStats\":{\"myCommentedPosts\":0,\"theirCommentedPosts\":1},\"newPerson\":false,\"rootHandle\":\"alice\",\"evidenceText\":\"\"}]",
+    "replyWrites": "{\"2112500000000010001\":1}",
+    "requests": "1",
+    "sent": "1"
+  }
+}

@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "回过了 · X 通知助手",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "minimum_chrome_version": "111",
-  "description": "在 X 通知里识别原帖与互动记录，支持发送后进入下一条、保存草稿并跳过。每条由你确认发送，统计仅保存在本机。",
+  "description": "在 X 通知里识别原帖与互动记录，通知和主页为你推荐支持发送并下一条、保存草稿并跳过。每条由你确认发送，统计仅保存在本机。",
   "permissions": ["storage", "unlimitedStorage"],
   "background": { "service_worker": "background.js" },
   "action": { "default_title": "回过了 · X 通知助手", "default_popup": "popup.html" },

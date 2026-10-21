@@ -4,12 +4,15 @@
   const EDITOR = '[contenteditable="true"][data-testid="tweetTextarea_0"]';
   const SEND = '[data-testid="tweetButton"]';
   const CLOSE = '[data-testid="app-bar-close"]';
+  const PRIMARY_COLUMN = '[data-testid="primaryColumn"]';
   const visible = node => {
     const box = node?.getBoundingClientRect();
     return Boolean(box?.width && box.height && getComputedStyle(node).visibility !== "hidden");
   };
   const enabled = node => node && !node.disabled && node.getAttribute("aria-disabled") !== "true";
-  const eligible = row => row && !["replied","self","not-reply"].includes(row.status);
+  const eligible = (row,feed) => row && !row.evidenceId &&
+    (feed === "home" && row.status === "not-reply" ? row.origin !== "mine" :
+      !["replied","self","not-reply"].includes(row.status));
 
   function create({ accountHandle,tweetId,columnSelector,message }) {
     let session;
@@ -25,8 +28,12 @@
         .find(node => visible(node) && node.querySelector(EDITOR) && node.querySelector(SEND));
     }
 
-    function articles() {
-      const column = document.querySelector(columnSelector);
+    function feedColumn(s) {
+      return document.querySelector(s.feed === "home" ? PRIMARY_COLUMN : columnSelector);
+    }
+
+    function articles(s) {
+      const column = feedColumn(s);
       return Array.from(column?.querySelectorAll('article[data-testid="tweet"]') || [])
         .filter(article => !article.closest(COMPOSER));
     }
@@ -78,17 +85,33 @@
     }
 
     function currentSession(s) {
-      return session === s && accountHandle() === s.account &&
-        /^\/(?:notifications|compose)(?:\/|$)/.test(location.pathname);
+      if (session !== s || accountHandle() !== s.account || !feedColumn(s)) return false;
+      if (s.feed === "home") {
+        if (!/^\/(?:home|compose)(?:\/|$)/.test(location.pathname)) return false;
+        const tabs = [...feedColumn(s).querySelectorAll('[role="tab"]')];
+        const selected = tabs.find(tab => tab.getAttribute("aria-selected") === "true");
+        return tabs.length > 0 && (!selected || selected === tabs[0]);
+      }
+      return /^\/(?:notifications|compose)(?:\/|$)/.test(location.pathname);
     }
 
-    function start(article) {
+    function entryFeed(article) {
+      if (article.closest(COMPOSER)) return "";
+      if (/^\/notifications(?:\/|$)/.test(location.pathname) && article.closest(columnSelector)) return "notifications";
+      if (!/^\/home\/?$/.test(location.pathname)) return "";
+      const firstTab = article.closest(PRIMARY_COLUMN)?.querySelector('[role="tab"]');
+      // The real home tabs can be DIVs; only the first (For you) tab starts this flow.
+      return firstTab?.getAttribute("aria-selected") === "true" &&
+        !firstTab.getAttribute("href")?.startsWith("/notifications") ? "home" : "";
+    }
+
+    function start(article,feed) {
       const id = tweetId(article);
       const account = accountHandle();
       if (!id || !account) return;
       finish();
       session = {
-        account,handled:new Set(),current:{ id },phase:"ready",
+        account,feed,handled:new Set(),current:{ id },phase:"ready",
         note:"从当前页选择，略过已回复。",attempt:null
       };
       refresh();
@@ -168,7 +191,7 @@
       s.current.dialog?.querySelector(".xrc-continuous")?.remove();
       clearNotice();
       try {
-        const candidates = [...new Map(articles().map(article => [tweetId(article),article]))]
+        const candidates = [...new Map(articles(s).map(article => [tweetId(article),article]))]
           .filter(([id,article]) => id && !s.handled.has(id) && enabled(article.querySelector('[data-testid="reply"]')));
         let nextId = "";
         // Only inspect mounted cards; classify locally in bounded batches.
@@ -178,10 +201,10 @@
           if (!currentSession(s)) return;
           const byId = new Map(result.rows.map(row => [row.id,row]));
           nextId = batch.find(([id,article]) => article.isConnected && tweetId(article) === id &&
-            eligible(byId.get(id)) && enabled(article.querySelector('[data-testid="reply"]')))?.[0] || "";
+            eligible(byId.get(id),s.feed) && enabled(article.querySelector('[data-testid="reply"]')))?.[0] || "";
         }
         if (!nextId) {
-          finish("当前已加载的通知处理完成。加载更多后，从任一条继续。" );
+          finish(`当前已加载的${s.feed === "home" ? "主页帖子" : "通知"}处理完成。加载更多后，从任一条继续。`);
           return;
         }
         s.current = { id:nextId };
@@ -198,11 +221,11 @@
 
     function openCurrent(s) {
       if (!currentSession(s)) return;
-      const article = articles().find(node => tweetId(node) === s.current.id);
+      const article = articles(s).find(node => tweetId(node) === s.current.id);
       const reply = article?.querySelector('[data-testid="reply"]');
       if (!enabled(reply)) {
         s.phase = "paused";
-        showNotice("这条通知已移出页面，可继续选择其他已加载通知。",{
+        showNotice("这条内容已移出页面，可继续选择其他已加载内容。",{
           label:"继续下一条",run:() => selectNext(s)
         });
         return;
@@ -273,7 +296,7 @@
       }
       if (nativeToolbar.nextElementSibling !== bar) nativeToolbar.after(bar);
       const busy = draftBusy(s);
-      const statusText = `已处理 ${s.handled.size} 条 · ${busy ? "回复正在填入或改写，完成后可继续。" : s.note}`;
+      const statusText = `${s.feed === "home" ? "主页 · " : ""}已处理 ${s.handled.size} 条 · ${busy ? "回复正在填入或改写，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;
       const canAct = ["ready","failed"].includes(s.phase);
@@ -371,9 +394,11 @@
       if (close && session && !internalClose && close.closest(COMPOSER) === composer()) { finish(); return; }
       const reply = target?.closest('[data-testid="reply"]');
       const article = reply?.closest('article[data-testid="tweet"]');
-      if (!article || !article.closest(columnSelector) || !/^\/notifications(?:\/|$)/.test(location.pathname)) return;
+      if (!article) return;
+      const feed = entryFeed(article);
+      if (!feed) return;
       if (openingId && tweetId(article) === openingId) return;
-      void start(article);
+      start(article,feed);
     },true);
     document.addEventListener("input",refresh);
     document.addEventListener("keydown",event => {

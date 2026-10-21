@@ -1,10 +1,14 @@
-import { users, demoTweets, post } from "./fixtures.mjs";
+import { users, demoTweets, homeTweets, post } from "./fixtures.mjs";
 import { checkLayout } from "./layout-check.mjs";
 import { checkHeights } from "./height-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
+const home = location.pathname === "/home";
 core.ingest(state,{ users,tweets:demoTweets },"my_account");
+if (home) core.ingest(state,{ users,tweets:homeTweets,likes:[{
+  id:homeTweets[3].id,liked:true,account:"my_account",observedAt:Date.now()
+}] },"my_account");
 core.ingest(state,{ likes:[demoTweets[1].id,demoTweets[8].id].map(id => ({
   id,liked:true,account:"my_account",observedAt:Date.now()
 })) },"my_account");
@@ -20,6 +24,8 @@ globalThis.chrome = {
           if (tweet.authorId === "101" && tweet.parentId) replyWrites.set(tweet.id,(replyWrites.get(tweet.id) || 0)+1);
         }
         document.querySelector("#composer-evidence").dataset.replyWrites = JSON.stringify(Object.fromEntries(replyWrites));
+        document.querySelector("#composer-evidence").dataset.homeRecords = JSON.stringify(
+          homeTweets.map(tweet => core.classify(state,message.account,tweet.id)));
         for (const listener of storageListeners) listener({ replyContext:{} },"local");
         return { ok:true };
       }
@@ -48,13 +54,39 @@ function addNotification(tweet,prepend = false) {
       <div class="user"><strong>${author.handle[0].toUpperCase() + author.handle.slice(1)}</strong>
         <span class="muted">@${author.handle}</span><span class="muted">·</span>
         <a href="/${author.handle}/status/${tweet.id}"><time>2 分钟</time></a></div>
-      <div class="replying">回复 <a href="/my_account">@my_account</a></div>
+      ${tweet.parentId ? '<div class="replying">回复 <a href="/my_account">@my_account</a></div>' : ''}
       <div class="text-shell"><div data-testid="tweetText">${tweet.text}</div></div>
       <div class="actions-shell"><div role="group" class="actions"><button type="button" data-testid="reply" aria-label="回复 ${author.handle}">回复</button><span>♡ 1</span><span>↗</span><span>▥ 12</span></div></div>
     </div>`;
   if (prepend) timeline.prepend(article); else timeline.append(article);
 }
-for (const index of [11,3,7,4,8,10]) addNotification(demoTweets[index]);
+if (home) {
+  document.querySelector("h1").textContent = "主页";
+  document.querySelector(".tabs").innerHTML = '<div role="tab" aria-selected="true" tabindex="0">为你推荐</div><div role="tab" aria-selected="false" tabindex="-1">正在关注</div>';
+  document.querySelectorAll('.tabs [role="tab"]').forEach(tab => tab.addEventListener("click",() => {
+    document.querySelectorAll('.tabs [role="tab"]').forEach(item => item.setAttribute("aria-selected",String(item === tab)));
+  }));
+  homeTweets.forEach(tweet => addNotification(tweet));
+  const button = document.createElement("button");
+  button.id = "home-to-notifications";
+  button.textContent = "查看主页评论后的通知";
+  button.addEventListener("click",() => {
+    const rootId = homeTweets[2].id;
+    const reply = state.replies[`101:${rootId}:505`];
+    if (!reply) { document.querySelector("#simulation-status").textContent = "请先回复 Carol 的主页原帖。"; return; }
+    const incoming = post("2112500000000050003","505",rootId,reply.id,"101","谢谢你的评论，这是主页评论后的新通知。");
+    core.ingest(state,{ tweets:[incoming] },"my_account");
+    timeline.replaceChildren();
+    document.querySelector(".tabs").innerHTML = '<a role="tab" href="/notifications" aria-selected="true">全部</a>';
+    document.querySelector("h1").textContent = "通知";
+    history.replaceState(null,"","/notifications");
+    addNotification(incoming);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  document.querySelector(".aside").append(button);
+} else {
+  for (const index of [11,3,7,4,8,10]) addNotification(demoTweets[index]);
+}
 installComposerDemo({ state,core,addNotification });
 await import("/extension/observe.js");
 await import("/extension/continuous.js");

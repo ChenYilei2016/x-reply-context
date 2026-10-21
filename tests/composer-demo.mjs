@@ -8,7 +8,8 @@ export function installComposerDemo({ state,core,addNotification }) {
   let sent = 0;
   let dialog;
   const evidence = document.querySelector("#composer-evidence");
-  const notificationTab = document.querySelector('a[role="tab"][href="/notifications"]');
+  let returnPath;
+  let sourceTab;
   const updateEvidence = () => {
     evidence.textContent = `模拟请求 ${requests} 次 · 成功 ${sent} 次 · 草稿 ${drafts.size} 条`;
     evidence.dataset.drafts = JSON.stringify([...drafts].map(([id,text]) => ({ id,text })));
@@ -18,7 +19,7 @@ export function installComposerDemo({ state,core,addNotification }) {
   updateEvidence();
 
   window.fetch = async function (url,options) {
-    if (!String(url).endsWith("/i/api/graphql/demo/CreateTweet")) return originalFetch(url,options);
+    if (!/\/i\/api\/graphql\/demo\/Create(?:Note)?Tweet$/.test(String(url))) return originalFetch(url,options);
     requests++;
     updateEvidence();
     const variables = JSON.parse(options.body).variables;
@@ -36,7 +37,13 @@ export function installComposerDemo({ state,core,addNotification }) {
     const actualTarget = mode === "wrong-target" ? state.tweets[demoTweets[1].id] : target;
     const created = post(String(2112500000000010000n + BigInt(++sequence)),"101",actualTarget.conversationId,
       actualTarget.id,actualTarget.authorId,variables.tweet_text);
-    return new Response(JSON.stringify({ data:{ create_tweet:{ tweet_results:{ result:graphql(created) } } } }),{
+    const result = graphql(created);
+    if (mode === "note") {
+      delete result.legacy.full_text;
+      result.note_tweet = { note_tweet_results:{ result:{ text:created.text } } };
+    }
+    const wrapper = mode === "note" ? "notetweet_create" : "create_tweet";
+    return new Response(JSON.stringify({ data:{ [wrapper]:{ tweet_results:{ result } } } }),{
       headers:{ "content-type":"application/json" }
     });
   };
@@ -44,8 +51,8 @@ export function installComposerDemo({ state,core,addNotification }) {
   function close() {
     dialog?.remove();
     dialog = null;
-    notificationTab.setAttribute("aria-selected","true");
-    history.replaceState(null,"","/notifications");
+    sourceTab?.setAttribute("aria-selected","true");
+    history.replaceState(null,"",returnPath);
     window.dispatchEvent(new PopStateEvent("popstate"));
   }
 
@@ -76,6 +83,8 @@ export function installComposerDemo({ state,core,addNotification }) {
   function open(targetId) {
     const target = state.tweets[targetId];
     if (!target || dialog) return;
+    returnPath = location.pathname;
+    sourceTab = document.querySelector('[data-testid="primaryColumn"] [role="tab"][aria-selected="true"]');
     dialog = document.createElement("div");
     dialog.className = "demo-composer";
     dialog.setAttribute("role","dialog");
@@ -131,7 +140,8 @@ export function installComposerDemo({ state,core,addNotification }) {
     nativeSend.addEventListener("click",async () => {
       if (nativeSend.disabled) return;
       nativeSend.disabled = true;
-      const response = await window.fetch("/i/api/graphql/demo/CreateTweet",{
+      const operation = document.querySelector("#reply-result-mode").value === "note" ? "CreateNoteTweet" : "CreateTweet";
+      const response = await window.fetch(`/i/api/graphql/demo/${operation}`,{
         method:"POST",body:JSON.stringify({ variables:{ tweet_text:editor.innerText,reply:{ in_reply_to_tweet_id:targetId } } })
       });
       const result = await response.json();
@@ -151,7 +161,7 @@ export function installComposerDemo({ state,core,addNotification }) {
     dialog.append(nativeClose,quote,editorRoot,error,nativeToolbar);
     document.body.append(dialog);
     history.replaceState(null,"","/compose/post");
-    notificationTab.setAttribute("aria-selected","false");
+    sourceTab?.setAttribute("aria-selected","false");
     editor.focus();
   }
 
