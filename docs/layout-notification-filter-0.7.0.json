@@ -1,0 +1,10 @@
+{
+  "heights": {
+    "evidence": "[{\"name\":\"新通知补入标签时不改变初次测量高度\",\"before\":186,\"after\":186,\"ok\":true},{\"name\":\"新通知的标签不再二次推动下面的旧通知\",\"before\":615,\"after\":615,\"ok\":true},{\"name\":\"窄卡片回复和点赞后 NEW 不换行改变高度\",\"before\":186,\"after\":186,\"ok\":true},{\"name\":\"卡片重绘移除标签的一瞬间不收缩\",\"before\":186,\"after\":186,\"ok\":true},{\"name\":\"恢复标签后高度保持\",\"before\":186,\"after\":186,\"ok\":true}]",
+    "result": "passed"
+  },
+  "layout": {
+    "evidence": "[{\"name\":\"/compose/post 打开并取消页签选中后，背景标签和位置保持\",\"ok\":true,\"before\":429,\"after\":429,\"labels\":6},{\"name\":\"/compose/post 弹窗中同步评论统计和红心，且不移动列表\",\"ok\":true,\"before\":429,\"after\":429,\"expectedCount\":1,\"displayedCount\":1},{\"name\":\"/compose/post 关闭后位置保持并显示新记录\",\"ok\":true,\"before\":429,\"after\":429},{\"name\":\"/notifications 打开并取消页签选中后，背景标签和位置保持\",\"ok\":true,\"before\":429,\"after\":429,\"labels\":6},{\"name\":\"/notifications 弹窗中同步评论统计和红心，且不移动列表\",\"ok\":true,\"before\":429,\"after\":429,\"expectedCount\":2,\"displayedCount\":2},{\"name\":\"/notifications 关闭后位置保持并显示新记录\",\"ok\":true,\"before\":429,\"after\":429},{\"name\":\"零高度弹窗容器不阻止更新\",\"ok\":true},{\"name\":\"同一条卡片重绘后标签恢复\",\"ok\":true},{\"name\":\"通知页不再插入顶部统计说明\",\"ok\":true}]",
+    "result": "passed"
+  }
+}

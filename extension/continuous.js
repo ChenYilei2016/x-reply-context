@@ -35,7 +35,8 @@
     function articles(s) {
       const column = feedColumn(s);
       return Array.from(column?.querySelectorAll('article[data-testid="tweet"]') || [])
-        .filter(article => !article.closest(COMPOSER) && !article.hasAttribute("data-xrc-home-hidden"));
+        .filter(article => !article.closest(COMPOSER) &&
+          !article.hasAttribute("data-xrc-home-hidden") && !article.hasAttribute("data-xrc-notification-hidden"));
     }
 
     function nativeHeart(s) {

@@ -1,0 +1,316 @@
+{
+  "before": {
+    "aggregates": 0,
+    "button": {
+      "bottom": 41.5,
+      "height": 30,
+      "left": 805.5,
+      "right": 917.5,
+      "top": 11.5,
+      "width": 112,
+      "x": 805.5,
+      "y": 11.5
+    },
+    "cards": [],
+    "path": "/notifications",
+    "pressed": "false"
+  },
+  "on": {
+    "button": {
+      "bottom": 41.5,
+      "height": 30,
+      "left": 805.5,
+      "right": 917.5,
+      "top": 11.5,
+      "width": 112,
+      "x": 805.5,
+      "y": 11.5
+    },
+    "cells": [
+      {
+        "articleHeight": 1,
+        "bottom": 109,
+        "height": 2,
+        "hidden": "2112877200395620769",
+        "id": "/ylycsgy/status/2112877200395620769",
+        "kind": "tweet",
+        "liked": "true",
+        "replied": "true",
+        "top": 107
+      },
+      {
+        "bottom": 201.75,
+        "height": 92.75,
+        "hidden": "",
+        "id": "",
+        "kind": "notification",
+        "top": 109
+      },
+      {
+        "bottom": 314.75,
+        "height": 112.75,
+        "hidden": "",
+        "id": "",
+        "kind": "notification",
+        "top": 202
+      },
+      {
+        "bottom": 467.75,
+        "height": 152.75,
+        "hidden": "",
+        "id": "",
+        "kind": "notification",
+        "top": 315
+      },
+      {
+        "articleHeight": 157,
+        "bottom": 626,
+        "height": 158,
+        "hidden": "",
+        "id": "/wanglvS/status/2112876780294173133",
+        "kind": "tweet",
+        "liked": "false",
+        "replied": "false",
+        "top": 468
+      },
+      {
+        "articleHeight": 157,
+        "bottom": 784,
+        "height": 158,
+        "hidden": "",
+        "id": "/catia9203388964/status/2112876766134243581",
+        "kind": "tweet",
+        "liked": "false",
+        "replied": "false",
+        "top": 626
+      },
+      {
+        "bottom": 936.75,
+        "height": 152.75,
+        "hidden": "",
+        "id": "",
+        "kind": "notification",
+        "top": 784
+      },
+      {
+        "articleHeight": 1,
+        "bottom": 939,
+        "height": 2,
+        "hidden": "2112876712681984059",
+        "id": "/catia9203388964/status/2112876712681984059",
+        "kind": "tweet",
+        "liked": "true",
+        "replied": "true",
+        "top": 937
+      },
+      {
+        "bottom": 1091.75,
+        "height": 152.75,
+        "hidden": "",
+        "id": "",
+        "kind": "notification",
+        "top": 939
+      },
+      {
+        "articleHeight": 157,
+        "bottom": 1250,
+        "height": 158,
+        "hidden": "",
+        "id": "/wanglvS/status/2112876686702436812",
+        "kind": "tweet",
+        "liked": "false",
+        "replied": "false",
+        "top": 1092
+      },
+      {
+        "bottom": 1402.75,
+        "height": 152.75,
+        "hidden": "",
+        "id": "",
+        "kind": "notification",
+        "top": 1250
+      },
+      {
+        "bottom": 1515.75,
+        "height": 112.75,
+        "hidden": "",
+        "id": "",
+        "kind": "notification",
+        "top": 1403
+      },
+      {
+        "articleHeight": 1,
+        "bottom": 1518,
+        "height": 2,
+        "hidden": "2112876594092228749",
+        "id": "/wanglvS/status/2112876594092228749",
+        "kind": "tweet",
+        "liked": "true",
+        "replied": "true",
+        "top": 1516
+      },
+      {
+        "articleHeight": 1,
+        "bottom": 1520,
+        "height": 2,
+        "hidden": "2112876535564869788",
+        "id": "/isfp666fafafa/status/2112876535564869788",
+        "kind": "tweet",
+        "liked": "true",
+        "replied": "true",
+        "top": 1518
+      },
+      {
+        "bottom": 1669,
+        "height": 149,
+        "hidden": "",
+        "id": "",
+        "kind": "notification",
+        "top": 1520
+      },
+      {
+        "articleHeight": 157,
+        "bottom": 1827,
+        "height": 158,
+        "hidden": "",
+        "id": "/Xiemaimai610/status/2112875942750347484",
+        "kind": "tweet",
+        "liked": "false",
+        "replied": "false",
+        "top": 1669
+      },
+      {
+        "articleHeight": 157,
+        "bottom": 1985,
+        "height": 158,
+        "hidden": "",
+        "id": "/DeaglePc/status/2112875883434549508",
+        "kind": "tweet",
+        "liked": "false",
+        "replied": "false",
+        "top": 1827
+      },
+      {
+        "articleHeight": 1,
+        "bottom": 1987,
+        "height": 2,
+        "hidden": "2112875816371839155",
+        "id": "/Xiemaimai610/status/2112875816371839155",
+        "kind": "tweet",
+        "liked": "true",
+        "replied": "true",
+        "top": 1985
+      },
+      {
+        "bottom": 2099.75,
+        "height": 112.75,
+        "hidden": "",
+        "id": "",
+        "kind": "notification",
+        "top": 1987
+      },
+      {
+        "bottom": 2300,
+        "height": 200,
+        "hidden": "",
+        "id": "",
+        "kind": "",
+        "top": 2100
+      }
+    ],
+    "gaps": [
+      0,
+      0.25,
+      0.25,
+      0.25,
+      0,
+      0,
+      0.25,
+      0,
+      0.25,
+      0,
+      0.25,
+      0.25,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0.25
+    ],
+    "headerHeight": 53,
+    "path": "/notifications",
+    "pressed": "true"
+  },
+  "off": {
+    "cards": [
+      {
+        "height": 157,
+        "id": "/ylycsgy/status/2112877200395620769",
+        "liked": "true",
+        "replied": "true"
+      },
+      {
+        "height": 157,
+        "id": "/wanglvS/status/2112876780294173133",
+        "liked": "false",
+        "replied": "false"
+      },
+      {
+        "height": 157,
+        "id": "/catia9203388964/status/2112876766134243581",
+        "liked": "false",
+        "replied": "false"
+      },
+      {
+        "height": 157,
+        "id": "/catia9203388964/status/2112876712681984059",
+        "liked": "true",
+        "replied": "true"
+      },
+      {
+        "height": 157,
+        "id": "/wanglvS/status/2112876686702436812",
+        "liked": "false",
+        "replied": "false"
+      },
+      {
+        "height": 157,
+        "id": "/wanglvS/status/2112876594092228749",
+        "liked": "true",
+        "replied": "true"
+      },
+      {
+        "height": 157,
+        "id": "/isfp666fafafa/status/2112876535564869788",
+        "liked": "true",
+        "replied": "true"
+      },
+      {
+        "height": 157,
+        "id": "/Xiemaimai610/status/2112875942750347484",
+        "liked": "false",
+        "replied": "false"
+      },
+      {
+        "height": 157,
+        "id": "/DeaglePc/status/2112875883434549508",
+        "liked": "false",
+        "replied": "false"
+      },
+      {
+        "height": 157,
+        "id": "/Xiemaimai610/status/2112875816371839155",
+        "liked": "true",
+        "replied": "true"
+      }
+    ],
+    "headerHeight": 53,
+    "hidden": 0,
+    "pressed": "false"
+  },
+  "persistedAcrossReload": true,
+  "finalSetting": false,
+  "publicInteractions": false
+}

@@ -2,6 +2,7 @@ import { users, demoTweets, homeTweets, post } from "./fixtures.mjs";
 import { checkLayout } from "./layout-check.mjs";
 import { checkHeights } from "./height-check.mjs";
 import { checkHearts } from "./heart-check.mjs";
+import { checkNotificationFilter } from "./notification-filter-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
@@ -15,7 +16,7 @@ core.ingest(state,{ likes:[demoTweets[1].id,demoTweets[8].id].map(id => ({
 })) },"my_account");
 const storageListeners = [];
 const replyWrites = new Map();
-const settings = { hideCompletedHome:false };
+const settings = { hideCompletedHome:false,hideCompletedNotifications:false };
 globalThis.chrome = {
   runtime:{
     onMessage:{ addListener() {} },
@@ -42,8 +43,11 @@ globalThis.chrome = {
   },
   storage:{
     local:{
-      async get(key) { return { [key]:settings[key] }; },
+      async get(keys) {
+        return Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map(key => [key,settings[key]]));
+      },
       async set(values) {
+        if (document.querySelector("#demo-settings-fail")?.checked) throw new Error("模拟设置保存失败");
         const changes = {};
         for (const [key,newValue] of Object.entries(values)) {
           changes[key] = { oldValue:settings[key],newValue };
@@ -102,10 +106,16 @@ if (home) {
   document.querySelector(".aside").append(button);
 } else {
   for (const index of [11,3,7,4,8,10]) addNotification(demoTweets[index]);
+  const aggregate = document.createElement("article");
+  aggregate.dataset.testid = "notification";
+  aggregate.textContent = "虚构用户点赞了你的帖子（聚合通知）";
+  timeline.prepend(aggregate);
 }
 installComposerDemo({ state,core,addNotification });
 await import("/extension/observe.js");
+await import("/extension/card-filter.js");
 await import("/extension/home-filter.js");
+await import("/extension/notification-filter.js");
 await import("/extension/continuous.js");
 const script = document.createElement("script");
 script.src = "/extension/content.js";
@@ -164,5 +174,15 @@ document.querySelector("#check-heights").addEventListener("click",async event =>
 document.querySelector("#check-hearts").addEventListener("click",async event => {
   event.target.disabled = true;
   await checkHearts();
+  event.target.disabled = false;
+});
+document.querySelector("#check-notification-filter").addEventListener("click",async event => {
+  event.target.disabled = true;
+  await checkNotificationFilter(() => {
+    const incoming = post("2112500000000070001","202",demoTweets[0].id,demoTweets[2].id,"101","新到达的已完成对话通知");
+    core.ingest(state,{ tweets:[incoming] },"my_account");
+    addNotification(incoming,true);
+    for (const listener of storageListeners) listener({ replyContext:{} },"local");
+  });
   event.target.disabled = false;
 });

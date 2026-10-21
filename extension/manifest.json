@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "回过了 · X 通知助手",
-  "version": "0.6.0",
+  "version": "0.8.1",
   "minimum_chrome_version": "111",
-  "description": "识别 X 原帖与互动记录，可选隐藏主页已评论且已点赞的原帖，支持手动点赞和连续回复。每条由你确认，统计仅保存在本机。",
+  "description": "识别 X 原帖与互动记录，可分别筛选主页及通知中的已完成互动，支持手动点赞和连续回复。每条由你确认，统计仅保存在本机。",
   "permissions": ["storage", "unlimitedStorage"],
   "background": { "service_worker": "background.js" },
   "action": { "default_title": "回过了 · X 通知助手", "default_popup": "popup.html" },
@@ -17,7 +17,7 @@
     {
       "matches": ["https://x.com/*", "https://twitter.com/*"],
       "run_at": "document_start",
-      "js": ["home-filter.js", "continuous.js", "content.js"],
+      "js": ["card-filter.js", "home-filter.js", "notification-filter.js", "continuous.js", "content.js"],
       "css": ["content.css"]
     }
   ]

@@ -5,7 +5,8 @@ import { readFile } from "node:fs/promises";
 import { users,homeTweets,demoTweets } from "./fixtures.mjs";
 await import("../extension/core.js");
 const core = globalThis.XReplyContext;
-const source = await readFile(new URL("../extension/home-filter.js",import.meta.url),"utf8");
+const source = await readFile(new URL("../extension/card-filter.js",import.meta.url),"utf8")+
+  await readFile(new URL("../extension/home-filter.js",import.meta.url),"utf8");
 const hidden = "data-xrc-home-hidden";
 
 function setup(tweets = homeTweets) {

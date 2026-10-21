@@ -13,6 +13,9 @@
   nav a { color:inherit; text-decoration:none; font-size:13px; }
   main { border:1px solid #e1e7eb; border-radius:16px; background:white; overflow:hidden; }
   h1 { font-size:21px; margin:0; padding:18px 20px 10px; }
+  .demo-title { display:flex; align-items:center; }
+  .demo-title h1 { flex:1; }
+  .demo-settings { margin-right:12px; }
   .tabs { display:flex; justify-content:space-around; padding:12px; border-bottom:1px solid #e1e7eb; font-size:14px; }
   .tabs a { color:inherit; text-decoration:none; }
   .tabs [aria-selected="true"] { color:#087ebd; font-weight:700; }
@@ -33,7 +36,7 @@
   .demo-note { color:#8a6c2d; background:#fff6df; padding:10px 15px; font-size:12px; }
   .demo-dialog { position:fixed; z-index:10; top:20%; left:50%; transform:translateX(-50%); width:580px; max-width:90vw; padding:20px; border-radius:16px; background:white; box-shadow:0 0 0 100vmax #0005; }
   .demo-dialog h2 { margin:0; font-size:18px; }
-  #layout-status,#height-status,#heart-status { white-space:pre-wrap; }
+  #layout-status,#height-status,#heart-status,#notification-filter-status { white-space:pre-wrap; }
   .actions button { border:0; padding:0; background:none; color:#087ebd; font:inherit; cursor:pointer; }
   .demo-composer,.demo-save-sheet { position:fixed; z-index:20; top:12%; left:50%; transform:translateX(-50%); width:600px; max-width:90vw; max-height:80vh; overflow:auto; padding:20px; border-radius:16px; background:white; box-shadow:0 0 0 100vmax #0005; }
   .demo-composer [contenteditable] { min-height:140px; border:1px solid #b5c4cd; border-radius:6px; padding:12px; outline:none; white-space:pre-wrap; }
@@ -49,7 +52,7 @@
     <nav><strong>𝕏</strong><span>⌂　主页</span><span>⌕　探索</span><b>♧　通知</b><span>✉　聊天</span><a data-testid="AppTabBar_Profile_Link" href="/my_account">◯　@my_account</a></nav>
     <main data-testid="primaryColumn">
       <div class="demo-note">本地效果演示 · 虚构对话数据 · 未连接 X 账号</div>
-      <h1>通知</h1><div class="tabs"><a href="/notifications" role="tab" aria-selected="true">全部</a><span>优先</span><span>提及</span></div>
+      <div class="demo-title"><h1>通知</h1><div class="demo-settings"><a href="/settings/notifications" aria-label="通知设置">⚙</a></div></div><div class="tabs"><a href="/notifications" role="tab" aria-selected="true">全部</a><span>优先</span><span>提及</span></div>
       <section role="region" aria-label="时间线：通知" id="timeline"></section>
     </main>
     <aside class="aside">
@@ -59,6 +62,9 @@
       <p>通知页仅保留每条标签；总览、补历史和完整口径都在扩展弹窗中。</p>
       <p>原帖内的回复、红心仍单独判断；不主动补抓历史。</p>
       <label><input type="checkbox" id="demo-hide-completed">主页隐藏自己的内容及已完成原帖</label>
+      <label><input type="checkbox" id="demo-settings-fail">模拟设置保存失败</label>
+      <button id="check-notification-filter">检查：通知完成项筛选</button>
+      <p id="notification-filter-status" role="status"></p>
       <button id="simulate">演示：回复新来访</button>
       <button id="simulate-heart">演示：给 Bob 点红心</button>
       <p id="simulation-status" role="status"></p>

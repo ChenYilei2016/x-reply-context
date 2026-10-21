@@ -10,8 +10,20 @@
   const pending = [];
   let continuous;
   let hideCompletedHome = false;
+  let homeSettingLoaded = false;
+  let hideCompletedNotifications = false;
+  let notificationSettingLoaded = false;
   const homeFilter = globalThis.XReplyHomeFilter.create({
     accountHandle,tweetId,message,holdLayout,enabled:() => hideCompletedHome
+  });
+  const notificationFilter = globalThis.XReplyNotificationFilter.create({
+    accountHandle,tweetId,message,holdLayout,columnSelector:NOTIFICATION_COLUMN,
+    enabled:() => hideCompletedNotifications,ready:() => notificationSettingLoaded,
+    save:async value => {
+      await chrome.storage.local.set({ hideCompletedNotifications:value });
+      hideCompletedNotifications = value;
+      notificationFilter.invalidate(); lastSignature = ""; schedule();
+    }
   });
 
   function accountHandle() {
@@ -137,12 +149,13 @@
     running = true;
     try {
       const account = accountHandle();
-      if (!account) { homeFilter.reset(); return; }
+      if (!account) { homeFilter.reset(); notificationFilter.reset(); return; }
       if (account !== lastAccount) {
         document.querySelectorAll(".xrc-labels").forEach(node => node.remove());
         lastAccount = account;
         lastSignature = "";
         homeFilter.reset();
+        notificationFilter.reset();
       }
       if (pending.length) {
         const batches = pending.splice(0);
@@ -150,6 +163,7 @@
         lastSignature = "";
       }
       await homeFilter.refresh();
+      await notificationFilter.refresh();
       // Fixed label slots let counts refresh behind a composer without moving rows.
       if (!/^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout()) {
         document.querySelectorAll(".xrc-labels").forEach(node => node.remove());
@@ -197,7 +211,9 @@
       const saved = data.type === "REPLY_RESULT" && data.status === "sent" &&
         data.account === accountHandle() && data.batch ?
         message({ type:"INGEST",account:data.account,batch:data.batch }) : null;
-      if (saved) void saved.then(() => { lastSignature = ""; homeFilter.invalidate(); schedule(); },
+      if (saved) void saved.then(() => {
+        lastSignature = ""; homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
+      },
         error => console.warn("回过了：",error.message));
       void continuous?.receiveReply(data,saved);
       return;
@@ -211,18 +227,29 @@
   });
   chrome.storage.onChanged.addListener((changes,area) => {
     if (area !== "local") return;
-    if (changes.replyContext) { lastSignature = ""; homeFilter.invalidate(); schedule(); }
+    if (changes.replyContext) {
+      lastSignature = ""; homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
+    }
     if (changes.hideCompletedHome) {
       hideCompletedHome = changes.hideCompletedHome.newValue === true;
+      homeSettingLoaded = true;
       homeFilter.invalidate(); schedule();
     }
+    if (changes.hideCompletedNotifications) {
+      hideCompletedNotifications = changes.hideCompletedNotifications.newValue === true;
+      notificationSettingLoaded = true;
+      notificationFilter.invalidate(); schedule();
+    }
   });
-  void chrome.storage.local.get("hideCompletedHome").then(saved => {
-    hideCompletedHome = saved.hideCompletedHome === true;
-    homeFilter.invalidate(); schedule();
+  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications"]).then(saved => {
+    if (!homeSettingLoaded) hideCompletedHome = saved.hideCompletedHome === true;
+    homeSettingLoaded = true;
+    if (!notificationSettingLoaded) hideCompletedNotifications = saved.hideCompletedNotifications === true;
+    notificationSettingLoaded = true;
+    homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
-    if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice"))) schedule();
+    if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-filter"))) schedule();
   });
   observer.observe(document,{ childList:true,subtree:true,attributes:true,
     attributeFilter:["aria-selected","data-testid","aria-disabled","disabled"] });
