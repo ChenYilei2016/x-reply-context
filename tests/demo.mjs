@@ -4,6 +4,8 @@ import { checkHeights } from "./height-check.mjs";
 import { checkHearts } from "./heart-check.mjs";
 import { checkNotificationFilter } from "./notification-filter-check.mjs";
 import { checkNotificationStability } from "./notification-stability-check.mjs";
+import { checkComposerContext } from "./composer-context-check.mjs";
+import { checkFollowing } from "./following-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
@@ -42,6 +44,12 @@ globalThis.chrome = {
           replyCount:Object.keys(state.replies).length,
           likeCount:Object.values(state.likes).filter(like => like.liked).length
         };
+        if (message.ids.length === 1 && document.querySelector('.xrc-flow-context')) {
+          const mode = document.querySelector('#context-result-mode').value;
+          if (mode === 'delayed') await new Promise(resolve => setTimeout(resolve,1600));
+          if (mode === 'failed') throw new Error('模拟本地读取失败');
+          if (mode === 'missing-author') snapshot.rows = snapshot.rows.map(row => ({ ...row,authorHandle:'' }));
+        }
         if (pauseClassification) {
           pauseClassification = false;
           await new Promise(resolve => { releaseClassification = resolve; });
@@ -94,8 +102,11 @@ function addNotification(tweet,prepend = false) {
 if (home) {
   document.querySelector("h1").textContent = "主页";
   document.querySelector(".tabs").innerHTML = '<div role="tab" aria-selected="true" tabindex="0">为你推荐</div><div role="tab" aria-selected="false" tabindex="-1">正在关注</div>';
-  document.querySelectorAll('.tabs [role="tab"]').forEach(tab => tab.addEventListener("click",() => {
+  document.querySelectorAll('.tabs [role="tab"]').forEach((tab,index) => tab.addEventListener("click",() => {
     document.querySelectorAll('.tabs [role="tab"]').forEach(item => item.setAttribute("aria-selected",String(item === tab)));
+    timeline.replaceChildren();
+    (index === 1 ? [homeTweets[3],homeTweets[2],homeTweets[0],homeTweets[4]] : homeTweets)
+      .forEach(tweet => addNotification(tweet));
   }));
   homeTweets.forEach(tweet => addNotification(tweet));
   const button = document.createElement("button");
@@ -131,6 +142,16 @@ await import("/extension/continuous.js");
 const script = document.createElement("script");
 script.src = "/extension/content.js";
 document.body.append(script);
+document.querySelector('#check-following').addEventListener('click',async event => {
+  event.target.disabled = true;
+  await checkFollowing();
+  event.target.disabled = false;
+});
+document.querySelector('#check-composer-context').addEventListener('click',async event => {
+  event.target.disabled = true;
+  await checkComposerContext();
+  event.target.disabled = false;
+});
 document.querySelector("#demo-hide-completed").addEventListener("change",event => {
   void chrome.storage.local.set({ hideCompletedHome:event.target.checked });
 });

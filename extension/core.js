@@ -267,6 +267,7 @@
     const directLike = me && state.likes?.[`${me.id}:${result.id}`];
     if (directLike?.liked) result.likeEvidenceId = directLike.id;
     if (!tweet) return result;
+    result.authorHandle = state.users[tweet.authorId]?.handle || "";
     const original = !tweet.parentId && tweet.conversationId === tweet.id;
     if (!original && me && tweet.authorId === me.id) return { ...result, status: "self" };
     const rootId = conversationOf(state, tweet);

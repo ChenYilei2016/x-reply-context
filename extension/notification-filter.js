@@ -4,6 +4,7 @@
     const { columnSelector,enabled,ready,holdLayout,save,schedule } = options;
     let button;
     let applyButton;
+    let controls;
     let saving = false;
     let error = "";
     const column = () => /^\/notifications(?:\/|$)/.test(location.pathname) ?
@@ -17,20 +18,23 @@
 
     function renderButton() {
       const primary = column();
-      if (!primary) {
-        if (!holdLayout()) { button?.remove(); applyButton?.remove(); }
+      // Use the existing title bar, not an extra row above X's virtual list.
+      const anchor = primary?.querySelector('a[href="/settings/notifications"]')?.parentElement;
+      if (!anchor) {
+        if (!holdLayout()) controls?.remove();
+        else {
+          if (button) button.disabled = true;
+          if (applyButton) applyButton.disabled = true;
+        }
         return;
       }
-      // Use the existing title bar, not an extra row above X's virtual list.
-      const anchor = primary.querySelector('a[href="/settings/notifications"]')?.parentElement;
-      if (!anchor) { button?.remove(); applyButton?.remove(); return; }
       if (!button) {
         button = document.createElement("button");
         button.type = "button";
         button.className = "xrc-notification-filter";
         button.addEventListener("click",async event => {
           event.stopPropagation();
-          if (saving || !ready()) return;
+          if (saving || !ready() || holdLayout() || filter.applying()) return;
           saving = true; error = ""; renderButton();
           const next = !enabled();
           try {
@@ -45,23 +49,32 @@
         applyButton = document.createElement("button");
         applyButton.type = "button";
         applyButton.className = "xrc-filter-apply";
-        applyButton.title = "后台依据有更新。仅在你点击时整理当前已加载通知；浏览或关闭空回复框不会自动收起已显示的卡片。";
         applyButton.addEventListener("click",event => {
           event.stopPropagation();
-          if (holdLayout() || filter.applying()) return;
-          filter.requestApply(); schedule();
+          if (!enabled() || saving || holdLayout() || filter.applying() || !filter.pendingCount()) return;
+          filter.requestApply(); renderButton(); schedule();
         });
       }
-      if (anchor.previousElementSibling !== applyButton) anchor.before(applyButton);
-      if (applyButton.previousElementSibling !== button) applyButton.before(button);
-      const label = saving ? "保存中…" : error ? "保存失败，重试" : "隐藏已回且已点";
+      if (!controls) {
+        controls = document.createElement("div");
+        controls.className = "xrc-notification-controls";
+        controls.setAttribute("role","group");
+        controls.setAttribute("aria-label","通知完成项筛选");
+        controls.append(button,applyButton);
+      }
+      if (anchor.previousElementSibling !== controls) anchor.before(controls);
+      const label = error ? "保存失败，重试" : "隐藏已回且已点";
       if (button.textContent !== label) button.textContent = label;
       button.setAttribute("aria-pressed",String(enabled()));
-      button.disabled = saving || !ready();
-      button.title = error || `${enabled() ? "已开启，点击恢复全部评论通知" : "点击隐藏已完成评论通知"}。按同一原帖、同一个人的文字及红心标签判断；点赞、关注等通知保留。已显示卡片保持位置，后续变化点击“整理更新”后应用。`;
-      applyButton.hidden = !enabled() || !filter.pendingCount();
-      applyButton.disabled = holdLayout() || filter.applying();
-      const applyText = filter.applying() ? "整理中…" : `整理更新 ${Math.min(filter.pendingCount(),99)}${filter.pendingCount()>99 ? "+" : ""}`;
+      button.disabled = saving || !ready() || holdLayout() || filter.applying();
+      button.title = error || `${enabled() ? "已开启，点击恢复全部评论通知" : "点击开启，并隐藏当前已确认完成的评论通知"}。按同一原帖、同一个人的文字及红心标签判断；点赞、关注等通知保留。已显示卡片保持位置，后续变化点击右侧“整理列表”后隐藏或恢复。`;
+      button.setAttribute("aria-label",error ? "隐藏已回且已点，设置保存失败，点击重试" : label);
+      controls.setAttribute("aria-busy",String(saving || filter.applying()));
+      applyButton.disabled = !ready() || !enabled() || saving || holdLayout() || filter.applying() || !filter.pendingCount();
+      applyButton.title = !enabled() ? "请先开启左侧隐藏开关。" : holdLayout() ? "回复框关闭后可整理列表，编辑时保持背景列表不动。" :
+        filter.applying() ? "正在整理，请稍候。" : !filter.pendingCount() ? "当前已加载通知没有待整理的变化。" :
+        "按最新的已回、已点赞依据整理当前已加载通知。只在点击后隐藏或恢复卡片；不刷新网页或请求更多通知。滚动和关闭空回复框不自动收起当前卡片。";
+      const applyText = "整理列表";
       if (applyButton.textContent !== applyText) applyButton.textContent = applyText;
     }
 

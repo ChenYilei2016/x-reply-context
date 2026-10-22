@@ -64,8 +64,8 @@ export async function checkNotificationStability({ pauseLabels,paused,releaseLab
     await Promise.resolve(); await Promise.resolve();
     check("虚拟行复用时，在绘制前清除旧隐藏标记",!hidden(candidate));
     await settle();
-    check("历史更新只进入待整理，不自动移除当前通知",arrange() && !arrange().hidden && !hidden(target));
-    if (arrange() && !arrange().hidden) {
+    check("历史更新只进入待整理，不自动移除当前通知",arrange() && !arrange().disabled && !hidden(target));
+    if (arrange() && !arrange().disabled) {
       arrange().click(); await settle();
       check("只有点击整理更新后才收起已完成通知",hidden(target));
     } else check("只有点击整理更新后才收起已完成通知",false);

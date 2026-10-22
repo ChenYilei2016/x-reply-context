@@ -14,7 +14,7 @@
     (feed === "home" && row.status === "not-reply" ? row.origin !== "mine" :
       !["replied","self","not-reply"].includes(row.status));
 
-  function create({ accountHandle,tweetId,columnSelector,message }) {
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels }) {
     let session;
     let notice;
     let noticeTimer;
@@ -22,6 +22,7 @@
     let openingId = "";
     let rewriteNode;
     let rewriteWatch;
+    let contextRevision = 0;
 
     function composer() {
       return Array.from(document.querySelectorAll(COMPOSER))
@@ -30,6 +31,12 @@
 
     function feedColumn(s) {
       return document.querySelector(s.feed === "home" ? PRIMARY_COLUMN : columnSelector);
+    }
+
+    function selectedHomeTab(primary) {
+      const tabs = Array.from(primary?.querySelectorAll('[role="tab"]') || []);
+      const index = tabs.findIndex(tab => tab.getAttribute("aria-selected") === "true");
+      return index === 0 || index === 1 ? index : -1;
     }
 
     function articles(s) {
@@ -106,7 +113,7 @@
         if (!/^\/(?:home|compose)(?:\/|$)/.test(location.pathname)) return false;
         const tabs = [...feedColumn(s).querySelectorAll('[role="tab"]')];
         const selected = tabs.find(tab => tab.getAttribute("aria-selected") === "true");
-        return tabs.length > 0 && (!selected || selected === tabs[0]);
+        return tabs.length > 0 && (!selected || selected === tabs[s.homeTabIndex]);
       }
       return /^\/(?:notifications|compose)(?:\/|$)/.test(location.pathname);
     }
@@ -114,7 +121,9 @@
     function entryFeed(article) {
       if (article.closest(COMPOSER)) return "";
       if (/^\/notifications(?:\/|$)/.test(location.pathname) && article.closest(columnSelector)) return "notifications";
-      return globalThis.XReplyHomeFilter.column()?.contains(article) ? "home" : "";
+      const primary = document.querySelector(PRIMARY_COLUMN);
+      return /^\/home\/?$/.test(location.pathname) && primary?.contains(article) &&
+        selectedHomeTab(primary) >= 0 ? "home" : "";
     }
 
     function start(article,feed) {
@@ -123,7 +132,8 @@
       if (!id || !account) return;
       finish();
       session = {
-        account,feed,handled:new Set(),current:{ id },phase:"ready",
+        account,feed,homeTabIndex:feed === "home" ? selectedHomeTab(document.querySelector(PRIMARY_COLUMN)) : -1,
+        handled:new Set(),current:{ id },phase:"ready",
         note:"从当前页选择，略过已回复。",attempt:null
       };
       refresh();
@@ -279,6 +289,56 @@
       return dialog && dialog.querySelectorAll('[contenteditable="true"][data-testid^="tweetTextarea_"]').length === 1;
     }
 
+    function updateContext(context,row) {
+      renderLabels(context.querySelector(".xrc-labels"),row);
+      const profile = context.querySelector(".xrc-flow-profile");
+      const handle = /^[a-zA-Z0-9_]{1,15}$/.test(row.authorHandle || "") ? row.authorHandle : "";
+      if (handle) profile.href = `https://x.com/${handle}`;
+      else profile.removeAttribute("href");
+      profile.setAttribute("aria-disabled",String(!handle));
+      profile.title = handle ? `在新标签页打开当前回复对象 @${handle} 的主页，保留此回复框。` :
+        "尚未读取到当前回复对象的账号，暂不能打开主页。";
+    }
+
+    function renderContext(s,bar) {
+      if (s.feed !== "notifications") return;
+      let context = bar.querySelector(".xrc-flow-context");
+      if (!context) {
+        context = document.createElement("div");
+        context.className = "xrc-flow-context";
+        const labels = document.createElement("div");
+        labels.className = "xrc-labels";
+        labels.setAttribute("aria-label","当前回复对象 · 对话提示");
+        renderLabels(labels,{ id:s.current.id,origin:"unknown",status:"unknown" });
+        const profile = document.createElement("a");
+        profile.className = "xrc-flow-profile";
+        profile.textContent = "他的主页 ↗";
+        profile.target = "_blank";
+        profile.rel = "noopener noreferrer";
+        profile.setAttribute("aria-disabled","true");
+        profile.title = "正在确认当前回复对象的账号";
+        context.append(labels,profile);
+        bar.prepend(context);
+      }
+      const current = s.current;
+      if (current.context) updateContext(context,current.context);
+      const revision = contextRevision;
+      if (current.contextRevision === revision) return;
+      current.contextRevision = revision;
+      // Local classification only; never resolve the profile from the conversation's root author.
+      void message({ type:"CLASSIFY",account:s.account,ids:[current.id] }).then(result => {
+        if (!currentSession(s) || s.current !== current || contextRevision !== revision) return;
+        const row = result.rows.find(item => item.id === current.id);
+        if (!row) return;
+        current.context = row;
+        render(s);
+      }).catch(() => {
+        if (context.isConnected && s.current === current && contextRevision === revision) {
+          context.querySelector(".xrc-flow-profile").title = "本地记录读取失败，请关闭回复框后重试。";
+        }
+      });
+    }
+
     function render(s) {
       const dialog = s.current.dialog;
       if (!dialog?.isConnected) return;
@@ -311,8 +371,9 @@
         bar.append(status,heart,skip,send);
       }
       if (nativeToolbar.nextElementSibling !== bar) nativeToolbar.after(bar);
+      renderContext(s,bar);
       const busy = draftBusy(s);
-      const statusText = `${s.feed === "home" ? "主页 · " : ""}已处理 ${s.handled.size} 条 · ${busy ? "回复正在填入或改写，完成后可继续。" : s.note}`;
+      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : ""}已处理 ${s.handled.size} 条 · ${busy ? "回复正在填入或改写，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;
       const canAct = ["ready","failed"].includes(s.phase);
@@ -417,6 +478,11 @@
 
     document.addEventListener("click",event => {
       const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+      const tab = target?.closest('[role="tab"]');
+      if (tab && session?.feed === "home") {
+        const tabs = Array.from(feedColumn(session)?.querySelectorAll('[role="tab"]') || []);
+        if (tabs.includes(tab) && tab !== tabs[session.homeTabIndex]) finish();
+      }
       const close = target?.closest(CLOSE);
       if (close && session && !internalClose && close.closest(COMPOSER) === composer()) { finish(); return; }
       const reply = target?.closest('[data-testid="reply"]');
@@ -443,7 +509,7 @@
         requestAnimationFrame(() => { if (session === s && !composer()) finish(); });
       }
     },true);
-    return { refresh,receiveReply };
+    return { refresh,receiveReply,invalidateContext:() => { contextRevision++; } };
   }
 
   globalThis.XReplyContinuous = { create };

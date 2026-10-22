@@ -12,6 +12,14 @@ function stateWith(tweets, account = "my_account") {
   return state;
 }
 
+test("回复框主页指向当前评论作者，不沿用原帖作者", () => {
+  const state = stateWith(demoTweets);
+  const row = core.classify(state,"my_account",demoTweets[8].id);
+  assert.equal(row.authorHandle,"bob");
+  assert.equal(row.rootHandle,"alice");
+  assert.equal(core.classify(state,"my_account","999999999").authorHandle,undefined);
+});
+
 test("我的原帖和别人的原帖：有我回复此人的证据才标为已回应", () => {
   const state = stateWith(demoTweets);
   const own = core.classify(state,"my_account","2112500000000000004");

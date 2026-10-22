@@ -1,0 +1,207 @@
+{
+  "date": "2026-10-22",
+  "samePositions": true,
+  "initial": {
+    "at": 1792650951093,
+    "busy": "false",
+    "controls": [
+      {
+        "disabled": false,
+        "height": 28,
+        "hidden": false,
+        "left": 934.5,
+        "pressed": "true",
+        "text": "隐藏已回且已点",
+        "top": 12.5,
+        "width": 112
+      },
+      {
+        "disabled": false,
+        "height": 28,
+        "hidden": false,
+        "left": 1046.5,
+        "pressed": null,
+        "text": "应用更新",
+        "top": 12.5,
+        "width": 74
+      },
+      {
+        "disabled": false,
+        "height": 36,
+        "hidden": false,
+        "left": 1158.5,
+        "pressed": null,
+        "text": "",
+        "top": 8.5,
+        "width": 36
+      }
+    ],
+    "scrollY": 0,
+    "url": "/notifications"
+  },
+  "applying": {
+    "at": 1792650958156,
+    "busy": "true",
+    "controls": [
+      {
+        "disabled": true,
+        "height": 28,
+        "hidden": false,
+        "left": 934.5,
+        "pressed": "true",
+        "text": "隐藏已回且已点",
+        "top": 12.5,
+        "width": 112
+      },
+      {
+        "disabled": true,
+        "height": 28,
+        "hidden": false,
+        "left": 1046.5,
+        "pressed": null,
+        "text": "应用更新",
+        "top": 12.5,
+        "width": 74
+      },
+      {
+        "disabled": false,
+        "height": 36,
+        "hidden": false,
+        "left": 1158.5,
+        "pressed": null,
+        "text": "",
+        "top": 8.5,
+        "width": 36
+      }
+    ],
+    "scrollY": 0,
+    "url": "/notifications"
+  },
+  "applied": {
+    "at": 1792650964453,
+    "busy": "false",
+    "controls": [
+      {
+        "disabled": false,
+        "height": 28,
+        "hidden": false,
+        "left": 934.5,
+        "pressed": "true",
+        "text": "隐藏已回且已点",
+        "top": 12.5,
+        "width": 112
+      },
+      {
+        "disabled": true,
+        "height": 28,
+        "hidden": false,
+        "left": 1046.5,
+        "pressed": null,
+        "text": "应用更新",
+        "top": 12.5,
+        "width": 74
+      },
+      {
+        "disabled": false,
+        "height": 36,
+        "hidden": false,
+        "left": 1158.5,
+        "pressed": null,
+        "text": "",
+        "top": 8.5,
+        "width": 36
+      }
+    ],
+    "scrollY": 0,
+    "url": "/notifications"
+  },
+  "scrolled": {
+    "at": 1792650965053,
+    "busy": "false",
+    "controls": [
+      {
+        "disabled": false,
+        "height": 28,
+        "hidden": false,
+        "left": 934.5,
+        "pressed": "true",
+        "text": "隐藏已回且已点",
+        "top": 12.5,
+        "width": 112
+      },
+      {
+        "disabled": true,
+        "height": 28,
+        "hidden": false,
+        "left": 1046.5,
+        "pressed": null,
+        "text": "应用更新",
+        "top": 12.5,
+        "width": 74
+      },
+      {
+        "disabled": false,
+        "height": 36,
+        "hidden": false,
+        "left": 1158.5,
+        "pressed": null,
+        "text": "",
+        "top": 8.5,
+        "width": 36
+      }
+    ],
+    "scrollY": 1626,
+    "url": "/notifications"
+  },
+  "closed": {
+    "at": 1792651096598,
+    "busy": "false",
+    "controls": [
+      {
+        "disabled": false,
+        "height": 28,
+        "hidden": false,
+        "left": 934.5,
+        "pressed": "true",
+        "text": "隐藏已回且已点",
+        "top": 12.5,
+        "width": 112
+      },
+      {
+        "disabled": false,
+        "height": 28,
+        "hidden": false,
+        "left": 1046.5,
+        "pressed": null,
+        "text": "应用更新",
+        "top": 12.5,
+        "width": 74
+      },
+      {
+        "disabled": false,
+        "height": 36,
+        "hidden": false,
+        "left": 1158.5,
+        "pressed": null,
+        "text": "",
+        "top": 8.5,
+        "width": 36
+      }
+    ],
+    "scrollY": 0,
+    "url": "/notifications"
+  },
+  "composeIssue": {
+    "observedDisabledBeforeFix": false,
+    "localRegressionAfterFix": "17/17 passed",
+    "realFixPendingExtensionReload": false,
+    "finalCheck": {
+      "editingBothDisabled": true,
+      "bothRemainVisible": true,
+      "toggleRestored": true,
+      "positionsUnchanged": true
+    }
+  },
+  "publicWritesPerformed": 0,
+  "userDraftUntouched": true
+}

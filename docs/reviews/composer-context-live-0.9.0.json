@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-22",
+  "labelsMatchList": true,
+  "profile": {
+    "openedExpectedAuthor": true,
+    "openedInNewTab": true,
+    "noopener": true,
+    "composerPreserved": true
+  },
+  "observationMs": 16119,
+  "layout": {
+    "infoHeightBefore": 30,
+    "infoHeightAfter": 30,
+    "infoTopBefore": 389.3984375,
+    "infoTopAfter": 389.3984375,
+    "editorTopBefore": 220.3984375,
+    "editorTopAfter": 220.3984375,
+    "backgroundBefore": 107,
+    "backgroundDuring": 107,
+    "backgroundAfterClose": 107,
+    "cardHeightBefore": 157,
+    "cardHeightAfterClose": 157,
+    "hiddenAfterClose": false
+  },
+  "draftSafety": {
+    "testedInSeparateTab": true,
+    "existingUserDraftUntouched": true,
+    "testEditorWasEmpty": true
+  },
+  "publicWritesPerformed": 0
+}

@@ -56,7 +56,9 @@
     timer = setTimeout(() => { timer = undefined; void refresh(); },250);
   }
 
-  function invalidateAnnotations() { lastSignature = ""; annotationRevision++; }
+  function invalidateAnnotations() {
+    lastSignature = ""; annotationRevision++; continuous?.invalidateContext();
+  }
 
   async function message(payload) {
     const reply = await chrome.runtime.sendMessage(payload);
@@ -82,8 +84,6 @@
       bar?.remove();
       return;
     }
-    const signature = JSON.stringify(result);
-    if (bar?.dataset.signature === signature) return;
     if (!bar) {
       bar = document.createElement("div");
       bar.className = "xrc-labels";
@@ -93,6 +93,12 @@
       if (!anchor) return;
       anchor.before(bar);
     }
+    renderLabels(bar,result);
+  }
+
+  function renderLabels(bar,result) {
+    const signature = JSON.stringify(result);
+    if (bar.dataset.signature === signature) return;
     bar.dataset.signature = signature;
     bar.dataset.origin = result.origin;
     const origin = document.createElement("span");
@@ -205,7 +211,7 @@
     }
   }
 
-  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message });
+  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels });
 
   window.addEventListener("message", event => {
     if (event.source !== window || event.origin !== location.origin ||
@@ -257,7 +263,7 @@
     homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
-    if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-filter,.xrc-filter-apply"))) {
+    if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls"))) {
       homeFilter.syncKnown(); notificationFilter.syncKnown(); schedule();
     }
   });

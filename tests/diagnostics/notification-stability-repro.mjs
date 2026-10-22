@@ -27,12 +27,17 @@ for (const operation of ["TweetDetail","TweetResultByRestId","NotificationsTimel
       removeAttribute(key) { this.attributes.delete(key); },
       getBoundingClientRect:() => ({ top:120,bottom:280,height:160 })
     };
-    const anchor = { previousElementSibling:null,before(button) { button.isConnected = true; this.previousElementSibling = button; } };
+    const anchor = { previousElementSibling:null,before(button) {
+      button.isConnected = true; button.children?.forEach(child => { child.isConnected = true; });
+      this.previousElementSibling = button;
+    } };
     const primary = { querySelector:() => ({ parentElement:anchor }),querySelectorAll:() => [card] };
     const document = {
       querySelector:selector => selector.includes("AppTabBar_Profile_Link") ? { getAttribute:() => "/my_account" } : primary,
       querySelectorAll:() => card.hasAttribute("data-xrc-notification-hidden") ? [card] : [],
-      createElement:() => ({ isConnected:false,before(button) { button.isConnected = true; this.previousElementSibling = button; },setAttribute() {},addEventListener() {},remove() { this.isConnected = false; } })
+      createElement:() => ({ isConnected:false,children:[],append(...items) { this.children.push(...items); },
+        before(button) { button.isConnected = true; this.previousElementSibling = button; },
+        setAttribute() {},addEventListener() {},remove() { this.isConnected = false; } })
     };
     const historical = post("2112500000000099999","101",demoTweets[5].id,card.id,"303","历史回复，并非当前空回复框发出");
     const result = graphql(historical);
