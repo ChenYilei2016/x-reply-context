@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>回过了 · 弹窗本地预览</title>
+<style>body{margin:0;padding:16px;background:#e9eef2}iframe{border:1px solid #ccd6dd;border-radius:12px;width:370px;height:820px;background:white}</style>
+<iframe title="扩展弹窗 · 虚构统计"></iframe>
+<script type="module">
+  const html = await (await fetch('/extension/popup.html')).text();
+  document.querySelector('iframe').srcdoc = html.replace('<link rel="stylesheet"','<base href="/extension/"><link rel="stylesheet"')
+    .replace('<script src="popup.js">','<script src="/tests/popup-demo.js"><\/script><script src="popup.js">');
+</script>
+</html>

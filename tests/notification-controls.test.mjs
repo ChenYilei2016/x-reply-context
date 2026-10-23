@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFile } from "node:fs/promises";
-import { likeIconPath } from './fixtures.mjs';
+import { likeIconPath,followIconPath } from './fixtures.mjs';
 
 const source = (await Promise.all(['card-filter.js','like-notifications.js','notification-filter.js'].map(name =>
   readFile(new URL(`../extension/${name}`,import.meta.url),'utf8')))).join('\n');
@@ -44,7 +44,7 @@ function setup() {
   const header = node(); header.isConnected = true;
   const settings = node(); header.append(settings);
   const article = node(); article.isConnected = true; article.id = '123';
-  const env = { enabled:true,auto:false,likesAuto:false,modal:false,hidden:false,complete:true,cards:[article],notices:[],calls:0,jobs:[],accountReads:0 };
+  const env = { enabled:true,auto:false,likesAuto:false,followsAuto:false,modal:false,hidden:false,complete:true,cards:[article],notices:[],calls:0,jobs:[],accountReads:0 };
   const primary = { contains:card => env.notices.includes(card) || env.cards.includes(card),
     querySelector:() => ({ parentElement:settings }),
     querySelectorAll:selector => selector.includes('"notification"') ? env.notices : env.cards };
@@ -55,7 +55,7 @@ function setup() {
     clearTimeout:id => timers.delete(id),
     document:{ createElement:node,querySelector:() => primary,
       addEventListener:listen,get hidden() { return env.hidden; },
-      querySelectorAll:selector => selector.includes('like-notification') ? env.notices.filter(card =>
+      querySelectorAll:selector => (selector.includes('like-notification') || selector.includes('follow-notification')) ? env.notices.filter(card =>
         selector.split(',').some(part => card.hasAttribute(part.slice(1,-1)))) :
         env.cards.filter(card => card.hasAttribute('data-xrc-notification-hidden')) } });
   vm.runInContext(source,context);
@@ -65,7 +65,7 @@ function setup() {
       if (env.failSaveAuto) throw new Error('failed');
       env.auto = value;
     },
-    likesEnabled:() => env.likesAuto,
+    likesEnabled:() => env.likesAuto,followsEnabled:() => env.followsAuto,
     ready:() => true,holdLayout:() => env.modal,save:async value => { env.enabled = value; },
     schedule() { env.jobs.push(filter.refresh()); },
     message:async request => {
@@ -92,9 +92,9 @@ function setup() {
     }
   };
   const makeCard = (id,top) => { const card = node(); card.id = id; card.top = top; card.isConnected = true; return card; };
-  const makeLike = top => {
+  const makeLike = (top,kind = 'like') => {
     const card = node(); card.top = top; card.isConnected = true; card.matches = () => true;
-    card.querySelector = selector => selector.includes('svg path') ? { getAttribute:() => likeIconPath } :
+    card.querySelector = selector => selector.includes('svg path') ? { getAttribute:() => kind === 'follow' ? followIconPath : likeIconPath } :
       selector === 'time' ? { getAttribute:() => '2026-10-23T00:00:00Z',
         closest:() => ({ querySelector:() => ({ textContent:'fixture like' }) }) } : { textContent:'fixture' };
     card.querySelectorAll = () => [];
@@ -248,4 +248,48 @@ test('自动点赞在回复框、后台暂停，手动快照也会消耗本轮�
   assert.equal(below.hasAttribute('data-xrc-like-notification-hidden'),true);
   const arrived = makeLike(1800); await filter.refresh(); await clock.advance(30000);
   assert.equal(arrived.hasAttribute('data-xrc-auto-like-hidden'),false);
+});
+
+test('关注独立开关空闲隐藏、回复框暂停，关闭只恢复关注且按钮位置不变',async () => {
+  const { env,filter,clock,makeLike,control,location } = setup();
+  env.enabled = false; env.followsAuto = true; env.likesAuto = true;
+  const follow = makeLike(1600,'follow'); const like = makeLike(1700);
+  const reading = makeLike(120,'follow');
+  await filter.refresh(); const apply = control('xrc-filter-apply');
+  const parent = apply.parentElement; const index = parent.children.indexOf(apply);
+  env.modal = true; location.pathname = '/compose/post'; await filter.refresh(); await clock.advance(20000);
+  assert.equal(follow.hasAttribute('data-xrc-auto-follow-hidden'),false);
+  env.modal = false; location.pathname = '/notifications'; await filter.refresh();
+  await clock.advance(9999); assert.equal(follow.hasAttribute('data-xrc-auto-follow-hidden'),false);
+  await clock.advance(1); await Promise.all(env.jobs);
+  assert.equal(follow.hasAttribute('data-xrc-auto-follow-hidden'),true);
+  assert.equal(like.hasAttribute('data-xrc-auto-like-hidden'),true);
+  assert.equal(reading.hasAttribute('data-xrc-auto-follow-hidden'),false);
+  const arrived = makeLike(1800,'follow'); await filter.refresh(); clock.dispatch('scroll',true);
+  await clock.advance(60000); assert.equal(arrived.hasAttribute('data-xrc-auto-follow-hidden'),false);
+  env.followsAuto = false; await filter.refresh();
+  assert.equal(follow.hasAttribute('data-xrc-auto-follow-hidden'),false);
+  assert.equal(like.hasAttribute('data-xrc-auto-like-hidden'),true);
+  assert.equal(control('xrc-filter-apply'),apply); assert.equal(parent.children.indexOf(apply),index);
+});
+
+test('点赞与关注共享100条预算，手动关注整理独立可用且不连锁隐藏补位',async () => {
+  const { env,filter,clock,makeLike,control } = setup();
+  env.enabled = false; env.likesAuto = true; env.followsAuto = true;
+  for (let i = 0; i < 70; i++) makeLike(1600);
+  for (let i = 0; i < 70; i++) makeLike(1700,'follow');
+  await filter.refresh(); await clock.advance(10000); await Promise.all(env.jobs);
+  assert.equal(env.notices.filter(n => n.hasAttribute('data-xrc-auto-like-hidden')).length,70);
+  assert.equal(env.notices.filter(n => n.hasAttribute('data-xrc-auto-follow-hidden')).length,30);
+  for (let i = 0; i < 20; i++) { filter.syncKnown(); await filter.refresh(); }
+  await clock.advance(30000);
+  assert.equal(env.notices.filter(n => n.hasAttribute('data-xrc-auto-follow-hidden')).length,30);
+  const reading = makeLike(120,'follow'); await filter.refresh();
+  const apply = control('xrc-filter-apply'); assert.equal(apply.disabled,false);
+  await apply.click({ stopPropagation() {} }); await Promise.all(env.jobs);
+  assert.equal(reading.hasAttribute('data-xrc-follow-notification-hidden'),true);
+  const arrived = makeLike(1700,'follow'); await filter.refresh(); await clock.advance(30000);
+  assert.equal(arrived.hasAttribute('data-xrc-auto-follow-hidden'),false);
+  env.followsAuto = false; await filter.refresh();
+  assert.equal(reading.hasAttribute('data-xrc-follow-notification-hidden'),false);
 });

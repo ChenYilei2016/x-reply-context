@@ -1,10 +1,12 @@
 /* Reserve the slot before X measures a virtual row, even before our labels exist. */
 /* Keep a measurable pixel for X's virtual row observer instead of removing its node. */
-article[data-xrc-home-hidden],article[data-xrc-notification-hidden],article[data-xrc-like-notification-hidden],article[data-xrc-auto-like-hidden] {
+article[data-xrc-home-hidden],article[data-xrc-notification-hidden],article[data-xrc-like-notification-hidden],article[data-xrc-auto-like-hidden],
+article[data-xrc-follow-notification-hidden],article[data-xrc-auto-follow-hidden] {
   height: 1px !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important;
   overflow: hidden !important; visibility: hidden !important; pointer-events: none !important;
 }
-article[data-xrc-home-hidden] > *,article[data-xrc-notification-hidden] > *,article[data-xrc-like-notification-hidden] > *,article[data-xrc-auto-like-hidden] > * { display: none !important; }
+article[data-xrc-home-hidden] > *,article[data-xrc-notification-hidden] > *,article[data-xrc-like-notification-hidden] > *,article[data-xrc-auto-like-hidden] > *,
+article[data-xrc-follow-notification-hidden] > *,article[data-xrc-auto-follow-hidden] > * { display: none !important; }
 .xrc-notification-controls {
   display: flex; align-items: stretch; gap: 8px; flex-shrink: 0; width: 272px; height: 30px;
   box-sizing: border-box; margin-right: 8px;

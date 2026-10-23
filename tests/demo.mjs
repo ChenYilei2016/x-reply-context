@@ -1,4 +1,4 @@
-import { users, demoTweets, homeTweets, post,likeIconPath } from "./fixtures.mjs";
+import { users, demoTweets, homeTweets, post,likeIconPath,followIconPath } from "./fixtures.mjs";
 import { checkLayout } from "./layout-check.mjs";
 import { checkHeights } from "./height-check.mjs";
 import { checkHearts } from "./heart-check.mjs";
@@ -9,6 +9,7 @@ import { checkFollowing } from "./following-check.mjs";
 import { checkAutomaticFilter } from "./automatic-filter-check.mjs";
 import { checkManualLikes } from "./manual-likes-check.mjs";
 import { checkAutomaticLikes } from "./automatic-likes-check.mjs";
+import { checkAutomaticFollows } from "./automatic-follows-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
@@ -22,7 +23,7 @@ core.ingest(state,{ likes:[demoTweets[1].id,demoTweets[8].id].map(id => ({
 })) },"my_account");
 const storageListeners = [];
 const replyWrites = new Map();
-const settings = { hideCompletedHome:false,hideCompletedNotifications:false,autoOrganizeNotifications:false,autoHideLikeNotifications:false };
+const settings = { hideCompletedHome:false,hideCompletedNotifications:false,autoOrganizeNotifications:false,autoHideLikeNotifications:false,autoHideFollowNotifications:false };
 let pauseClassification = false;
 let releaseClassification;
 globalThis.chrome = {
@@ -85,7 +86,7 @@ const timeline = document.querySelector("#timeline");
 function addAggregate(id,kind = 'like') {
   const article = document.createElement('article');
   article.dataset.testid = 'notification'; article.dataset.demoNotice = id;
-  article.innerHTML = `<div style="display:flex;width:100%"><div style="width:24px;margin-right:12px"><svg width="20" height="20" viewBox="0 0 24 24"><path d="${kind === 'like' ? likeIconPath : 'M2 2h20v20H2z'}"></path></svg></div><div><div dir="ltr"><span dir="ltr"><a href="/alice">Alice</a> ${kind === 'like' ? '点赞了你的帖子' : '关注了你'}</span><span><time datetime="${new Date(1700000000000+Number(id)*1000).toISOString()}">1分钟</time></span></div><div data-testid="tweetText">虚构通知内容</div></div></div>`;
+  article.innerHTML = `<div style="display:flex;width:100%"><div style="width:24px;margin-right:12px"><svg width="20" height="20" viewBox="0 0 24 24"><path d="${kind === 'like' ? likeIconPath : followIconPath}"></path></svg></div><div><div dir="ltr"><span dir="ltr"><a href="/alice">Alice</a> ${kind === 'like' ? '点赞了你的帖子' : '关注了你'}</span><span><time datetime="${new Date(1700000000000+Number(id)*1000).toISOString()}">1分钟</time></span></div><div data-testid="tweetText">虚构通知内容</div></div></div>`;
   timeline.prepend(article);
   return article;
 }
@@ -194,6 +195,16 @@ document.querySelector('#check-automatic-likes').addEventListener('click',async 
     timeline.append(...rows);
     const follow = addAggregate('9300','follow'); timeline.append(follow);
     return { rows,follow,arrive() { const row = addAggregate('9301'); timeline.append(row); return row; } };
+  });
+  event.target.disabled = false;
+});
+document.querySelector('#check-automatic-follows').addEventListener('click',async event => {
+  event.target.disabled = true;
+  await checkAutomaticFollows(() => {
+    const rows = Array.from({ length:150 },(_,i) => addAggregate(String(9400+i),'follow'));
+    timeline.append(...rows);
+    const like = addAggregate('9600'); timeline.append(like);
+    return { rows,like,arrive() { const row = addAggregate('9601','follow'); timeline.append(row); return row; } };
   });
   event.target.disabled = false;
 });

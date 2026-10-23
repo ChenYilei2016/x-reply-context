@@ -2,7 +2,7 @@
   "use strict";
   function create(options) {
     const { columnSelector,enabled,ready,holdLayout,save,schedule,accountHandle,
-      autoEnabled,autoReady,saveAuto,likesEnabled = () => false } = options;
+      autoEnabled,autoReady,saveAuto,likesEnabled = () => false,followsEnabled = () => false } = options;
     let button;
     let applyButton;
     let controls;
@@ -20,6 +20,9 @@
     const column = () => /^\/notifications(?:\/|$)/.test(location.pathname) ?
       document.querySelector(columnSelector) : null;
     const likes = globalThis.XReplyLikeNotifications.create({ column,accountHandle,holdLayout,autoEnabled:likesEnabled });
+    const follows = globalThis.XReplyLikeNotifications.create({ column,accountHandle,holdLayout,
+      autoEnabled:followsEnabled,eventType:"follow" });
+    const eventFilters = [likes,follows];
     const filter = globalThis.XReplyCardFilter.create({ ...options,column,
       enabled:() => ready() && enabled() && Boolean(button?.isConnected),
       attribute:"data-xrc-notification-hidden",
@@ -28,9 +31,17 @@
     });
 
     const commentsAutomatic = () => ready() && autoReady() && enabled() && autoEnabled();
-    const automaticPending = () => (commentsAutomatic() && filter.pendingCount()) || likes.pendingAutomatic();
+    const eventsAutomatic = () => likesEnabled() || followsEnabled();
+    const automaticPending = () => (commentsAutomatic() && filter.pendingCount()) || eventFilters.some(events => events.pendingAutomatic());
+    const canOrganize = () => (enabled() && (filter.pendingCount() || likes.available().length)) ||
+      (followsEnabled() && follows.available().length);
+    function syncEvents() {
+      if (!enabled()) likes.restoreManual();
+      if (!followsEnabled()) follows.restoreManual();
+      for (const events of eventFilters) if (events.sync()) lastActivity = Date.now();
+    }
     function automaticAllowed() {
-      return (commentsAutomatic() || likesEnabled()) && !saving &&
+      return (commentsAutomatic() || eventsAutomatic()) && !saving &&
         !document.hidden && !holdLayout() && Boolean(column() && controls?.isConnected && accountHandle());
     }
 
@@ -56,8 +67,10 @@
         if (!automaticAllowed()) { stopAutomatic(); return; }
         if (Date.now()-lastActivity < IDLE_MS || Date.now()-lastAttempt < IDLE_MS) { planAutomatic(); return; }
         if (filter.applying() || !automaticPending()) return;
-        if (likes.pendingAutomatic()) {
-          likes.clearAutomaticBelow(); renderButton(); schedule();
+        if (eventFilters.some(events => events.pendingAutomatic())) {
+          let remaining = 100;
+          for (const events of eventFilters) remaining -= events.clearAutomaticBelow(remaining);
+          renderButton(); schedule();
         }
         // Do not poll protected rows: a later activity or data refresh can arm another idle check.
         if (!commentsAutomatic() || !filter.hasPendingBelow()) return;
@@ -72,11 +85,13 @@
 
     function activity(event) {
       lastActivity = Date.now(); activityRevision++;
-      // Layout-induced scroll and synthetic events must not start a new like-cleanup batch.
-      if (event?.isTrusted && ["wheel","touchmove","pointerdown","keydown"].includes(event.type)) likes.armAutomatic();
+      // Layout-induced scroll and synthetic events must not start a new cleanup batch.
+      if (event?.isTrusted && ["wheel","touchmove","pointerdown","keydown"].includes(event.type)) {
+        for (const events of eventFilters) events.armAutomatic();
+      }
       const cancelled = filter.cancelApplyBelow();
       // Scroll/input is a constant-time hot path while an idle check is already armed.
-      if ((commentsAutomatic() || likesEnabled()) && automaticPending() && (automaticTimer === undefined || cancelled)) planAutomatic();
+      if ((commentsAutomatic() || eventsAutomatic()) && automaticPending() && (automaticTimer === undefined || cancelled)) planAutomatic();
       if (cancelled) renderButton();
     }
 
@@ -116,10 +131,11 @@
         applyButton.className = "xrc-filter-apply";
         applyButton.addEventListener("click",event => {
           event.stopPropagation();
-          if (!enabled() || saving || holdLayout() || filter.applying() ||
-              (!filter.pendingCount() && !likes.available().length)) return;
-          likes.clearLoaded();
-          filter.requestApply(); renderButton(); schedule();
+          if (saving || holdLayout() || filter.applying() || !canOrganize()) return;
+          const likeCount = enabled() ? likes.clearLoaded() : 0;
+          if (followsEnabled()) follows.clearLoaded(100-likeCount);
+          if (enabled()) filter.requestApply();
+          renderButton(); schedule();
         });
       }
       if (!autoButton) {
@@ -148,14 +164,14 @@
       if (button.textContent !== label) button.textContent = label;
       button.setAttribute("aria-pressed",String(enabled()));
       button.disabled = saving || !ready() || holdLayout() || filter.applying();
-      button.title = error || `${enabled() ? "已开启，点击恢复评论及手动整理隐藏的点赞通知" : "点击开启，并隐藏当前已确认完成的评论通知"}。评论按同一原帖、同一个人的文字及红心标签判断。手动“整理列表”只额外隐藏点击瞬间已加载的点赞通知，关注等保留。自动隐藏点赞通知可在扩展弹窗独立开关。`;
+      button.title = error || `${enabled() ? "已开启，点击恢复评论及手动整理隐藏的点赞通知" : "点击开启，并隐藏当前已确认完成的评论通知"}。评论按同一原帖、同一个人的文字及红心标签判断。自动隐藏点赞、关注通知可在扩展弹窗分别开关。`;
       button.setAttribute("aria-label",error ? "隐藏已回且已点，设置保存失败，点击重试" : label);
       controls.setAttribute("aria-busy",String(saving || filter.applying()));
-      const canOrganize = filter.pendingCount() || likes.available().length;
-      applyButton.disabled = !ready() || !enabled() || saving || holdLayout() || filter.applying() || !canOrganize;
-      applyButton.title = !enabled() ? "请先开启左侧隐藏开关。" : holdLayout() ? "回复框关闭后可整理列表，编辑时保持背景列表不动。" :
-        filter.applying() ? "正在整理，请稍候。" : !canOrganize ? "当前已加载通知没有待整理内容。" :
-        "一次性整理当前已加载内容：应用评论筛选，并额外隐藏点击瞬间已加载的点赞通知（单次最多100条）。新出现的点赞通知保留，不循环清理、不刷新网页或主动请求更多通知；关闭隐藏开关可恢复。";
+      const hasOrganizable = canOrganize();
+      applyButton.disabled = !ready() || saving || holdLayout() || filter.applying() || !hasOrganizable;
+      applyButton.title = !enabled() && !followsEnabled() ? "请先开启左侧隐藏开关或插件弹窗中的关注过滤。" : holdLayout() ? "回复框关闭后可整理列表，编辑时保持背景列表不动。" :
+        filter.applying() ? "正在整理，请稍候。" : !hasOrganizable ? "当前已加载通知没有待整理内容。" :
+        "一次性整理已加载内容：左侧规则开启时应用评论筛选并清理点赞通知；关注开关开启时也清理关注通知。点赞与关注合计最多100条，补位不继续清理；关闭对应开关可恢复，不刷新网页或主动请求接口。";
       const applyText = "整理列表";
       if (applyButton.textContent !== applyText) applyButton.textContent = applyText;
       autoButton.setAttribute("aria-pressed",String(autoEnabled()));
@@ -172,16 +188,14 @@
     window.addEventListener("pageshow",activity);
     return {
       ...filter,
-      reset() { stopAutomatic(); filter.reset(); likes.restore(); },
+      reset() { stopAutomatic(); filter.reset(); eventFilters.forEach(events => events.restore()); },
       syncKnown() {
         filter.syncKnown();
-        if (!enabled()) likes.restoreManual();
-        if (likes.sync()) lastActivity = Date.now();
+        syncEvents();
       },
       async refresh() {
         renderButton();
-        if (!enabled()) likes.restoreManual();
-        if (likes.sync()) lastActivity = Date.now();
+        syncEvents();
         if (!automaticAllowed()) filter.cancelApplyBelow();
         try { await filter.refresh(); } finally { planAutomatic(); renderButton(); }
       }

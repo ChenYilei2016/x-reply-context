@@ -10,25 +10,44 @@
   <a id="history" class="primary" hidden target="_blank" rel="noopener noreferrer">补充我的历史回复</a>
   <a class="secondary" href="https://x.com/notifications" target="_blank" rel="noopener noreferrer">打开 X 通知</a>
   <section class="home-filter-setting">
-    <label><input id="hide-completed-home" type="checkbox" disabled aria-describedby="home-filter-help">主页隐藏自己的内容及已完成原帖</label>
-    <p id="home-filter-help">默认关闭，仅“主页 → 为你推荐”生效。自己的帖子和回复直接隐藏；别人的原帖需评论过（含楼中楼），并且给这篇原帖点过红心，才隐藏。只做一项或记录待确认仍保留。关闭开关恢复显示，记录不删除。</p>
+    <label><input id="hide-completed-home" type="checkbox" disabled aria-describedby="home-filter-help">主页隐藏自己及已完成原帖</label>
+    <p id="home-filter-help" class="setting-hint">仅为你推荐；自己的内容及已评论、已点赞原帖。</p>
+    <details><summary>详情</summary>
+    <p>默认关闭，仅“主页 → 为你推荐”生效。自己的帖子和回复直接隐藏；别人的原帖需评论过（含楼中楼），并且给这篇原帖点过红心，才隐藏。只做一项或记录待确认仍保留。关闭开关恢复显示，记录不删除。</p>
     <p>回复框打开时暂不折叠或恢复，关闭后生效。新加载帖子照常判断；“正在关注”和通知页不受影响。</p>
+    </details>
     <p id="home-filter-status" role="status"></p>
   </section>
   <section class="home-filter-setting">
     <label><input id="auto-hide-like-notifications" type="checkbox" disabled aria-describedby="like-filter-help">通知自动隐藏点赞消息</label>
-    <p id="like-filter-help">默认关闭，与已回已点及自动整理开关独立。开启或继续浏览后，空闲10秒隐藏阅读区下方600px以外的点赞通知，每轮最多100条。当前及上方保留，回复框和后台暂停。</p>
-    <p>每轮做完即停，补位、新到消息或程序滚动不会继续清理，等你再次滚动、触摸、点击或按键后再计时。满屏点赞时可手动「整理列表」清理当前一批。只隐藏点赞通知，评论、关注等保留；关闭本开关恢复自动隐藏项。</p>
+    <p id="like-filter-help" class="setting-hint">独立开关 · 空闲10秒 · 每轮一批，不连续清理。</p>
+    <details><summary>详情</summary>
+    <p>默认开启，记住手动关闭的选择；与已回已点及自动整理开关独立。开启或继续浏览后，空闲10秒隐藏阅读区下方600px以外的点赞通知，与关注消息合计每轮最多100条。当前及上方保留，回复框和后台暂停。</p>
+    <p>每轮做完即停，补位、新到消息或程序滚动不会继续清理，等你再次滚动、触摸、点击或按键后再计时。满屏点赞时可手动「整理列表」清理当前一批。包含单人、多人点赞原帖及喜欢回复；评论保留，关注由下方独立开关控制；关闭本开关恢复自动隐藏项。</p>
+    </details>
     <p id="like-filter-status" role="status"></p>
   </section>
+  <section class="home-filter-setting">
+    <label><input id="auto-hide-follow-notifications" type="checkbox" disabled aria-describedby="follow-filter-help">通知自动隐藏关注消息</label>
+    <p id="follow-filter-help" class="setting-hint">单人、多人关注均支持；不影响真实关注关系。</p>
+    <details><summary>详情</summary>
+      <p>默认开启，记住手动关闭的选择；与点赞、完成评论及主页开关独立。开启或继续浏览后，空闲10秒只隐藏阅读区下方600px以外的“关注了你”通知。当前及上方保留，回复框和后台暂停；关闭恢复本开关隐藏的通知，回复框关闭后再恢复。</p>
+      <p>点赞、关注合计每轮最多100条，做完即停。补位、新到消息和页面自行滚动不会启动下一轮；你主动滚动、触摸、点击或按键后才重新计时。开启此开关时，「整理列表」也可手动清理当前已加载关注通知。</p>
+      <p>仅改变本地显示，不取消关注、不删除通知、不主动请求接口；评论、转帖等其他通知不受本开关影响。</p>
+    </details>
+    <p id="follow-filter-status" role="status"></p>
+  </section>
+  <details><summary>通知整理与回复框</summary>
   <p>通知回复框底部显示原帖、文字/红心状态、双方评论原帖数和 NEW，沿用下方统计口径。「他的主页」在新标签页打开当前评论者主页，保留草稿；未确认账号时不可跳转。</p>
   <p>通知标题栏的「自动整理」默认关闭并记住选择。开启隐藏规则后，空闲10秒仅整理阅读区下方较远的完成评论；滚动、点击或输入重新计时，回复框和后台暂停。当前及上方卡片保留，按钮位置固定。</p>
-  <p>「整理列表」为手动执行一次：应用已加载评论状态，同时隐藏点击瞬间的点赞通知（最多100条）。新到点赞保留，不循环处理；「自动整理」只处理完成评论，点赞自动隐藏由上方独立开关控制。不刷新页面或主动请求接口，关闭对应开关可恢复。</p>
-  <p class="lead">回过、点过，一眼看清。</p>
+  <p>「整理列表」为手动执行一次：应用已加载评论状态，同时隐藏点击瞬间的点赞通知（最多100条）。关注开关开启时也清理已加载关注。新到消息保留，不循环处理；「自动整理」只处理完成评论，点赞和关注自动隐藏由上方独立开关控制，合计每轮最多100条。不刷新页面或主动请求接口，关闭对应开关可恢复。</p>
+  </details>
+  <details><summary>标签说明</summary>
   <div class="example"><strong>文字-已回</strong><strong class="heart">红心-已点</strong></div>
   <p>两项同时显示，不用切换。按同一原帖、同一个人判断，点赞和文字回复分别记录。</p>
   <p>蓝色“我原帖”，紫色“别人原帖”。“我评他 / 他评我”分别统计评论对方的原帖数，同帖多次只算 1。标签保持固定行高，NEW 固定在末尾；窄处可横向查看其他标签。</p>
   <p><strong>NEW：他首次评论我的原帖，且“我评他”为 0。</strong> 仅第一条评论通知标新，依据本地已读取记录。</p>
+  </details>
   <details><summary>连续回复：发送并下一条 / 跳过</summary>
     <p>在通知或主页的“为你推荐”“正在关注”列表点开任一条的小评论按钮。写好后点“发送并下一条”，确认发送成功并保存本地记录后自动打开下一条；X 原来的回复按钮仍只发送本条。切换页签结束本轮，不跨列表继续；已发出回复的成功回执仍会保存。</p>
     <p>“♡ 点赞 / ♥ 已点”只操作当前正在回复的那条帖子；再次点击可取消。它与发送、跳过独立，不自动点赞，也不增加评论次数。复用 X 原生红心和成功回执保存记录；按钮以当前帖的原生状态为准，失败会随 X 回滚。原帖卡片移出列表时禁用，避免误点。</p>

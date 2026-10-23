@@ -16,8 +16,10 @@
   let notificationSettingLoaded = false;
   let autoOrganizeNotifications = false;
   let automaticSettingLoaded = false;
-  let autoHideLikeNotifications = false;
+  let autoHideLikeNotifications = true;
   let likeSettingLoaded = false;
+  let autoHideFollowNotifications = true;
+  let followSettingLoaded = false;
   const homeFilter = globalThis.XReplyHomeFilter.create({
     accountHandle,tweetId,message,holdLayout,enabled:() => hideCompletedHome
   });
@@ -26,6 +28,7 @@
     enabled:() => hideCompletedNotifications,ready:() => notificationSettingLoaded,
     autoEnabled:() => autoOrganizeNotifications,autoReady:() => automaticSettingLoaded,
     likesEnabled:() => likeSettingLoaded && autoHideLikeNotifications,
+    followsEnabled:() => followSettingLoaded && autoHideFollowNotifications,
     saveAuto:async value => {
       await chrome.storage.local.set({ autoOrganizeNotifications:value });
       autoOrganizeNotifications = value;
@@ -270,20 +273,27 @@
       schedule();
     }
     if (changes.autoHideLikeNotifications) {
-      autoHideLikeNotifications = changes.autoHideLikeNotifications.newValue === true;
+      autoHideLikeNotifications = changes.autoHideLikeNotifications.newValue !== false;
       likeSettingLoaded = true;
       schedule();
     }
+    if (changes.autoHideFollowNotifications) {
+      autoHideFollowNotifications = changes.autoHideFollowNotifications.newValue !== false;
+      followSettingLoaded = true;
+      schedule();
+    }
   });
-  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","autoOrganizeNotifications","autoHideLikeNotifications"]).then(saved => {
+  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","autoOrganizeNotifications","autoHideLikeNotifications","autoHideFollowNotifications"]).then(saved => {
     if (!homeSettingLoaded) hideCompletedHome = saved.hideCompletedHome === true;
     homeSettingLoaded = true;
     if (!notificationSettingLoaded) hideCompletedNotifications = saved.hideCompletedNotifications === true;
     notificationSettingLoaded = true;
     if (!automaticSettingLoaded) autoOrganizeNotifications = saved.autoOrganizeNotifications === true;
     automaticSettingLoaded = true;
-    if (!likeSettingLoaded) autoHideLikeNotifications = saved.autoHideLikeNotifications === true;
+    if (!likeSettingLoaded) autoHideLikeNotifications = saved.autoHideLikeNotifications !== false;
     likeSettingLoaded = true;
+    if (!followSettingLoaded) autoHideFollowNotifications = saved.autoHideFollowNotifications !== false;
+    followSettingLoaded = true;
     homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {

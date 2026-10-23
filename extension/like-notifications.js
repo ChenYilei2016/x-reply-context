@@ -1,15 +1,18 @@
 (() => {
   "use strict";
-  const ATTRIBUTE = "data-xrc-like-notification-hidden";
-  const AUTO_ATTRIBUTE = "data-xrc-auto-like-hidden";
-  const ICON_PATH = "M20.884 13.19c-1.351 2.48-4.001 5.12-8.379 7.67l-.503.3-.504-.3c-4.379-2.55-7.029-5.19-8.382-7.67-1.36-2.5-1.41-4.86-.514-6.67.887-1.79 2.647-2.91 4.601-3.01 1.651-.09 3.368.56 4.798 2.01 1.429-1.45 3.146-2.1 4.796-2.01 1.954.1 3.714 1.22 4.601 3.01.896 1.81.846 4.17-.514 6.67z";
-  function create({ column,accountHandle,holdLayout,autoEnabled = () => false }) {
+  const ICONS = {
+    like:"M20.884 13.19c-1.351 2.48-4.001 5.12-8.379 7.67l-.503.3-.504-.3c-4.379-2.55-7.029-5.19-8.382-7.67-1.36-2.5-1.41-4.86-.514-6.67.887-1.79 2.647-2.91 4.601-3.01 1.651-.09 3.368.56 4.798 2.01 1.429-1.45 3.146-2.1 4.796-2.01 1.954.1 3.714 1.22 4.601 3.01.896 1.81.846 4.17-.514 6.67z",
+    follow:"M17.863 13.44c1.477 1.58 2.366 3.8 2.632 6.46l.11 1.1H3.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46C7.627 11.85 9.648 11 12 11s4.373.85 5.863 2.44zM12 2C9.791 2 8 3.79 8 6s1.791 4 4 4 4-1.79 4-4-1.791-4-4-4z"
+  };
+  function create({ column,accountHandle,holdLayout,autoEnabled = () => false,eventType = "like" }) {
+    const ATTRIBUTE = `data-xrc-${eventType}-notification-hidden`;
+    const AUTO_ATTRIBUTE = `data-xrc-auto-${eventType}-hidden`;
     let automaticPending = false;
     let automaticContext = "";
     function identity(article,account) {
-      // Only the leading event icon identifies a like; excerpts and usernames are not evidence.
+      // Identify the event by its leading icon, including single-person and grouped notifications.
       if (!article.matches('article[data-testid="notification"]') ||
-          article.querySelector(':scope > div > div:first-child > svg path')?.getAttribute("d") !== ICON_PATH) return "";
+          article.querySelector(':scope > div > div:first-child > svg path')?.getAttribute("d") !== ICONS[eventType]) return "";
       const time = article.querySelector("time");
       const timestamp = time?.getAttribute("datetime");
       if (!timestamp || !account) return "";
@@ -19,7 +22,8 @@
         article.querySelector('[data-testid="tweetText"]')?.textContent || ""]);
     }
 
-    function available(eligible = () => true) {
+    function available(eligible = () => true,limit = 100) {
+      if (limit <= 0) return [];
       const primary = column();
       const account = accountHandle();
       const result = [];
@@ -27,27 +31,29 @@
         if (article.hasAttribute(ATTRIBUTE) || article.hasAttribute(AUTO_ATTRIBUTE) || !eligible(article)) continue;
         const signature = identity(article,account);
         if (signature) result.push({ article,signature });
-        if (result.length === 100) break;
+        if (result.length === limit) break;
       }
       return result;
     }
 
-    function clearLoaded() {
-      if (holdLayout()) return;
+    function clearLoaded(limit = 100) {
+      if (holdLayout()) return 0;
       automaticPending = false;
       // One click adopts one mounted snapshot. Later arrivals are never adopted by sync().
-      const snapshot = available();
+      const snapshot = available(() => true,limit);
       for (const { article,signature } of snapshot) article.setAttribute(ATTRIBUTE,signature);
+      return snapshot.length;
     }
 
     function armAutomatic() { if (autoEnabled()) automaticPending = true; }
 
-    function clearAutomaticBelow() {
-      if (!autoEnabled() || !automaticPending || holdLayout()) return;
+    function clearAutomaticBelow(limit = 100) {
+      if (!autoEnabled() || !automaticPending || holdLayout()) return 0;
       // Consume one user browsing opportunity, even if no safe row exists. DOM arrivals cannot rearm it.
       automaticPending = false;
-      const snapshot = available(article => article.getBoundingClientRect().top > window.innerHeight+600);
+      const snapshot = available(article => article.getBoundingClientRect().top > window.innerHeight+600,limit);
       for (const { article,signature } of snapshot) article.setAttribute(AUTO_ATTRIBUTE,signature);
+      return snapshot.length;
     }
 
     function sync() {

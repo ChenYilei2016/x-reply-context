@@ -36,7 +36,7 @@ for (const operation of ["TweetDetail","TweetResultByRestId","NotificationsTimel
       querySelectorAll:selector => selector.includes('"notification"') ? [] : [card] };
     const document = {
       querySelector:selector => selector.includes("AppTabBar_Profile_Link") ? { getAttribute:() => "/my_account" } : primary,
-      querySelectorAll:selector => !selector.includes('like-notification') && card.hasAttribute("data-xrc-notification-hidden") ? [card] : [],
+      querySelectorAll:selector => !selector.includes('like-notification') && !selector.includes('follow-notification') && card.hasAttribute("data-xrc-notification-hidden") ? [card] : [],
       addEventListener() {},
       createElement:() => ({ isConnected:false,children:[],append(...items) { this.children.push(...items); },
         before(button) { button.isConnected = true; this.previousElementSibling = button; },

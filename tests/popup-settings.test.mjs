@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 
-test('弹窗点赞开关默认关闭、单独保存，保存失败回滚且不影响主页设置',async () => {
+test('弹窗保留已关闭的选择、单独保存，保存失败回滚且不影响主页设置',async () => {
   const nodes = new Map();
-  const settings = { hideCompletedHome:true };
+  const settings = { hideCompletedHome:true,autoHideLikeNotifications:false,autoHideFollowNotifications:false };
   let failSave = false;
   const element = selector => {
     if (!nodes.has(selector)) nodes.set(selector,{ checked:false,disabled:true,
@@ -22,8 +22,14 @@ test('弹窗点赞开关默认关闭、单独保存，保存失败回滚且不�
   const likes = element('#auto-hide-like-notifications');
   assert.equal(likes.checked,false); assert.equal(likes.disabled,false);
   assert.equal(element('#hide-completed-home').checked,true);
+  const follows = element('#auto-hide-follow-notifications');
+  assert.equal(follows.checked,false); assert.equal(follows.disabled,false);
   likes.checked = true; await likes.change();
   assert.equal(settings.autoHideLikeNotifications,true); assert.equal(settings.hideCompletedHome,true);
+  follows.checked = true; await follows.change();
+  assert.equal(settings.autoHideFollowNotifications,true); assert.equal(settings.autoHideLikeNotifications,true);
+  follows.checked = false; await follows.change();
+  assert.equal(settings.autoHideFollowNotifications,false); assert.equal(likes.checked,true);
   failSave = true; likes.checked = false; await likes.change();
   assert.equal(likes.checked,true); assert.equal(settings.autoHideLikeNotifications,true);
   assert.match(element('#like-filter-status').textContent,/未保存/);
