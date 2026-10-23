@@ -24,6 +24,8 @@ export async function checkComposerContext() {
     check("回复框标签与列表一致，含次数及NEW",labelText(context().querySelector('.xrc-labels')) ===
       labelText(carol.querySelector('.xrc-labels')) && context().querySelector('.xrc-new-person'));
     check("主页链接保留当前回复框",profile().target === '_blank' && profile().rel.includes('noopener'));
+    check("回复框显示本地原帖文字",document.querySelector('.xrc-flow-root')?.textContent === '原帖：我分享了一些最近做工具的心得。');
+    const previewHeight = document.querySelector('.xrc-flow-root').getBoundingClientRect().height;
     const rowHeight = context().getBoundingClientRect().height;
     document.querySelector('#simulate').click();
     await wait(() => context()?.querySelector('.xrc-status')?.dataset.confirmed === 'true');
@@ -42,6 +44,7 @@ export async function checkComposerContext() {
     await wait(() => profile()?.getAttribute('href') === 'https://x.com/bob');
     check("楼中楼主页指向评论者，原帖链接仍指向原帖",context().querySelector('[data-origin="others"]') &&
       context().querySelector('a[href="https://x.com/i/status/2112500000000000006"]'));
+    check("楼中楼摘要取原帖而非被回复评论",document.querySelector('.xrc-flow-root').textContent === '原帖：今天分享一个小技巧。');
     check("查看信息和跳过未发送评论",document.querySelector('#composer-evidence').dataset.requests === '0');
     document.querySelector('[data-testid="app-bar-close"]').click();
     const mode = document.querySelector('#context-result-mode');
@@ -50,6 +53,8 @@ export async function checkComposerContext() {
     await wait(() => profile()?.title.includes('读取失败'));
     check("读取失败仍可跳过，固定占位保留",!document.querySelector('.xrc-flow-skip').disabled &&
       profile().getAttribute('aria-disabled') === 'true' && context().getBoundingClientRect().height === rowHeight);
+    check("摘要读取失败不改变高度",document.querySelector('.xrc-flow-root').textContent === '原帖内容暂不可用' &&
+      document.querySelector('.xrc-flow-root').getBoundingClientRect().height === previewHeight);
     document.querySelector('[data-testid="app-bar-close"]').click();
     mode.value = 'missing-author';
     carol.querySelector('[data-testid="reply"]').click();

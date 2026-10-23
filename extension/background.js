@@ -44,6 +44,9 @@ async function handleMessage(message) {
     }
     const rows = message.type === "CLASSIFY" && Array.isArray(message.ids) ?
       core.classifyBatch(state,account,message.ids) : [];
+    if (message.includeRootText === true) {
+      for (const row of rows) row.rootText = state.tweets[row.rootId]?.text || "";
+    }
     if (message.type === "CLASSIFY") return { ok:true,rows,account,recognized:Boolean(me) };
     return {
       ok:true, rows, account, recognized:Boolean(me),

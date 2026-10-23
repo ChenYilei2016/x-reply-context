@@ -91,6 +91,13 @@ article[data-xrc-notification-hidden],
   display: flex; align-items: center; gap: 8px; flex-basis: 100%; min-width: 0; height: 30px;
 }
 .xrc-flow-context .xrc-labels { position: static; flex: 1; min-width: 0; }
+.xrc-flow-root {
+  flex: 0 0 100%; min-width: 0; height: 36px; box-sizing: border-box;
+  padding-left: 8px; border-left: 2px solid #8293a44d; opacity: .75;
+  font: 12px/18px system-ui,sans-serif; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
 .xrc-flow-profile {
   flex-shrink: 0; color: #1d9bf0; font-weight: 650; text-decoration: none;
   border: 1px solid #8293a470; border-radius: 16px; padding: 4px 8px; white-space: nowrap;

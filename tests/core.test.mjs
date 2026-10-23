@@ -225,6 +225,9 @@ test("后台串行合并多标签消息，并拒绝非 X 网页调用", async ()
   assert.equal(upgraded.rows[0].personStats.myCommentedPosts,0,"自己的原帖下回应不算我评他");
   assert.equal(upgraded.rows[0].personStats.theirCommentedPosts,1);
   assert.equal(upgraded.rows[0].newPerson,true,"旧的已回应标记不影响新的首次评论口径");
+  assert.equal(upgraded.rows[0].rootText,undefined,"普通列表分类不额外传输正文");
+  const excerpt = await send({ type:"CLASSIFY",account:"my_account",ids:[demoTweets[1].id],includeRootText:true });
+  assert.equal(excerpt.rows[0].rootText,demoTweets[0].text,"回复框复用本地原帖摘要");
   assert.equal(saved.replyContext.people["101:202"].firstCommentOnMyPostId,demoTweets[1].id);
   assert.equal(saved.replyContext.people["101:202"].sent,undefined);
   await Promise.all([
@@ -235,6 +238,9 @@ test("后台串行合并多标签消息，并拒绝非 X 网页调用", async ()
   assert.equal(result.rows[0].status,"replied");
   assert.equal(listener({ type:"INGEST" },{ id:extensionId,url:"https://example.com" },() => {}),false);
   assert.ok(saved.replyContext.replies["101:2112500000000000001:202"]);
+  await send({ type:"INGEST",account:"my_account",batch:{ tweets:[post('880','202','879','879','101','这是评论内容')] } });
+  const missingRoot = await send({ type:"CLASSIFY",account:"my_account",ids:['880'],includeRootText:true });
+  assert.equal(missingRoot.rows[0].rootText,'',"正文缺失时不拿评论内容冒充原帖");
 });
 
 test("文字和红心独立：只点赞、只回复和两者都有均可同时显示", () => {

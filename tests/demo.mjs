@@ -46,6 +46,9 @@ globalThis.chrome = {
           replyCount:Object.keys(state.replies).length,
           likeCount:Object.values(state.likes).filter(like => like.liked).length
         };
+        if (message.includeRootText) {
+          snapshot.rows.forEach(row => { row.rootText = state.tweets[row.rootId]?.text || ''; });
+        }
         if (message.ids.length === 1 && document.querySelector('.xrc-flow-context')) {
           const mode = document.querySelector('#context-result-mode').value;
           if (mode === 'delayed') await new Promise(resolve => setTimeout(resolve,1600));

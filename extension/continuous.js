@@ -293,6 +293,11 @@
 
     function updateContext(context,row) {
       renderLabels(context.querySelector(".xrc-labels"),row);
+      const preview = context.parentElement.querySelector(".xrc-flow-root");
+      const excerpt = (row.rootText || "").replace(/\s+/g," ").trim();
+      const previewText = excerpt ? `原帖：${excerpt}` : "原帖内容暂未缓存";
+      if (preview.textContent !== previewText) preview.textContent = previewText;
+      preview.title = excerpt ? `本地缓存文字摘要：${excerpt}` : "仅使用本地缓存，不自动请求原帖。";
       const profile = context.querySelector(".xrc-flow-profile");
       const handle = /^[a-zA-Z0-9_]{1,15}$/.test(row.authorHandle || "") ? row.authorHandle : "";
       if (handle) profile.href = `https://x.com/${handle}`;
@@ -322,13 +327,21 @@
         context.append(labels,profile);
         bar.prepend(context);
       }
+      let preview = bar.querySelector(".xrc-flow-root");
+      if (!preview) {
+        preview = document.createElement("div");
+        preview.className = "xrc-flow-root";
+        preview.setAttribute("aria-label","原帖文字摘要");
+        preview.textContent = "原帖：读取本地缓存…";
+        context.after(preview);
+      }
       const current = s.current;
       if (current.context) updateContext(context,current.context);
       const revision = contextRevision;
       if (current.contextRevision === revision) return;
       current.contextRevision = revision;
       // Local classification only; never resolve the profile from the conversation's root author.
-      void message({ type:"CLASSIFY",account:s.account,ids:[current.id] }).then(result => {
+      void message({ type:"CLASSIFY",account:s.account,ids:[current.id],includeRootText:true }).then(result => {
         if (!currentSession(s) || s.current !== current || contextRevision !== revision) return;
         const row = result.rows.find(item => item.id === current.id);
         if (!row) return;
@@ -337,6 +350,8 @@
       }).catch(() => {
         if (context.isConnected && s.current === current && contextRevision === revision) {
           context.querySelector(".xrc-flow-profile").title = "本地记录读取失败，请关闭回复框后重试。";
+          const preview = bar.querySelector(".xrc-flow-root");
+          if (preview) preview.textContent = "原帖内容暂不可用";
         }
       });
     }

@@ -1,0 +1,17 @@
+{
+  "draftPresent": false,
+  "lineHeight": "18px",
+  "previewHasCachedText": true,
+  "previewHeight": 36,
+  "previewPresent": true,
+  "scroll": 0,
+  "source": "real-page-read-only",
+  "sent": false,
+  "closed": true,
+  "afterClose": {
+    "path": "/notifications",
+    "editors": 0,
+    "dialogs": 0,
+    "scroll": 0
+  }
+}
