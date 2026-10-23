@@ -8,11 +8,12 @@
     const pending = new Set();
     let layoutAccount = "";
     let applyRequested = false;
+    let applyBelowAllowed;
     const invalidate = () => { signature = ""; revision++; };
     function reset() {
       document.querySelectorAll(`[${attribute}]`).forEach(article => article.removeAttribute(attribute));
       decisions.clear();
-      layouts.clear(); pending.clear(); layoutAccount = ""; applyRequested = false;
+      layouts.clear(); pending.clear(); layoutAccount = ""; applyRequested = false; applyBelowAllowed = undefined;
       invalidate();
     }
 
@@ -42,10 +43,23 @@
       }
     }
 
-    function requestApply() { applyRequested = true; invalidate(); }
+    const belowReadingArea = article => article.getBoundingClientRect().top > window.innerHeight+600;
+    function requestApply() { applyRequested = true; applyBelowAllowed = undefined; invalidate(); }
+    function requestApplyBelow(allowed) { applyRequested = true; applyBelowAllowed = allowed; invalidate(); }
+    function cancelApplyBelow() {
+      if (!applyBelowAllowed) return false;
+      applyRequested = false; applyBelowAllowed = undefined; invalidate();
+      return true;
+    }
+    function hasPendingBelow() {
+      const primary = column();
+      return Boolean(primary && layoutAccount === accountHandle() && cardsIn(primary).some(({ article,id }) =>
+        pending.has(id) && belowReadingArea(article)));
+    }
 
     async function refresh() {
       syncKnown();
+      if (applyBelowAllowed && !applyBelowAllowed()) cancelApplyBelow();
       // Keep native controls mounted and the background steady while composing.
       if (holdLayout()) return;
       const primary = column();
@@ -64,19 +78,20 @@
           for (const row of result.rows) rows.set(row.id,row);
         }
       } catch (error) {
-        applyRequested = false;
+        applyRequested = false; applyBelowAllowed = undefined;
         if (!stableReading) reset();
         throw error;
       }
+      if (applyBelowAllowed && !applyBelowAllowed()) { cancelApplyBelow(); return; }
       pending.clear();
       for (const { article,id } of cards) {
         if (!id || !article.isConnected || tweetId(article) !== id) continue;
         const desired = Boolean(matches(rows.get(id)));
         let hidden = desired;
         if (stableReading) {
-          if (applyRequested) hidden = desired;
+          if (applyRequested && (!applyBelowAllowed || belowReadingArea(article))) hidden = desired;
           else if (layouts.has(id)) hidden = layouts.get(id);
-          else hidden = desired && article.getBoundingClientRect().top > window.innerHeight+600;
+          else hidden = false;
           // Keep the reading area and everything above it at its already displayed height.
           layouts.delete(id); layouts.set(id,hidden);
           if (desired !== hidden) pending.add(id);
@@ -84,11 +99,11 @@
         setHidden(article,id,hidden);
       }
       while (layouts.size > 10000) { const id = layouts.keys().next().value; layouts.delete(id); pending.delete(id); }
-      applyRequested = false;
+      applyRequested = false; applyBelowAllowed = undefined;
       decisions = rows;
       signature = nextSignature;
     }
-    return { refresh,reset,invalidate,syncKnown,requestApply,
+    return { refresh,reset,invalidate,syncKnown,requestApply,requestApplyBelow,cancelApplyBelow,hasPendingBelow,
       pendingCount:() => pending.size,applying:() => applyRequested };
   }
   globalThis.XReplyCardFilter = { create };

@@ -1,0 +1,30 @@
+{
+  "buttons": [
+    {
+      "left": 108.96875,
+      "pressed": "true",
+      "right": 204.96875,
+      "text": "隐藏已回且已点",
+      "width": 96
+    },
+    {
+      "left": 210.96875,
+      "pressed": null,
+      "right": 274.96875,
+      "text": "整理列表",
+      "width": 64
+    },
+    {
+      "left": 280.96875,
+      "pressed": "true",
+      "right": 344.96875,
+      "text": "自动整理",
+      "width": 64
+    }
+  ],
+  "documentWidth": 390,
+  "groupHeight": 30,
+  "groupWidth": 236,
+  "headerHeight": 59.5,
+  "viewport": 390
+}

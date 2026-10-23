@@ -228,8 +228,11 @@
     }
     const me = findAccount(state, accountHandle);
     if (me) state.accounts[me.id] = now;
+    const actors = new Map([[handle(accountHandle),me]]);
     for (const raw of (Array.isArray(batch?.likes) ? batch.likes : []).slice(0,500)) {
-      const actor = findAccount(state,raw.account);
+      const actorHandle = handle(raw.account);
+      if (!actors.has(actorHandle)) actors.set(actorHandle,findAccount(state,actorHandle));
+      const actor = actors.get(actorHandle);
       if (!actor || !id(raw.id) || typeof raw.liked !== "boolean" ||
           !Number.isFinite(raw.observedAt) || raw.observedAt < now - RETENTION_MS) continue;
       const key = `${actor.id}:${raw.id}`;
@@ -257,8 +260,7 @@
     state.updatedAt = now;
   }
 
-  function classify(state, accountHandle, tweetId) {
-    const me = findAccount(state, accountHandle);
+  function classifyWith(state, me, tweetId, lookup) {
     const tweet = state.tweets[id(tweetId)];
     const result = {
       id:id(tweetId), origin:"unknown", status:"unknown", rootId:"", evidenceId:"",
@@ -275,10 +277,10 @@
     const origin = rootAuthorId && me ? (rootAuthorId === me.id ? "mine" : "others") : "unknown";
     const evidence = me && rootId ?
       state.replies[`${me.id}:${rootId}:${tweet.authorId}`] ||
-        (original ? commentOnRoot(state,me.id,rootId) : null) : null;
-    const like = me && rootId ? Object.values(state.likes || {}).find(item =>
-      item.liked && item.actorId === me.id && item.conversationId === rootId &&
-      item.recipientId === tweet.authorId) : null;
+        (original ? (lookup ? lookup.comments.get(rootId) : commentOnRoot(state,me.id,rootId)) : null) : null;
+    const like = me && rootId ? (lookup ? lookup.likes.get(`${rootId}:${tweet.authorId}`) :
+      Object.values(state.likes || {}).find(item => item.liked && item.actorId === me.id &&
+        item.conversationId === rootId && item.recipientId === tweet.authorId)) : null;
     const person = me ? state.people?.[`${me.id}:${tweet.authorId}`] : null;
     return {
       ...result, origin, rootId, status: original ? "not-reply" : evidence ? "replied" : "unknown",
@@ -294,5 +296,31 @@
     };
   }
 
-  globalThis.XReplyContext = { extract, createState, ingest, classify, findAccount, id, handle, RETENTION_MS, LIMIT };
+  function classify(state, accountHandle, tweetId) {
+    return classifyWith(state,findAccount(state,accountHandle),tweetId);
+  }
+
+  function classifyBatch(state, accountHandle, tweetIds) {
+    const ids = Array.isArray(tweetIds) ? tweetIds.slice(0,100) : [];
+    if (!ids.length) return [];
+    const me = findAccount(state,accountHandle);
+    if (!me) return ids.map(tweetId => classifyWith(state,null,tweetId));
+    // Build once per batch, preserving first-match order without a persistent cache or invalidation rules.
+    const lookup = { comments:new Map(),likes:new Map() };
+    for (const reply of Object.values(state.replies)) {
+      if (reply.actorId === me.id && !lookup.comments.has(reply.conversationId)) lookup.comments.set(reply.conversationId,reply);
+    }
+    for (const tweet of Object.values(state.tweets)) {
+      if (tweet.authorId !== me.id || !tweet.parentId) continue;
+      const rootId = conversationOf(state,tweet);
+      if (!lookup.comments.has(rootId)) lookup.comments.set(rootId,tweet);
+    }
+    for (const like of Object.values(state.likes || {})) {
+      const key = `${like.conversationId}:${like.recipientId}`;
+      if (like.liked && like.actorId === me.id && !lookup.likes.has(key)) lookup.likes.set(key,like);
+    }
+    return ids.map(tweetId => classifyWith(state,me,tweetId,lookup));
+  }
+
+  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, findAccount, id, handle, RETENTION_MS, LIMIT };
 })();

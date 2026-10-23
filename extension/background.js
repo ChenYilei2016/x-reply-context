@@ -37,7 +37,7 @@ async function handleMessage(message) {
       await chrome.storage.local.set({ [storageKey]: state });
     }
     const rows = message.type === "CLASSIFY" && Array.isArray(message.ids) ?
-      message.ids.slice(0,100).map(tweetId => core.classify(state,account,tweetId)) : [];
+      core.classifyBatch(state,account,message.ids) : [];
     return {
       ok:true, rows, account, recognized:Boolean(me),
       replyCount: me ? Object.values(state.replies).filter(reply => reply.actorId === me.id).length : 0,

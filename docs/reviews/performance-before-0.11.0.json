@@ -1,0 +1,15 @@
+{
+  "fixture": true,
+  "engine": "per-card",
+  "users": 10000,
+  "tweets": 10000,
+  "likes": 10000,
+  "replies": 10000,
+  "batchSize": 100,
+  "samplesMs": [
+    332.01,
+    338.62,
+    330.17
+  ],
+  "medianMs": 332.01
+}

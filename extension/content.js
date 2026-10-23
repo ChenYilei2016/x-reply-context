@@ -14,12 +14,19 @@
   let homeSettingLoaded = false;
   let hideCompletedNotifications = false;
   let notificationSettingLoaded = false;
+  let autoOrganizeNotifications = false;
+  let automaticSettingLoaded = false;
   const homeFilter = globalThis.XReplyHomeFilter.create({
     accountHandle,tweetId,message,holdLayout,enabled:() => hideCompletedHome
   });
   const notificationFilter = globalThis.XReplyNotificationFilter.create({
     accountHandle,tweetId,message,holdLayout,schedule,columnSelector:NOTIFICATION_COLUMN,
     enabled:() => hideCompletedNotifications,ready:() => notificationSettingLoaded,
+    autoEnabled:() => autoOrganizeNotifications,autoReady:() => automaticSettingLoaded,
+    saveAuto:async value => {
+      await chrome.storage.local.set({ autoOrganizeNotifications:value });
+      autoOrganizeNotifications = value;
+    },
     save:async value => {
       await chrome.storage.local.set({ hideCompletedNotifications:value });
       hideCompletedNotifications = value;
@@ -254,12 +261,19 @@
       notificationSettingLoaded = true;
       notificationFilter.invalidate(); schedule();
     }
+    if (changes.autoOrganizeNotifications) {
+      autoOrganizeNotifications = changes.autoOrganizeNotifications.newValue === true;
+      automaticSettingLoaded = true;
+      schedule();
+    }
   });
-  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications"]).then(saved => {
+  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","autoOrganizeNotifications"]).then(saved => {
     if (!homeSettingLoaded) hideCompletedHome = saved.hideCompletedHome === true;
     homeSettingLoaded = true;
     if (!notificationSettingLoaded) hideCompletedNotifications = saved.hideCompletedNotifications === true;
     notificationSettingLoaded = true;
+    if (!automaticSettingLoaded) autoOrganizeNotifications = saved.autoOrganizeNotifications === true;
+    automaticSettingLoaded = true;
     homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
@@ -268,7 +282,7 @@
     }
   });
   observer.observe(document,{ childList:true,subtree:true,attributes:true,
-    attributeFilter:["aria-selected","data-testid","aria-disabled","disabled","href"] });
+    attributeFilter:["aria-selected","data-testid","aria-disabled","disabled","href","datetime"] });
   window.addEventListener("popstate",schedule);
   document.addEventListener("visibilitychange",() => { if (!document.hidden) schedule(); });
   window.postMessage({ channel:CHANNEL,type:"READY" },location.origin);

@@ -36,7 +36,7 @@
   .demo-note { color:#8a6c2d; background:#fff6df; padding:10px 15px; font-size:12px; }
   .demo-dialog { position:fixed; z-index:10; top:20%; left:50%; transform:translateX(-50%); width:580px; max-width:90vw; padding:20px; border-radius:16px; background:white; box-shadow:0 0 0 100vmax #0005; }
   .demo-dialog h2 { margin:0; font-size:18px; }
-  #layout-status,#height-status,#heart-status,#notification-filter-status,#stability-status,#composer-context-status,#following-status { white-space:pre-wrap; }
+  #layout-status,#height-status,#heart-status,#notification-filter-status,#stability-status,#composer-context-status,#following-status,#automatic-filter-status,#manual-likes-status { white-space:pre-wrap; }
   .actions button { border:0; padding:0; background:none; color:#087ebd; font:inherit; cursor:pointer; }
   .demo-composer,.demo-save-sheet { position:fixed; z-index:20; top:12%; left:50%; transform:translateX(-50%); width:600px; max-width:90vw; max-height:80vh; overflow:auto; padding:20px; border-radius:16px; background:white; box-shadow:0 0 0 100vmax #0005; }
   .demo-composer [contenteditable] { min-height:140px; border:1px solid #b5c4cd; border-radius:6px; padding:12px; outline:none; white-space:pre-wrap; }
@@ -71,6 +71,10 @@
       <p id="composer-context-status" role="status"></p>
       <button id="check-following">检查：正在关注连续回复</button>
       <p id="following-status" role="status"></p>
+      <button id="check-automatic-filter">检查：空闲10秒自动整理</button>
+      <p id="automatic-filter-status" role="status"></p>
+      <button id="check-manual-likes">检查：仅清理本次已加载点赞</button>
+      <p id="manual-likes-status" role="status"></p>
       <label>回复框信息读取 <select id="context-result-mode"><option value="success">正常</option><option value="delayed">延迟</option><option value="failed">失败</option><option value="missing-author">缺少作者</option></select></label>
       <button id="simulate">演示：回复新来访</button>
       <button id="simulate-heart">演示：给 Bob 点红心</button>

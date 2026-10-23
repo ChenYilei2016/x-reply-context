@@ -1,4 +1,4 @@
-import { users, demoTweets, homeTweets, post } from "./fixtures.mjs";
+import { users, demoTweets, homeTweets, post,likeIconPath } from "./fixtures.mjs";
 import { checkLayout } from "./layout-check.mjs";
 import { checkHeights } from "./height-check.mjs";
 import { checkHearts } from "./heart-check.mjs";
@@ -6,6 +6,8 @@ import { checkNotificationFilter } from "./notification-filter-check.mjs";
 import { checkNotificationStability } from "./notification-stability-check.mjs";
 import { checkComposerContext } from "./composer-context-check.mjs";
 import { checkFollowing } from "./following-check.mjs";
+import { checkAutomaticFilter } from "./automatic-filter-check.mjs";
+import { checkManualLikes } from "./manual-likes-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
@@ -19,7 +21,7 @@ core.ingest(state,{ likes:[demoTweets[1].id,demoTweets[8].id].map(id => ({
 })) },"my_account");
 const storageListeners = [];
 const replyWrites = new Map();
-const settings = { hideCompletedHome:false,hideCompletedNotifications:false };
+const settings = { hideCompletedHome:false,hideCompletedNotifications:false,autoOrganizeNotifications:false };
 let pauseClassification = false;
 let releaseClassification;
 globalThis.chrome = {
@@ -40,7 +42,7 @@ globalThis.chrome = {
       }
       if (message.type === "CLASSIFY") {
         const snapshot = {
-          ok:true,rows:message.ids.map(id => core.classify(state,message.account,id)),
+          ok:true,rows:core.classifyBatch(state,message.account,message.ids),
           replyCount:Object.keys(state.replies).length,
           likeCount:Object.values(state.likes).filter(like => like.liked).length
         };
@@ -79,6 +81,13 @@ globalThis.chrome = {
 };
 
 const timeline = document.querySelector("#timeline");
+function addAggregate(id,kind = 'like') {
+  const article = document.createElement('article');
+  article.dataset.testid = 'notification'; article.dataset.demoNotice = id;
+  article.innerHTML = `<div style="display:flex;width:100%"><div style="width:24px;margin-right:12px"><svg width="20" height="20" viewBox="0 0 24 24"><path d="${kind === 'like' ? likeIconPath : 'M2 2h20v20H2z'}"></path></svg></div><div><div dir="ltr"><span dir="ltr"><a href="/alice">Alice</a> ${kind === 'like' ? '点赞了你的帖子' : '关注了你'}</span><span><time datetime="${new Date(1700000000000+Number(id)*1000).toISOString()}">1分钟</time></span></div><div data-testid="tweetText">虚构通知内容</div></div></div>`;
+  timeline.prepend(article);
+  return article;
+}
 function addNotification(tweet,prepend = false) {
   if (timeline.querySelector(`[data-demo-id="${tweet.id}"]`)) return;
   const author = users.find(user => user.id === tweet.authorId);
@@ -128,20 +137,42 @@ if (home) {
   document.querySelector(".aside").append(button);
 } else {
   for (const index of [11,3,7,4,8,10]) addNotification(demoTweets[index]);
-  const aggregate = document.createElement("article");
-  aggregate.dataset.testid = "notification";
-  aggregate.textContent = "虚构用户点赞了你的帖子（聚合通知）";
-  timeline.prepend(aggregate);
+  addAggregate('8001');
 }
 installComposerDemo({ state,core,addNotification });
 await import("/extension/observe.js");
 await import("/extension/card-filter.js");
 await import("/extension/home-filter.js");
+await import("/extension/like-notifications.js");
 await import("/extension/notification-filter.js");
 await import("/extension/continuous.js");
 const script = document.createElement("script");
 script.src = "/extension/content.js";
 document.body.append(script);
+document.querySelector('#check-manual-likes').addEventListener('click',async event => {
+  event.target.disabled = true;
+  await checkManualLikes(addAggregate);
+  event.target.disabled = false;
+});
+document.querySelector('#check-automatic-filter').addEventListener('click',async event => {
+  event.target.disabled = true;
+  await checkAutomaticFilter(() => {
+    const rootId = demoTweets[5].id;
+    const rows = ['2112500000000930001','2112500000000930002','2112500000000930003'].map(id =>
+      post(id,'303',rootId,demoTweets[6].id,'101','自动整理位置检查'));
+    core.ingest(state,{ tweets:rows },'my_account');
+    const [above,reading,below] = rows.map(tweet => addNotification(tweet));
+    timeline.prepend(above,reading);
+    const spacer = document.createElement('div'); spacer.style.height = '1600px';
+    below.before(spacer);
+    notifyDiagnosticChange();
+    return { above,reading,below,late() {
+      core.ingest(state,{ tweets:[post('2112500000000930004','101',rootId,rows[1].id,'303','稍晚读取的历史回复')] },'my_account');
+      notifyDiagnosticChange();
+    } };
+  });
+  event.target.disabled = false;
+});
 document.querySelector('#check-following').addEventListener('click',async event => {
   event.target.disabled = true;
   await checkFollowing();

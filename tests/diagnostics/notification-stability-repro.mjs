@@ -3,7 +3,8 @@ import { readFile,writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { users,demoTweets,post,graphql } from "../fixtures.mjs";
 
-const sources = await Promise.all(["core.js","observe.js","card-filter.js","notification-filter.js"]
+const hasLikesModule = !process.argv[3] || execFileSync('git',['ls-tree','--name-only',process.argv[3],'extension/like-notifications.js'],{ encoding:'utf8' }).trim();
+const sources = await Promise.all(["core.js","observe.js","card-filter.js",...(hasLikesModule ? ["like-notifications.js"] : []),"notification-filter.js"]
   .map(name => process.argv[3] ? execFileSync("git",["show",`${process.argv[3]}:extension/${name}`],{ encoding:"utf8" }) :
     readFile(new URL(`../../extension/${name}`,import.meta.url),"utf8")));
 const cases = [];
@@ -31,10 +32,12 @@ for (const operation of ["TweetDetail","TweetResultByRestId","NotificationsTimel
       button.isConnected = true; button.children?.forEach(child => { child.isConnected = true; });
       this.previousElementSibling = button;
     } };
-    const primary = { querySelector:() => ({ parentElement:anchor }),querySelectorAll:() => [card] };
+    const primary = { querySelector:() => ({ parentElement:anchor }),
+      querySelectorAll:selector => selector.includes('"notification"') ? [] : [card] };
     const document = {
       querySelector:selector => selector.includes("AppTabBar_Profile_Link") ? { getAttribute:() => "/my_account" } : primary,
-      querySelectorAll:() => card.hasAttribute("data-xrc-notification-hidden") ? [card] : [],
+      querySelectorAll:selector => !selector.includes('like-notification') && card.hasAttribute("data-xrc-notification-hidden") ? [card] : [],
+      addEventListener() {},
       createElement:() => ({ isConnected:false,children:[],append(...items) { this.children.push(...items); },
         before(button) { button.isConnected = true; this.previousElementSibling = button; },
         setAttribute() {},addEventListener() {},remove() { this.isConnected = false; } })
@@ -80,6 +83,7 @@ for (const operation of ["TweetDetail","TweetResultByRestId","NotificationsTimel
     const filter = context.XReplyNotificationFilter.create({
       accountHandle:() => "my_account",tweetId:a => a.id,columnSelector:"column",
       enabled:() => true,ready:() => true,save:async () => {},holdLayout:() => modal,
+      autoEnabled:() => false,autoReady:() => true,saveAuto:async () => {},
       message:async request => ({ rows:request.ids.map(id => core.classify(state,request.account,id)) })
     });
     await filter.refresh();

@@ -21,7 +21,7 @@ export async function checkNotificationFilter(arrive) {
   try {
     if (!/^\/notifications$/.test(location.pathname)) throw new Error("请从新的通知演示页运行");
     await wait(() => toggle() && !toggle().disabled);
-    const positions = () => JSON.stringify([toggle(),arrange(),document.querySelector('a[href="/settings/notifications"]')]
+    const positions = () => JSON.stringify([toggle(),arrange(),document.querySelector('.xrc-filter-auto'),document.querySelector('a[href="/settings/notifications"]')]
       .map(el => { const b = el.getBoundingClientRect(); return [b.left,b.top,b.width,b.height]; }));
     const initialPositions = positions();
     const headerHeight = document.querySelector(".demo-title").getBoundingClientRect().height;
@@ -40,7 +40,7 @@ export async function checkNotificationFilter(arrive) {
       !card("2112500000000000009").hasAttribute("data-xrc-notification-hidden") &&
       document.querySelector('[data-testid="notification"]').getBoundingClientRect().height > 1);
     check("按钮切换不新增标题行高度",document.querySelector(".demo-title").getBoundingClientRect().height === headerHeight);
-    check("开启后无更新时保持按钮位置",arrange().disabled && positions() === initialPositions);
+    check("已加载点赞可手动整理，按钮仍在固定位置",!arrange().disabled && positions() === initialPositions);
     arrive();
     await wait(() => arrange() && !arrange().disabled);
     check("阅读区域的新通知先保留，等待手动整理",!card("2112500000000070001").hasAttribute("data-xrc-notification-hidden"));

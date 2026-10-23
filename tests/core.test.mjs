@@ -12,6 +12,23 @@ function stateWith(tweets, account = "my_account") {
   return state;
 }
 
+test("批量分类与逐条口径一致，点赞变化和原帖回退不会沿用过期索引", () => {
+  const state = stateWith(demoTweets);
+  const ids = [...demoTweets.map(tweet => tweet.id),'999999'];
+  const compare = () => {
+    for (const account of ['my_account','other_account','missing']) {
+      assert.deepEqual(core.classifyBatch(state,account,ids),ids.map(id => core.classify(state,account,id)));
+    }
+  };
+  compare();
+  core.ingest(state,{ likes:[{ id:demoTweets[8].id,account:'my_account',liked:true,observedAt:Date.now() }] },'my_account');
+  compare();
+  core.ingest(state,{ likes:[{ id:demoTweets[8].id,account:'my_account',liked:false,observedAt:Date.now()+1 }] },'my_account');
+  state.replies = {};
+  compare();
+  assert.equal(core.classifyBatch(state,'my_account',Array(101).fill(demoTweets[0].id)).length,100);
+});
+
 test("回复框主页指向当前评论作者，不沿用原帖作者", () => {
   const state = stateWith(demoTweets);
   const row = core.classify(state,"my_account",demoTweets[8].id);

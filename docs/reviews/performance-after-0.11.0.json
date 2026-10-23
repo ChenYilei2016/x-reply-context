@@ -1,0 +1,21 @@
+{
+  "fixture": true,
+  "engine": "batch",
+  "users": 10000,
+  "tweets": 10000,
+  "likes": 10000,
+  "replies": 10000,
+  "batchSize": 100,
+  "samplesMs": [
+    6.51,
+    7.72,
+    6.63
+  ],
+  "medianMs": 6.63,
+  "ingest500LikesMs": [
+    55.81,
+    49.28,
+    37.82
+  ],
+  "ingestMedianMs": 49.28
+}
