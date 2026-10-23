@@ -8,9 +8,9 @@
 
 一个 Chrome 扩展，为 X 通知补上对话上下文，减少漏回和重复回复。支持通知筛选、本地原帖摘要，以及通知、主页「为你推荐」「正在关注」中的逐条连续回复。
 
-**当前版本 0.15.3** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
+**当前版本 0.15.4** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
 
-[**下载安装包**](dist/x-reply-context-0.15.3.zip) · [快速安装](#快速安装) · [界面预览](#界面预览) · [筛选开关](#通知筛选) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
+[**下载安装包**](dist/x-reply-context-0.15.4.zip) · [快速安装](#快速安装) · [界面预览](#界面预览) · [筛选开关](#通知筛选) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
 
 *A Chrome extension for X notification context, local interaction history, notification filters, and manual reply-next controls in Notifications, For you and Following.*
 
@@ -28,7 +28,9 @@
 | **引用帖也有上下文** | 以外层引用帖为独立原帖显示标签，已评论且点赞本帖后可整理隐藏。 |
 | **按记录保存** | IndexedDB 增量写入；成功互动及时更新，不为一次红心重写整份历史。 |
 
-最新变化集中在 **0.15.0–0.15.3**：存储与反馈性能、引用帖支持、原帖摘要、按钮上移、独立转发过滤。详见 [更新日志](CHANGELOG.md)。
+**0.15.4 性能修复**：普通观察数据按 ID 合并、分批保存，避免队列满后漏记；成功互动和当前分类优先处理。回复框控件按帧更新，已确认标签仍等待成功回执；单条红心使用变更记录写入，列表筛选和标签复用分类结果。后台标签页暂停界面重算，不增加 X 请求，不改变阅读区保护或逐批分页规则。详见 [验证记录](docs/reviews/0.15.4.md)。
+
+0.15.0–0.15.3 已加入引用帖支持、原帖摘要、按钮上移及独立转发过滤，完整记录见 [更新日志](CHANGELOG.md)。
 
 ## 界面预览
 
@@ -59,7 +61,7 @@
 
 ## 快速安装
 
-1. 下载并解压 [0.15.3 安装包](dist/x-reply-context-0.15.3.zip)。也可用 **Code → Download ZIP** 下载源码。
+1. 下载并解压 [0.15.4 安装包](dist/x-reply-context-0.15.4.zip)。也可用 **Code → Download ZIP** 下载源码。
 2. 在 Chrome 打开 `chrome://extensions`，开启右上角「开发者模式」。
 3. 点击「加载已解压的扩展程序」：安装包选择包含 `manifest.json` 的文件夹；源码选择 **`extension/`**。
 4. 完整刷新已打开的 X 页面。建议将「回过了」固定到工具栏，方便调整筛选开关。

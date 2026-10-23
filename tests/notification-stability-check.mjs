@@ -61,7 +61,7 @@ export async function checkNotificationStability({ pauseLabels,paused,releaseLab
     candidate.dataset.demoId = unknownId;
     candidate.querySelector("time").closest("a").href = `/unknown/status/${unknownId}`;
     candidate.querySelector('[data-testid="tweetText"]').textContent = "虚拟节点已复用为未知新帖";
-    await Promise.resolve(); await Promise.resolve();
+    await frame();
     check("虚拟行复用时，在绘制前清除旧隐藏标记",!hidden(candidate));
     await settle();
     check("历史更新只进入待整理，不自动移除当前通知",arrange() && !arrange().disabled && !hidden(target));

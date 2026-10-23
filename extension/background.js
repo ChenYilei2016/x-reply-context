@@ -2,12 +2,17 @@ importScripts("core.js","storage.js");
 const core = globalThis.XReplyContext;
 const storage = globalThis.XReplyStorage.create();
 let state;
-let queue = Promise.resolve();
+const urgent = [];
+const ordinary = [];
+let draining = false;
+let urgentRun = 0;
+let savedRevision = "";
 let revision = 0;
 
 async function persist() {
   await storage.save(state);
-  try { await chrome.storage.local.set({ replyContextRevision:`${Date.now()}:${++revision}` }); }
+  savedRevision = `${Date.now()}:${++revision}`;
+  try { await chrome.storage.local.set({ replyContextRevision:savedRevision }); }
   catch { console.warn("回过了：记录已保存，其他标签页的更新通知暂未送达。"); }
 }
 
@@ -23,6 +28,7 @@ function allowedSender(sender) {
 async function handleMessage(message) {
   if (!state) {
     state = await storage.load();
+    core.prepare(state);
     if (!state.people || Object.values(state.people).some(person =>
       typeof person.myCommentedPosts !== "number" || typeof person.theirCommentedPosts !== "number" ||
       typeof person.firstCommentOnMyPostId !== "string")) {
@@ -34,7 +40,7 @@ async function handleMessage(message) {
   if (message.type === "INGEST") {
     core.ingest(state,message.batch,account);
     await persist();
-    return { ok:true };
+    return { ok:true,revision:savedRevision };
   }
   if (message.type === "CLASSIFY" || message.type === "SUMMARY") {
     const me = core.findAccount(state,account);
@@ -59,8 +65,27 @@ async function handleMessage(message) {
 
 chrome.runtime.onMessage.addListener((message,sender,sendResponse) => {
   if (!allowedSender(sender) || !message || typeof message !== "object") return false;
-  const work = queue.then(() => handleMessage(message));
-  queue = work.catch(() => {});
-  work.then(sendResponse, () => sendResponse({ ok:false, error:"本地记录暂时不可用，请刷新 X 页面后重试。" }));
+  const priority = message.type === "INGEST" && message.interaction === true || message.type === "CLASSIFY";
+  (priority ? urgent : ordinary).push({ message,sendResponse });
+  void drain();
   return true;
 });
+
+async function drain() {
+  if (draining) return;
+  draining = true;
+  try {
+    while (urgent.length || ordinary.length) {
+      // Bootstrap account evidence before prioritizing a receipt that only contains a tweet ID.
+      const next = urgent[0];
+      const needsAccount = next && ordinary.length && (!state || !core.findAccount(state,next.message.account));
+      const takeUrgent = urgent.length && (!ordinary.length || (!needsAccount && urgentRun < 8));
+      const task = (takeUrgent ? urgent : ordinary).shift();
+      urgentRun = takeUrgent ? urgentRun+1 : 0;
+      try { task.sendResponse(await handleMessage(task.message)); }
+      catch { task.sendResponse({ ok:false,error:"本地记录暂时不可用，请刷新 X 页面后重试。" }); }
+      // Let the receipt's UI request arrive before starting another background write.
+      if (!urgent.length && ordinary.length) await new Promise(resolve => setTimeout(resolve,0));
+    }
+  } finally { draining = false; }
+}

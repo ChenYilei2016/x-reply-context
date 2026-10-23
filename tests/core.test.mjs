@@ -210,7 +210,7 @@ test("后台串行合并多标签消息，并拒绝非 X 网页调用", async ()
       set:async data => { Object.assign(saved,structuredClone(data)); }
     } }
   };
-  const context = vm.createContext({ chrome,console,URL,XReplyStorage:{ create:() => ({
+  const context = vm.createContext({ chrome,console,URL,setTimeout,XReplyStorage:{ create:() => ({
     load:async () => structuredClone(saved.replyContext),
     save:async value => { saved.replyContext = structuredClone(value); }
   }) } });
@@ -411,7 +411,7 @@ test("UserRepliesTimeline 历史页加载后增加回复记录，不仅记录 Cr
   };
   const context = vm.createContext({
     window,location,XMLHttpRequest:Xhr,URL,
-    setTimeout:callback => timers.push(callback),
+    setTimeout:callback => timers.push(callback),clearTimeout() {},
     document:{ querySelector:() => ({ getAttribute:() => "/my_account" }) }
   });
   vm.runInContext(await readFile(new URL("../extension/core.js",import.meta.url),"utf8"),context);
@@ -459,7 +459,7 @@ test("主页点赞评论后，NotificationsTimeline 新通知能关联原帖及�
   };
   const context = vm.createContext({
     window,location,XMLHttpRequest:Xhr,URL,
-    setTimeout:callback => timers.push(callback),
+    setTimeout:callback => timers.push(callback),clearTimeout() {},
     document:{ querySelector:() => ({ getAttribute:() => "/my_account" }) }
   });
   vm.runInContext(await readFile(new URL("../extension/core.js",import.meta.url),"utf8"),context);
@@ -619,7 +619,7 @@ test("成功回复只保存一次，评论不同原帖累计而同帖重复去�
     }
   };
   const context = vm.createContext({ window,location,XMLHttpRequest:Xhr,URL,TextDecoder,
-    setTimeout:callback => timers.push(callback),
+    setTimeout:callback => timers.push(callback),clearTimeout() {},
     document:{ querySelector:() => ({ getAttribute:() => "/my_account" }) }
   });
   vm.runInContext(await readFile(new URL("../extension/core.js",import.meta.url),"utf8"),context);

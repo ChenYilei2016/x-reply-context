@@ -47,14 +47,16 @@
 
     async function save(state) {
       const changes = [];
+      const dirty = globalThis.XReplyContext.changes(state);
       for (const name of COLLECTIONS) {
         const previous = snapshots.get(name);
         const records = state[name];
-        for (const key of Object.keys(records)) {
+        for (const key of dirty ? dirty[name] : Object.keys(records)) {
+          if (!Object.hasOwn(records,key)) { if (previous.has(key)) changes.push({ name,key }); continue; }
           if (sameRecord(previous.get(key),records[key])) previous.set(key,records[key]);
           else changes.push({ name,key,value:records[key] });
         }
-        for (const key of previous.keys()) {
+        for (const key of dirty ? [] : previous.keys()) {
           if (!Object.hasOwn(records,key)) changes.push({ name,key });
         }
       }
@@ -76,6 +78,7 @@
         if (change.value) snapshot.set(change.key,change.value);
         else snapshot.delete(change.key);
       }
+      globalThis.XReplyContext.saved(state);
     }
 
     async function load() {
@@ -96,6 +99,7 @@
           state[name] = Object.fromEntries(collections[index].map(row => [row.key,row.value]));
           snapshots.set(name,new Map(Object.entries(state[name])));
         });
+        globalThis.XReplyContext.saved(state);
         return state;
       }
       const saved = (await chrome.storage.local.get("replyContext")).replyContext;

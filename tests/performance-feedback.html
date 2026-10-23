@@ -1,0 +1,6 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>交互性能回归 · 本地虚构链路</title>
+<link rel="stylesheet" href="/extension/content.css"><style>body{font:14px/1.5 system-ui;margin:30px auto;max-width:900px}article{padding:20px;border:1px solid #ddd}header{display:flex;gap:15px}h1{font-size:20px}.dialog{position:fixed;top:15%;left:20%;width:600px;padding:16px;background:white;box-shadow:0 0 0 100vw #0003;z-index:20}[contenteditable]{min-height:60px;border:1px solid #ddd}pre{white-space:pre-wrap}</style>
+<p>本地虚构数据，不操作真实账号。执行当前生产代码，只在测试页模拟原生控件更新时序。</p><a data-testid="AppTabBar_Profile_Link" href="/me">@me</a>
+<main data-testid="primaryColumn"><header><h1>通知</h1><div><a href="/settings/notifications">设置</a></div></header><a role="tab" aria-selected="true" href="/notifications">全部</a><section id="timeline"></section></main>
+<button id="run" disabled>审查回复框红心反馈</button><pre id="result" role="status">准备中</pre>
+<script src="/extension/core.js"></script><script src="/extension/storage.js"></script><script type="module" src="/tests/performance-feedback.mjs"></script></html>

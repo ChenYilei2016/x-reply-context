@@ -38,3 +38,28 @@ for (const transport of ['fetch','xhr']) test(`${transport} 点赞必须等成�
   assert.equal(observed.batch.likes[0].source,'mutation');
   assert.equal(timers.length,0);
 });
+
+for (const readyBefore of [true,false]) test(`连续响应超过500条不截断；观察器${readyBefore?'已就绪':'等待握手'}`,async()=>{
+  const messages=[],listeners=[],timers=new Map();let task=0,sequence=0;
+  const location={origin:'https://x.com',href:'https://x.com/notifications'};
+  const window={postMessage:message=>messages.push(message),addEventListener:(_name,fn)=>listeners.push(fn),fetch:async()=>{
+    const start=sequence++*300;
+    return new Response(JSON.stringify({data:{entries:Array.from({length:300},(_,i)=>({rest_id:String(start+i+1),legacy:{
+      user_id_str:'2',full_text:'fixture',conversation_id_str:String(start+i+1),in_reply_to_status_id_str:null
+    }}))}}),{headers:{'content-type':'application/json'}});
+  }};
+  const scope=vm.createContext({window,location,URL,Request,TextDecoder,XMLHttpRequest:class{open(){} send(){}},
+    document:{querySelector:()=>({getAttribute:()=>'/me'})},
+    setTimeout:fn=>{timers.set(++task,fn);return task;},clearTimeout:id=>timers.delete(id)});
+  sources.forEach(source=>vm.runInContext(source,scope));
+  const ready=()=>listeners.forEach(fn=>fn({source:window,origin:location.origin,data:{channel:'x-reply-context-v1',type:'READY'}}));
+  if(readyBefore)ready();
+  await window.fetch('/i/api/graphql/test/NotificationsTimeline');
+  await window.fetch('/i/api/graphql/test/NotificationsTimeline');
+  for(let i=0;i<20;i++)await new Promise(resolve=>setImmediate(resolve));
+  if(!readyBefore)ready();
+  for(const [id,fn] of [...timers]){timers.delete(id);fn();}
+  const batches=messages.filter(message=>message.type==='OBSERVED').map(message=>message.batch);
+  assert.equal(new Set(batches.flatMap(batch=>batch.tweets.map(tweet=>tweet.id))).size,600);
+  assert.ok(batches.every(batch=>batch.tweets.length<=500));
+});

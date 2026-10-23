@@ -108,17 +108,19 @@
   }
 
   function flush() {
-    timer = undefined;
-    if (!ready || (!pendingTweets.size && !pendingUsers.size && !pendingLikes.size)) return;
-    window.postMessage({
-      channel: CHANNEL, type: "OBSERVED",
-      batch: {
-        users:[...pendingUsers.values()], tweets:[...pendingTweets.values()], likes:[...pendingLikes.values()]
+    clearTimeout(timer); timer = undefined;
+    if (!ready) return;
+    while (pendingTweets.size || pendingUsers.size || pendingLikes.size) {
+      const batch = {};
+      for (const [name,records] of [["users",pendingUsers],["tweets",pendingTweets],["likes",pendingLikes]]) {
+        batch[name] = [];
+        for (const [key,record] of records) {
+          batch[name].push(record); records.delete(key);
+          if (batch[name].length === 500) break;
+        }
       }
-    }, location.origin);
-    pendingUsers.clear();
-    pendingTweets.clear();
-    pendingLikes.clear();
+      window.postMessage({ channel:CHANNEL,type:"OBSERVED",batch },location.origin);
+    }
   }
 
   async function accept(payload,context) {
@@ -146,10 +148,14 @@
         }
       }
       for (const user of batch.users) {
-        if (pendingUsers.size < 500 || pendingUsers.has(user.id)) pendingUsers.set(user.id,user);
+        pendingUsers.set(user.id,user);
+        if (ready && pendingUsers.size >= 500) flush();
       }
       for (const tweet of batch.tweets) {
-        if (pendingTweets.size < 500 || pendingTweets.has(tweet.id)) pendingTweets.set(tweet.id,tweet);
+        const merged = { ...pendingTweets.get(tweet.id) };
+        for (const [field,value] of Object.entries(tweet)) if (value !== "") merged[field] = value;
+        pendingTweets.set(tweet.id,merged);
+        if (ready && pendingTweets.size >= 500) flush();
       }
       // Like state belongs to the viewer, not the tweet author; discard it across an account switch.
       if (context.account && context.account === currentAccount()) {
@@ -162,10 +168,11 @@
           const previous = pendingLikes.get(key);
           if (previous && (previous.observedAt > record.observedAt ||
               (previous.observedAt === record.observedAt && previous.source === "mutation" && !context.reaction))) continue;
-          if (pendingLikes.size < 500 || previous) pendingLikes.set(key,record);
+          pendingLikes.set(key,record);
+          if (ready && pendingLikes.size >= 500) flush();
         }
       }
-      if (!timer) timer = setTimeout(flush,200);
+      if (!timer && (pendingUsers.size || pendingTweets.size || pendingLikes.size)) timer = setTimeout(flush,200);
     } catch {
       // A changed X response must not interfere with the original request.
       void replyResult(context,"unknown");

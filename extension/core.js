@@ -3,6 +3,39 @@
   "use strict";
   const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
   const LIMIT = 10000;
+  const runtime = new WeakMap();
+  function cacheFor(state) {
+    let cache = runtime.get(state);
+    if (!cache) {
+      cache = { users:null,lookups:new Map(),dirty:null,expiry:0,likeCount:0 };
+      runtime.set(state,cache);
+    }
+    return cache;
+  }
+  function mark(state,name,key) { cacheFor(state).dirty?.[name].add(key); }
+  function equalRecord(previous,next) {
+    return previous === next || Boolean(previous && next && Object.keys(previous).length === Object.keys(next).length &&
+      Object.keys(next).every(key => previous[key] === next[key]));
+  }
+  function put(state,name,key,value) {
+    if (equalRecord(state[name][key],value)) return;
+    state[name][key] = value; mark(state,name,key);
+  }
+  function replace(state,name,records) {
+    const previous = state[name];
+    for (const key of Object.keys(previous)) if (!Object.hasOwn(records,key)) mark(state,name,key);
+    for (const key of Object.keys(records)) {
+      if (equalRecord(previous[key],records[key])) records[key] = previous[key];
+      else mark(state,name,key);
+    }
+    state[name] = records;
+  }
+  function saved(state) {
+    cacheFor(state).dirty = Object.fromEntries(
+      ["users","tweets","roots","replies","likes","people"].map(name => [name,new Set()]));
+  }
+  const changes = state => cacheFor(state).dirty;
+
   const id = value => typeof value === "string" && /^\d{1,25}$/.test(value) ? value : "";
   const handle = value => typeof value === "string" && /^[a-zA-Z0-9_]{1,15}$/.test(value) ? value.toLowerCase() : "";
   const text = value => typeof value === "string" ? value.slice(0,200) : "";
@@ -93,7 +126,12 @@
   function findAccount(state, accountHandle) {
     const name = handle(accountHandle);
     if (!name) return null;
-    return Object.values(state.users).find(user => user.handle === name) || null;
+    const cache = cacheFor(state);
+    if (!cache.users) {
+      cache.users = new Map();
+      for (const user of Object.values(state.users)) if (!cache.users.has(user.handle)) cache.users.set(user.handle,user);
+    }
+    return cache.users.get(name) || null;
   }
 
   function conversationOf(state, tweet) {
@@ -116,29 +154,22 @@
       const rootAuthor = tweet.id === rootId ? tweet.authorId :
         tweet.parentId === rootId ? recipientId : "";
       if (rootAuthor) {
-        state.roots[rootId] = {
+        put(state,"roots",rootId,{
           id: rootId, authorId: rootAuthor,
           seenAt: Math.max(tweet.seenAt,state.roots[rootId]?.seenAt || 0)
-        };
+        });
       }
       if (!state.accounts[tweet.authorId] || !tweet.parentId || !recipientId ||
           tweet.authorId === recipientId) continue;
       const key = `${tweet.authorId}:${rootId}:${recipientId}`;
       const previous = state.replies[key];
       if (!previous || BigInt(tweet.id) >= BigInt(previous.id)) {
-        state.replies[key] = {
+        put(state,"replies",key,{
           id: tweet.id, actorId: tweet.authorId, conversationId: rootId,
           recipientId, text: tweet.text || "", seenAt: tweet.seenAt
-        };
+        });
       }
     }
-  }
-
-  function commentOnRoot(state, actorId, rootId) {
-    return Object.values(state.replies).find(reply =>
-      reply.actorId === actorId && reply.conversationId === rootId) ||
-      Object.values(state.tweets).find(tweet => tweet.authorId === actorId &&
-        tweet.parentId && conversationOf(state,tweet) === rootId);
   }
 
   function retainRecords(records, now) {
@@ -159,7 +190,7 @@
     for (const key of ["users", "tweets", "roots", "replies", "likes", "people"]) {
       const retained = retainRecords(state[key],now);
       if (key !== "likes" && key !== "people" && retained !== state[key]) relationshipsChanged = true;
-      state[key] = retained;
+      if (retained !== state[key]) replace(state,key,retained);
     }
     const accounts = Object.entries(state.accounts);
     const retainedAccounts = accounts.filter(([, seenAt]) => seenAt >= now - RETENTION_MS).slice(-20);
@@ -225,26 +256,27 @@
         }
       }
     }
-    state.people = retainRecords(people,now);
+    replace(state,"people",retainRecords(people,now));
   }
 
   function ingest(state, batch, accountHandle, now = Date.now()) {
+    const cache = cacheFor(state);
     const hadPeople = Boolean(state.people);
     state.likes ||= {};
     state.people ||= {};
     for (const raw of (Array.isArray(batch?.users) ? batch.users : []).slice(0,500)) {
       const user = cleanUser(raw);
-      if (user) state.users[user.id] = { ...user, seenAt: now };
+      if (user) { put(state,"users",user.id,{ ...user,seenAt:now }); cache.users = null; }
     }
     for (const raw of (Array.isArray(batch?.tweets) ? batch.tweets : []).slice(0,500)) {
       const tweet = cleanTweet(raw);
-      if (tweet) state.tweets[tweet.id] = mergeKnown(state.tweets[tweet.id], tweet, now);
+      if (tweet) put(state,"tweets",tweet.id,mergeKnown(state.tweets[tweet.id],tweet,now));
     }
     const me = findAccount(state, accountHandle);
     const likesOnly = Boolean(hadPeople && batch?.likes?.length && !batch?.users?.length &&
       !batch?.tweets?.length && me && state.accounts[me.id]);
     if (me) state.accounts[me.id] = now;
-    const changedLikes = [];
+    const changedLikes = new Set();
     const actors = new Map([[handle(accountHandle),me]]);
     for (const raw of (Array.isArray(batch?.likes) ? batch.likes : []).slice(0,500)) {
       const actorHandle = handle(raw.account);
@@ -259,24 +291,38 @@
       if (previous && previous.observedAt > observedAt) continue;
       if (previous?.source === "mutation" && previous.observedAt === observedAt &&
           raw.source !== "mutation") continue;
-      state.likes[key] = {
+      put(state,"likes",key,{
         ...previous,
         id:raw.id, actorId:actor.id, liked:raw.liked, observedAt, seenAt:now,
         source:raw.source === "mutation" ? "mutation" : "snapshot"
-      };
-      changedLikes.push(state.likes[key]);
+      });
+      if (!previous) cache.likeCount++;
+      changedLikes.add(key);
     }
-    for (const like of likesOnly ? changedLikes : Object.values(state.likes)) {
+    for (const like of likesOnly ? [...changedLikes].map(key => state.likes[key]) : Object.values(state.likes)) {
       const tweet = state.tweets[like.id];
       if (!tweet) continue;
       const conversationId = conversationOf(state,tweet) || like.conversationId || "";
       if (like.recipientId !== tweet.authorId || like.conversationId !== conversationId) {
-        state.likes[`${like.actorId}:${like.id}`] = { ...like,recipientId:tweet.authorId,conversationId };
+        put(state,"likes",`${like.actorId}:${like.id}`,{ ...like,recipientId:tweet.authorId,conversationId });
       }
     }
     if (!likesOnly) indexReplies(state);
-    const relationshipsPruned = prune(state, now);
-    if (!likesOnly || relationshipsPruned) indexPeople(state, now);
+    // A known heart changes no relationships. Retention still runs at its next expiry or capacity limit.
+    const maintenance = !likesOnly || now >= cache.expiry || cache.likeCount > LIMIT;
+    const relationshipsPruned = maintenance ? prune(state,now) : false;
+    if (!likesOnly || relationshipsPruned) indexPeople(state,now);
+    if (maintenance) {
+      prepare(state);
+      cache.users = null;
+      cache.lookups.clear();
+    } else {
+      for (const key of changedLikes) {
+        const like = state.likes[key];
+        const lookup = cache.lookups.get(like.actorId);
+        if (lookup) updateLikeLookup(lookup,like);
+      }
+    }
     state.updatedAt = now;
   }
 
@@ -297,10 +343,8 @@
     const origin = rootAuthorId && me ? (rootAuthorId === me.id ? "mine" : "others") : "unknown";
     const evidence = me && rootId ?
       state.replies[`${me.id}:${rootId}:${tweet.authorId}`] ||
-        (original ? (lookup ? lookup.comments.get(rootId) : commentOnRoot(state,me.id,rootId)) : null) : null;
-    const like = me && rootId ? (lookup ? lookup.likes.get(`${rootId}:${tweet.authorId}`) :
-      Object.values(state.likes || {}).find(item => item.liked && item.actorId === me.id &&
-        item.conversationId === rootId && item.recipientId === tweet.authorId)) : null;
+        (original ? lookup?.comments.get(rootId) : null) : null;
+    const like = me && rootId ? lookup?.likes.get(`${rootId}:${tweet.authorId}`)?.values().next().value : null;
     const person = me ? state.people?.[`${me.id}:${tweet.authorId}`] : null;
     return {
       ...result, origin, rootId, status: original ? "not-reply" : evidence ? "replied" : "unknown",
@@ -318,7 +362,7 @@
   }
 
   function classify(state, accountHandle, tweetId) {
-    return classifyWith(state,findAccount(state,accountHandle),tweetId);
+    return classifyBatch(state,accountHandle,[tweetId])[0];
   }
 
   function classifyBatch(state, accountHandle, tweetIds) {
@@ -326,8 +370,10 @@
     if (!ids.length) return [];
     const me = findAccount(state,accountHandle);
     if (!me) return ids.map(tweetId => classifyWith(state,null,tweetId));
-    // Build once per batch, preserving first-match order without a persistent cache or invalidation rules.
-    const lookup = { comments:new Map(),likes:new Map() };
+    const cache = cacheFor(state);
+    let lookup = cache.lookups.get(me.id);
+    if (lookup) return ids.map(tweetId => classifyWith(state,me,tweetId,lookup));
+    lookup = { comments:new Map(),likes:new Map() };
     for (const reply of Object.values(state.replies)) {
       if (reply.actorId === me.id && !lookup.comments.has(reply.conversationId)) lookup.comments.set(reply.conversationId,reply);
     }
@@ -337,11 +383,33 @@
       if (!lookup.comments.has(rootId)) lookup.comments.set(rootId,tweet);
     }
     for (const like of Object.values(state.likes || {})) {
-      const key = `${like.conversationId}:${like.recipientId}`;
-      if (like.liked && like.actorId === me.id && !lookup.likes.has(key)) lookup.likes.set(key,like);
+      if (like.actorId === me.id) updateLikeLookup(lookup,like);
     }
+    cache.lookups.set(me.id,lookup);
     return ids.map(tweetId => classifyWith(state,me,tweetId,lookup));
   }
 
-  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, findAccount, id, handle, RETENTION_MS, LIMIT };
+  function prepare(state) {
+    const cache = cacheFor(state);
+    cache.expiry = Infinity;
+    for (const name of ["users","tweets","roots","replies","likes","people"]) {
+      for (const record of Object.values(state[name] || {})) cache.expiry = Math.min(cache.expiry,record.seenAt+RETENTION_MS+1);
+    }
+    for (const seenAt of Object.values(state.accounts)) cache.expiry = Math.min(cache.expiry,seenAt+RETENTION_MS+1);
+    cache.likeCount = Object.keys(state.likes || {}).length;
+  }
+
+  function updateLikeLookup(lookup,like) {
+    const key = `${like.conversationId}:${like.recipientId}`;
+    let group = lookup.likes.get(key);
+    if (like.liked) {
+      if (!group) lookup.likes.set(key,group = new Map());
+      group.set(like.id,like);
+    } else if (group) {
+      group.delete(like.id);
+      if (!group.size) lookup.likes.delete(key);
+    }
+  }
+
+  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, findAccount, id, handle, RETENTION_MS, LIMIT, changes, saved, prepare };
 })();

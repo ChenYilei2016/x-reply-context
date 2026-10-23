@@ -9,7 +9,11 @@
   let lastAccount = "";
   let lastSignature = "";
   let annotationRevision = 0;
-  const pending = [];
+  const pending = new Map();
+  let flushing;
+  let uiFrame;
+  let lastRevision = "";
+  const classifications = new Map();
   let continuous;
   let hideCompletedHome = false;
   let homeSettingLoaded = false;
@@ -33,7 +37,7 @@
   function disconnectRuntime() {
     if (disconnected) return;
     disconnected = true;
-    clearTimeout(timer); timer = undefined; pending.length = 0; again = false;
+    clearTimeout(timer); timer = undefined; pending.clear(); again = false;
     observer.disconnect();
     continuous?.stop();
     if (networkNotice) networkNotice.hidden = true;
@@ -144,10 +148,10 @@
   }
 
   function invalidateAnnotations() {
-    lastSignature = ""; annotationRevision++; continuous?.invalidateContext();
+    lastSignature = ""; annotationRevision++; classifications.clear(); continuous?.invalidateContext();
   }
 
-  async function message(payload) {
+  async function sendMessage(payload) {
     if (!connected()) throw new Error("扩展连接已失效，请刷新页面");
     try {
       const reply = await chrome.runtime.sendMessage(payload);
@@ -160,10 +164,92 @@
     }
   }
 
+  async function message(payload) {
+    if (payload.type !== "CLASSIFY") return sendMessage(payload);
+    const revision = annotationRevision;
+    const keyFor = id => `${payload.account}:${payload.includeRootText === true}:${id}`;
+    const missing = payload.ids.filter(id => !classifications.has(keyFor(id)));
+    if (missing.length) {
+      const reply = await sendMessage({ ...payload,ids:missing });
+      if (revision !== annotationRevision) return reply;
+      for (const row of reply.rows) classifications.set(keyFor(row.id),row);
+      const rows = payload.ids.map(id => classifications.get(keyFor(id))).filter(Boolean);
+      // Only mounted/recent cards need a UI cache; this does not remove stored evidence.
+      while (classifications.size > 1000) classifications.delete(classifications.keys().next().value);
+      return { ...reply,rows };
+    }
+    return { ok:true,rows:payload.ids.map(id => classifications.get(keyFor(id))) };
+  }
+
+  function applyRevision(revision) {
+    if (revision && revision === lastRevision) return;
+    lastRevision = revision || "";
+    invalidateAnnotations(); homeFilter.invalidate(); notificationFilter.invalidate();
+  }
+
+  function enqueueObserved(batch) {
+    const account = accountHandle();
+    let group = pending.get(account);
+    if (!group) pending.set(account,group = { users:new Map(),tweets:new Map(),likes:new Map() });
+    for (const name of ["users","tweets","likes"]) {
+      for (const record of (Array.isArray(batch?.[name]) ? batch[name] : []).slice(0,500)) {
+        if (!record?.id) continue;
+        const key = name === "likes" ? `${record.account}:${record.id}` : record.id;
+        const previous = group[name].get(key);
+        if (name === "likes" && previous && (previous.observedAt > record.observedAt ||
+            previous.observedAt === record.observedAt && previous.source === "mutation" && record.source !== "mutation")) continue;
+        // Partial timeline records must not erase fields learned by an earlier response.
+        const merged = { ...previous };
+        for (const [field,value] of Object.entries(record)) if (value !== "") merged[field] = value;
+        group[name].set(key,merged);
+      }
+    }
+    void flushObserved();
+  }
+
+  async function flushObserved() {
+    if (flushing || !connected()) return flushing;
+    flushing = (async () => {
+      while (pending.size && connected()) {
+        const [account,group] = pending.entries().next().value;
+        const batch = {};
+        for (const name of ["users","tweets","likes"]) {
+          batch[name] = [];
+          for (const record of group[name].values()) { batch[name].push(record); if (batch[name].length === 500) break; }
+        }
+        try {
+          const result = await message({ type:"INGEST",account,batch });
+          for (const name of ["users","tweets","likes"]) for (const record of batch[name]) {
+            const key = name === "likes" ? `${record.account}:${record.id}` : record.id;
+            if (group[name].get(key) === record) group[name].delete(key);
+          }
+          if (Object.values(group).every(records => !records.size)) pending.delete(account);
+          applyRevision(result.revision);
+          if (!document.hidden) schedule(0);
+        } catch (error) {
+          console.warn("回过了：",error.message);
+          break; // Retain the batch for the next observed event; no retry/request loop.
+        }
+      }
+    })();
+    try { await flushing; } finally { flushing = undefined; }
+  }
+
+  function scheduleControls() {
+    if (uiFrame || document.hidden) return;
+    uiFrame = requestAnimationFrame(() => {
+      uiFrame = undefined;
+      if (connected()) {
+        homeFilter.syncKnown(); notificationFilter.syncKnown();
+        continuous?.refresh();
+      }
+    });
+  }
+
   function persistInteraction(batch,account) {
-    const saved = message({ type:"INGEST",account,batch });
-    void saved.then(() => {
-      invalidateAnnotations(); homeFilter.invalidate(); notificationFilter.invalidate(); schedule(0);
+    const saved = message({ type:"INGEST",account,batch,interaction:true });
+    void saved.then(result => {
+      applyRevision(result.revision); if (!document.hidden) schedule(0);
     },error => console.warn("回过了：",error.message));
     return saved;
   }
@@ -256,7 +342,7 @@
   }
 
   async function refresh() {
-    if (!connected()) return;
+    if (!connected() || document.hidden) return;
     continuous?.refresh();
     renderNetworkNotice();
     window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_CONTEXT" },location.origin);
@@ -272,11 +358,6 @@
         invalidateAnnotations();
         homeFilter.reset();
         notificationFilter.reset();
-      }
-      if (pending.length) {
-        const batches = pending.splice(0);
-        for (const batch of batches) await message({ type:"INGEST",batch,account });
-        invalidateAnnotations();
       }
       await homeFilter.refresh();
       await notificationFilter.refresh();
@@ -346,8 +427,8 @@
       if (event.data.account === accountHandle() && event.data.batch) persistInteraction(event.data.batch,event.data.account);
       return;
     }
-    if (pending.length < 10) pending.push(event.data.batch);
-    schedule();
+    enqueueObserved(event.data.batch);
+    if (!document.hidden) schedule();
   });
   chrome.runtime.onMessage.addListener((request,_sender,respond) => {
     if (request?.type === "GET_ACCOUNT") respond({ account:accountHandle() });
@@ -355,7 +436,8 @@
   chrome.storage.onChanged.addListener((changes,area) => {
     if (area !== "local" || !connected()) return;
     if (changes.replyContext || changes.replyContextRevision) {
-      invalidateAnnotations(); homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
+      applyRevision(changes.replyContextRevision?.newValue);
+      if (!document.hidden) { scheduleControls(); schedule(); }
     }
     if (changes.hideCompletedHome) {
       hideCompletedHome = changes.hideCompletedHome.newValue === true;
@@ -410,14 +492,18 @@
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
     if (!connected()) return;
-    if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice"))) {
-      homeFilter.syncKnown(); notificationFilter.syncKnown(); schedule();
+    const owned = ".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice";
+    const relevant = '[data-testid="primaryColumn"],[role="dialog"],[aria-modal="true"],a[data-testid="AppTabBar_Profile_Link"]';
+    if (records.some(record => !record.target.closest?.(owned) &&
+        (record.target.closest?.(relevant) || [...(record.addedNodes || []),...(record.removedNodes || [])]
+          .some(node => node.matches?.(relevant) || node.querySelector?.(relevant))))) {
+      scheduleControls(); schedule();
     }
   });
   observer.observe(document,{ childList:true,subtree:true,attributes:true,
     attributeFilter:["aria-selected","data-testid","aria-disabled","disabled","href","datetime"] });
-  window.addEventListener("popstate",schedule);
-  document.addEventListener("visibilitychange",() => { if (!document.hidden) schedule(); });
+  window.addEventListener("popstate",() => { scheduleControls(); schedule(); });
+  document.addEventListener("visibilitychange",() => { if (!document.hidden) { scheduleControls(); schedule(0); } });
   window.postMessage({ channel:CHANNEL,type:"READY" },location.origin);
   schedule();
 })();
