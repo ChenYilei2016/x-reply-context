@@ -20,7 +20,8 @@
       const notification = item?.itemType === "TimelineNotification" ? item :
         ref && payload.globalObjects?.notifications?.[ref.id];
       const icon = notification?.notification_icon || notification?.icon?.id;
-      if ((settings.likes && icon === "heart_icon") || (settings.follows && icon === "person_icon")) {
+      if ((settings.likes && icon === "heart_icon") || (settings.follows && icon === "person_icon") ||
+          (settings.reposts && icon === "retweet_icon")) {
         removed++; return false;
       }
       remaining++;
@@ -36,7 +37,7 @@
   }
 
   function create({ accountHandle,readPayload,observe }) {
-    let settings = { likes:true,follows:true };
+    let settings = { likes:true,follows:true,reposts:false };
     let settingsReady = false;
     let notifyReady;
     const ready = new Promise(resolve => { notifyReady = resolve; });
@@ -222,8 +223,8 @@
       if (event.source !== window || event.origin !== location.origin || event.data?.channel !== CHANNEL) return;
       const data = event.data;
       if (data.type === "NOTIFICATION_FILTER_SETTINGS") {
-        const next = { likes:data.likes === true,follows:data.follows === true };
-        if (settingsReady && (next.likes !== settings.likes || next.follows !== settings.follows)) {
+        const next = { likes:data.likes === true,follows:data.follows === true,reposts:data.reposts === true };
+        if (settingsReady && (next.likes !== settings.likes || next.follows !== settings.follows || next.reposts !== settings.reposts)) {
           for (const [key,state] of states) {
             state.paused = false; state.loading = false; state.permitNext = false;
             announce({ key,account:state.account },state);

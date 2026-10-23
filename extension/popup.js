@@ -1,4 +1,5 @@
-async function installCheckbox(selector,key,statusSelector,enabledText,defaultEnabled = false) {
+async function installCheckbox(selector,key,statusSelector,enabledText,defaultEnabled = false,
+    disabledText = defaultEnabled ? "已关闭；刷新通知页可恢复此前被过滤的消息。" : "已关闭，恢复正常显示。") {
   const checkbox = document.querySelector(selector);
   const status = document.querySelector(statusSelector);
   try {
@@ -10,7 +11,7 @@ async function installCheckbox(selector,key,statusSelector,enabledText,defaultEn
       checkbox.disabled = true;
       try {
         await chrome.storage.local.set({ [key]:value });
-        status.textContent = value ? enabledText : defaultEnabled ? "已关闭；刷新通知页可恢复此前被过滤的消息。" : "已关闭，恢复正常显示。";
+        status.textContent = value ? enabledText : disabledText;
       } catch {
         checkbox.checked = !value;
         status.textContent = "设置未保存，请重试。";
@@ -21,6 +22,8 @@ async function installCheckbox(selector,key,statusSelector,enabledText,defaultEn
 void installCheckbox("#hide-completed-home","hideCompletedHome","#home-filter-status","已开启，按本机已确认记录筛选。");
 void installCheckbox("#auto-hide-like-notifications","autoHideLikeNotifications","#like-filter-status","已开启，后续接收时过滤点赞通知；空批暂停翻页。",true);
 void installCheckbox("#auto-hide-follow-notifications","autoHideFollowNotifications","#follow-filter-status","已开启，后续接收时过滤关注通知；空批暂停翻页。",true);
+void installCheckbox("#auto-hide-repost-notifications","autoHideRepostNotifications","#repost-filter-status",
+  "已开启，后续接收时过滤转发通知；带正文的引用帖保留。",false,"已关闭；刷新通知页可恢复此前被过滤的转发通知。");
 
 (async () => {
   const status = document.querySelector("#status");

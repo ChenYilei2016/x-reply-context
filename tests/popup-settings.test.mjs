@@ -24,6 +24,14 @@ test('弹窗保留已关闭的选择、单独保存，保存失败回滚且不�
   assert.equal(element('#hide-completed-home').checked,true);
   const follows = element('#auto-hide-follow-notifications');
   assert.equal(follows.checked,false); assert.equal(follows.disabled,false);
+  const reposts = element('#auto-hide-repost-notifications');
+  assert.equal(reposts.checked,false,'转发过滤默认关闭'); assert.equal(reposts.disabled,false);
+  reposts.checked = true; await reposts.change();
+  assert.equal(settings.autoHideRepostNotifications,true);
+  assert.equal(settings.autoHideLikeNotifications,false); assert.equal(settings.autoHideFollowNotifications,false);
+  reposts.checked = false; await reposts.change();
+  assert.equal(settings.autoHideRepostNotifications,false);
+  assert.match(element('#repost-filter-status').textContent,/刷新/);
   likes.checked = true; await likes.change();
   assert.equal(settings.autoHideLikeNotifications,true); assert.equal(settings.hideCompletedHome,true);
   follows.checked = true; await follows.change();
@@ -34,4 +42,7 @@ test('弹窗保留已关闭的选择、单独保存，保存失败回滚且不�
   assert.equal(likes.checked,true); assert.equal(settings.autoHideLikeNotifications,true);
   assert.match(element('#like-filter-status').textContent,/未保存/);
   assert.equal(likes.disabled,false);
+  reposts.checked = true; await reposts.change();
+  assert.equal(reposts.checked,false,'保存失败恢复原选择');
+  assert.equal(settings.autoHideRepostNotifications,false);
 });

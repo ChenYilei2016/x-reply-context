@@ -21,6 +21,8 @@
   let likeSettingLoaded = false;
   let autoHideFollowNotifications = true;
   let followSettingLoaded = false;
+  let autoHideRepostNotifications = false;
+  let repostSettingLoaded = false;
   let networkStatus;
   let networkNotice;
   let disconnected = false;
@@ -75,9 +77,9 @@
   });
 
   function publishNetworkSettings() {
-    if (!likeSettingLoaded || !followSettingLoaded) return;
+    if (!likeSettingLoaded || !followSettingLoaded || !repostSettingLoaded) return;
     window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_SETTINGS",
-      likes:autoHideLikeNotifications,follows:autoHideFollowNotifications },location.origin);
+      likes:autoHideLikeNotifications,follows:autoHideFollowNotifications,reposts:autoHideRepostNotifications },location.origin);
   }
 
   function renderNetworkNotice() {
@@ -382,8 +384,14 @@
       publishNetworkSettings();
       schedule();
     }
+    if (changes.autoHideRepostNotifications) {
+      autoHideRepostNotifications = changes.autoHideRepostNotifications.newValue === true;
+      repostSettingLoaded = true;
+      publishNetworkSettings();
+      schedule();
+    }
   });
-  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","autoOrganizeNotifications","autoHideLikeNotifications","autoHideFollowNotifications"]).then(saved => {
+  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","autoOrganizeNotifications","autoHideLikeNotifications","autoHideFollowNotifications","autoHideRepostNotifications"]).then(saved => {
     if (!connected()) return;
     if (!homeSettingLoaded) hideCompletedHome = saved.hideCompletedHome === true;
     homeSettingLoaded = true;
@@ -395,6 +403,8 @@
     likeSettingLoaded = true;
     if (!followSettingLoaded) autoHideFollowNotifications = saved.autoHideFollowNotifications !== false;
     followSettingLoaded = true;
+    if (!repostSettingLoaded) autoHideRepostNotifications = saved.autoHideRepostNotifications === true;
+    repostSettingLoaded = true;
     publishNetworkSettings();
     homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
   },error => console.warn("回过了：",error.message));

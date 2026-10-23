@@ -137,3 +137,42 @@ test('换账号及离页取消等待请求，未知响应和非通知入口不�
   const result = await controller.fetch([url('')],context,async () => original);
   assert.equal(result,original);
 });
+
+test('转发开关独立过滤单人/多人事件，保留正文引用帖和未知事件，兼容REST',() => {
+  const { rewrite } = setup();
+  const single = notice('retweet_icon'); single.content.itemContent.users = ['one'];
+  const multiple = notice('retweet_icon'); multiple.content.itemContent.users = ['one','two'];
+  const quote = tweet(); quote.content.itemContent.tweet_results.result.quoted_status_result = { result:{ text:'quoted original' } };
+  const make = () => payload(structuredClone([single,multiple,quote,notice('unknown_icon'),notice('heart_icon'),notice('person_icon')]));
+  const off = make(); assert.equal(rewrite(off,{ likes:false,follows:false }).removed,0);
+  const on = make(); const result = rewrite(on,{ likes:false,follows:false,reposts:true });
+  assert.equal(result.removed,2); assert.equal(result.remaining,4);
+  assert.equal(entries(on).filter(row=>row.content.itemContent?.itemType==='TimelineTweet').length,1);
+  const legacy = { globalObjects:{ notifications:{ r1:{ icon:{ id:'retweet_icon' } } } },timeline:{ instructions:[
+    { addEntries:{ entries:[{ content:{ item:{ content:{ notification:{ id:'r1' } } } } }] } }
+  ] } };
+  assert.equal(rewrite(legacy,{ reposts:true }).removed,1);
+});
+
+test('只有转发的一批也暂停，继续仍只放一批，关闭转发开关可释放等待',async () => {
+  const { controller,env,message,url,context,messages,xhr } = setup();
+  message({ type:'NOTIFICATION_FILTER_SETTINGS',likes:false,follows:false,reposts:true });
+  const send = async () => { env.requests++; return new Response(JSON.stringify(payload([notice('retweet_icon')]))); };
+  await controller.fetch([url('')],context,send);
+  assert.equal(messages.at(-1).paused,true);
+  const next = controller.fetch([url('bottom-1')],context,send);
+  await new Promise(resolve=>setImmediate(resolve)); assert.equal(env.requests,1);
+  message({ type:'NOTIFICATION_FILTER_CONTINUE',key:'me:All' }); await next;
+  assert.equal(env.requests,2); assert.equal(messages.at(-1).paused,true);
+  const held = controller.fetch([url('bottom-1')],context,send);
+  message({ type:'NOTIFICATION_FILTER_SETTINGS',likes:false,follows:false,reposts:false });
+  assert.equal(entries(await (await held).json()).length,3,'关闭后原生响应保留转发事件');
+  assert.equal(env.requests,3);
+  message({ type:'NOTIFICATION_FILTER_SETTINGS',likes:false,follows:false,reposts:true });
+  const firstXHR = xhr(''); firstXHR.complete(payload([notice('retweet_icon')]));
+  assert.equal(entries(JSON.parse(firstXHR.responseText)).length,2);
+  const nextXHR = xhr('bottom-1'); assert.equal(env.requests,4);
+  message({ type:'NOTIFICATION_FILTER_CONTINUE',key:'me:All' }); assert.equal(env.requests,5);
+  nextXHR.complete(payload([tweet()])); void nextXHR.responseText;
+  assert.equal(messages.at(-1).paused,true);
+});

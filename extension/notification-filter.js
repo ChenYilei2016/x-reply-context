@@ -149,12 +149,12 @@
       if (button.textContent !== label) button.textContent = label;
       button.setAttribute("aria-pressed",String(enabled()));
       button.disabled = saving || !ready() || holdLayout() || filter.applying();
-      button.title = error || `${enabled() ? "已开启，点击恢复评论及手动整理隐藏的点赞通知" : "点击开启，并隐藏当前已确认完成的评论通知"}。评论按同一原帖、同一个人的文字及红心标签判断。自动隐藏点赞、关注通知可在扩展弹窗分别开关。`;
+      button.title = error || `${enabled() ? "已开启，点击恢复已隐藏的完成评论" : "点击开启，并隐藏当前已确认完成的评论通知"}。评论按同一原帖、同一个人的文字及红心标签判断。自动隐藏点赞、关注、转发通知可在扩展弹窗分别开关。`;
       button.setAttribute("aria-label",error ? "隐藏已回且已点，设置保存失败，点击重试" : label);
       controls.setAttribute("aria-busy",String(saving || filter.applying()));
       const hasOrganizable = canOrganize();
       applyButton.disabled = !ready() || saving || holdLayout() || filter.applying() || !hasOrganizable;
-      applyButton.title = "仅一次应用已加载评论的完成状态；点赞与关注在接收时过滤，不再追加隐藏占位。回复框关闭后可操作。";
+      applyButton.title = "仅一次应用已加载评论的完成状态；点赞、关注、转发按各自开关在接收时过滤，不再追加隐藏占位。回复框关闭后可操作。";
       const applyText = "整理列表";
       if (applyButton.textContent !== applyText) applyButton.textContent = applyText;
       autoButton.setAttribute("aria-pressed",String(autoEnabled()));
