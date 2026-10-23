@@ -20,26 +20,35 @@ article[data-xrc-notification-hidden],
 .xrc-network-notice[hidden] { display: none; }
 .xrc-network-notice button { flex-shrink: 0; border: 1px solid #ffffff70; border-radius: 16px; padding: 6px 10px; background: transparent; color: inherit; cursor: pointer; }
 .xrc-notification-controls {
-  display: flex; align-items: stretch; gap: 8px; flex-shrink: 0; width: 272px; height: 30px;
+  display: flex; align-items: stretch; gap: 6px; flex-shrink: 0; width: 310px; height: 30px;
   box-sizing: border-box; margin-right: 8px;
 }
-.xrc-notification-filter,.xrc-filter-apply,.xrc-filter-auto {
-  width: 112px; height: 30px; box-sizing: border-box; flex-shrink: 0;
+.xrc-notification-filter,.xrc-notification-replied,.xrc-filter-apply,.xrc-filter-auto {
+  width: 90px; height: 30px; box-sizing: border-box; flex-shrink: 0;
   padding: 3px 5px; border: 1px solid #8293a470; border-radius: 16px;
   background: transparent; color: inherit; font: 12px/1.5 system-ui,sans-serif;
   white-space: nowrap; cursor: pointer;
 }
-.xrc-notification-filter[aria-pressed="true"],.xrc-filter-auto[aria-pressed="true"] { color: #087ebd; border-color: #087ebd; background: #1d9bf01a; }
-.xrc-notification-filter:disabled,.xrc-filter-apply:disabled,.xrc-filter-auto:disabled { opacity: .5; cursor: default; }
-.xrc-notification-filter:focus-visible,.xrc-filter-apply:focus-visible,.xrc-filter-auto:focus-visible { outline: 2px solid #1d9bf0; outline-offset: -2px; }
+.xrc-notification-filter[aria-pressed="true"],.xrc-notification-replied[aria-pressed="true"],.xrc-filter-auto[aria-pressed="true"] { color: #087ebd; border-color: #087ebd; background: #1d9bf01a; }
+.xrc-notification-filter:disabled,.xrc-notification-replied:disabled,.xrc-filter-apply:disabled,.xrc-filter-auto:disabled { opacity: .5; cursor: default; }
+.xrc-notification-filter:focus-visible,.xrc-notification-replied:focus-visible,.xrc-filter-apply:focus-visible,.xrc-filter-auto:focus-visible { outline: 2px solid #1d9bf0; outline-offset: -2px; }
+.xrc-notification-replied { width: 58px; }
 .xrc-filter-apply { width: 80px; color: #087ebd; }
 .xrc-filter-apply:disabled { color: inherit; }
 .xrc-filter-auto { width: 64px; }
-.xrc-notification-filter:enabled:hover,.xrc-filter-apply:enabled:hover,.xrc-filter-auto:enabled:hover { background: #1d9bf01a; }
+.xrc-notification-filter:enabled:hover,.xrc-notification-replied:enabled:hover,.xrc-filter-apply:enabled:hover,.xrc-filter-auto:enabled:hover { background: #1d9bf01a; }
 @media (max-width: 540px) {
-  .xrc-notification-controls { width: 236px; gap: 6px; }
-  .xrc-notification-filter { width: 96px; }
+  .xrc-notification-controls { width: 268px; gap: 4px; }
+  .xrc-notification-filter { width: 76px; }
+  .xrc-notification-replied { width: 52px; }
   .xrc-filter-apply,.xrc-filter-auto { width: 64px; }
+}
+@media (max-width: 380px) {
+  .xrc-notification-controls { width: 226px; gap: 4px; margin-right: 4px; }
+  .xrc-notification-controls button { font-size: 10px; padding-inline: 2px; }
+  .xrc-notification-filter { width: 66px; }
+  .xrc-notification-replied { width: 44px; }
+  .xrc-filter-apply,.xrc-filter-auto { width: 52px; }
 }
 /* Opening compose deselects every tab; the notification links still identify this column. */
 [data-testid="primaryColumn"]:has(a[role="tab"][href^="/notifications"]) article[data-testid="tweet"]

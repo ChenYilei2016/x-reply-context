@@ -43,7 +43,7 @@ function setup() {
   const header = node(); header.isConnected = true;
   const settings = node(); header.append(settings);
   const article = node(); article.isConnected = true; article.id = '123';
-  const env = { enabled:true,auto:false,modal:false,hidden:false,complete:true,cards:[article],calls:0,jobs:[],accountReads:0 };
+  const env = { mode:"completed",enabled:true,auto:false,modal:false,hidden:false,complete:true,cards:[article],calls:0,jobs:[],accountReads:0 };
   const primary = { contains:card => env.cards.includes(card),
     querySelector:() => ({ parentElement:settings }),
     querySelectorAll:() => env.cards };
@@ -57,12 +57,15 @@ function setup() {
       querySelectorAll:() => env.cards.filter(card => card.hasAttribute('data-xrc-notification-hidden')) } });
   vm.runInContext(source,context);
   const filter = context.XReplyNotificationFilter.create({
-    columnSelector:'column',accountHandle:() => { env.accountReads++; return 'me'; },tweetId:card => card.id,enabled:() => env.enabled,
+    columnSelector:'column',accountHandle:() => { env.accountReads++; return 'me'; },tweetId:card => card.id,enabled:() => env.enabled,mode:() => env.enabled ? env.mode : "off",
     autoEnabled:() => env.auto,autoReady:() => true,saveAuto:async value => {
       if (env.failSaveAuto) throw new Error('failed');
       env.auto = value;
     },
-    ready:() => true,holdLayout:() => env.modal,save:async value => { env.enabled = value; },
+    ready:() => true,holdLayout:() => env.modal,save:async value => {
+      if (env.failSave) throw new Error("failed");
+      env.enabled = value !== "off"; env.mode = value;
+    },
     schedule() { env.jobs.push(filter.refresh()); },
     message:async request => {
       env.calls++;
@@ -220,4 +223,44 @@ test('慢分类期间滚动或卡片移入阅读区，不应用过期自动整�
   assert.equal(off.env.auto,false);
   assert.match(off.control('xrc-filter-auto').title,/未保存/);
   assert.equal(off.clock.timers.size,0);
+});
+
+
+test('两个隐藏条件互斥，文字模式不要求红心，按钮固定且关闭可恢复',async () => {
+  const { env,filter,makeCard,control } = setup();
+  env.cards = ['text','both','heart','unknown','original','mine'].map(id => makeCard(id,1600));
+  env.reply = request => ({rows:request.ids.map(id => ({id,
+    status:['original','mine'].includes(id)?'not-reply':id==='unknown'?'unknown':'replied',
+    origin:id==='mine'?'mine':'others',evidenceId:['heart','unknown'].includes(id)?'':'reply',
+    likeEvidenceId:['text','original'].includes(id)?'':id}))});
+  await filter.refresh(); filter.requestApply(); await filter.refresh();
+  const hidden = () => env.cards.map(card=>card.hasAttribute('data-xrc-notification-hidden'));
+  assert.deepEqual(hidden(),[false,true,false,false,false,false]);
+  const original=control('xrc-notification-filter'), text=control('xrc-notification-replied');
+  const positions=[...text.parentElement.children];
+  await text.click({stopPropagation(){}}); await Promise.all(env.jobs);
+  assert.equal(env.mode,'replied'); assert.equal(original.getAttribute('aria-pressed'),'false');
+  assert.equal(text.getAttribute('aria-pressed'),'true');
+  assert.deepEqual(hidden(),[true,true,false,false,true,false]);
+  await original.click({stopPropagation(){}}); await Promise.all(env.jobs);
+  assert.deepEqual(hidden(),[false,true,false,false,false,false]);
+  assert.equal(original.getAttribute('aria-pressed'),'true'); assert.equal(text.getAttribute('aria-pressed'),'false');
+  await original.click({stopPropagation(){}}); await Promise.all(env.jobs);
+  assert.equal(env.mode,'off'); assert.ok(hidden().every(value=>!value));
+  assert.deepEqual(text.parentElement.children,positions);
+});
+
+test('文字模式保存失败或回复框打开时保留旧条件；晚到数据仍保护阅读区',async () => {
+  const {env,filter,control,article}=setup();await filter.refresh();
+  const text=control('xrc-notification-replied');
+  env.failSave=true; await text.click({stopPropagation(){}});
+  assert.equal(env.mode,'completed');assert.equal(text.getAttribute('aria-pressed'),'false');
+  assert.match(text.title,/未保存/);
+  env.failSave=false;env.modal=true;await filter.refresh();
+  assert.ok(text.disabled);await text.click({stopPropagation(){}});assert.equal(env.mode,'completed');
+  env.modal=false;env.complete=false;
+  await text.click({stopPropagation(){}});await Promise.all(env.jobs);
+  assert.equal(article.hasAttribute('data-xrc-notification-hidden'),false);
+  env.complete=true; filter.invalidate();await filter.refresh();
+  assert.equal(article.hasAttribute('data-xrc-notification-hidden'),false,'后续资料不能直接移走当前阅读行');
 });

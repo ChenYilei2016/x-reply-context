@@ -83,7 +83,7 @@ for (const operation of ["TweetDetail","TweetResultByRestId","NotificationsTimel
     for (const listener of listeners) listener({ source:window,origin:location.origin,data:{ channel:"x-reply-context-v1",type:"READY" } });
     const filter = context.XReplyNotificationFilter.create({
       accountHandle:() => "my_account",tweetId:a => a.id,columnSelector:"column",
-      enabled:() => true,ready:() => true,save:async () => {},holdLayout:() => modal,
+      enabled:() => true,mode:() => "completed",ready:() => true,save:async () => {},holdLayout:() => modal,
       autoEnabled:() => false,autoReady:() => true,saveAuto:async () => {},
       message:async request => ({ rows:request.ids.map(id => core.classify(state,request.account,id)) })
     });

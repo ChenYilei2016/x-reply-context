@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../extension/content.js',import.meta.url),'utf8');
 
-function setup() {
+function setup(savedSettings = {}) {
   const events = new Map(); const tasks = new Map(); const body = [];
   const state = { uiRenders:0,requests:[],stopped:0,reloads:0,calls:0,editor:false,fail:false,delays:[] };
   let taskId = 0; let mutation; let storageChanged;
@@ -35,8 +35,8 @@ function setup() {
   } };
   const filter = () => ({ reset() {},invalidate() {},syncKnown() {},async refresh() {} });
   const scope = vm.createContext({ document,window,location:{ pathname:'/notifications',origin:'https://x.com',reload:() => state.reloads++ },
-    chrome:{ runtime,storage:{ onChanged:{ addListener:callback => { storageChanged = callback; } },local:{ get:async () => ({}) } } },
-    XReplyHomeFilter:{ create:filter },XReplyNotificationFilter:{ create:filter },
+    chrome:{ runtime,storage:{ onChanged:{ addListener:callback => { storageChanged = callback; } },local:{ get:async () => savedSettings } } },
+    XReplyHomeFilter:{ create:filter },XReplyNotificationFilter:{ create:options => { state.notificationOptions = options; return filter(); } },
     XReplyContinuous:{ create:options => { state.connected = options.connected; state.message = options.message; return {
       refresh() { state.uiRenders++; },stop() { state.stopped++; },invalidateContext() {},receiveReply() { state.received = true; }
     }; } },
@@ -144,4 +144,19 @@ test('原生控件变化在下一帧刷新，不等待250ms列表任务',async (
   const before=state.uiRenders;
   mutation(); mutation(); assert.equal(state.uiRenders,before);
   frame(); assert.equal(state.uiRenders,before+1,'同一帧只更新一次工具栏');
+});
+
+
+test('通知新模式优先，旧的已回且已点设置兼容且不增加读取请求',async()=>{
+  for(const [settings,expected] of [
+    [{hideCompletedNotifications:true},'completed'],
+    [{hideCompletedNotifications:false},'off'],
+    [{hideCompletedNotifications:true,notificationHideMode:'replied'},'replied'],
+    [{hideCompletedNotifications:true,notificationHideMode:'off'},'off']
+  ]) {
+    const {state,flush}=setup(settings); await flush();
+    assert.equal(state.notificationOptions.mode(),expected);
+    assert.equal(state.notificationOptions.enabled(),expected!=='off');
+    assert.equal(state.calls,0,'加载筛选设置不新增后台分类或接口请求');
+  }
 });

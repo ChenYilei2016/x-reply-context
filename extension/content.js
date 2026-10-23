@@ -17,7 +17,8 @@
   let continuous;
   let hideCompletedHome = false;
   let homeSettingLoaded = false;
-  let hideCompletedNotifications = false;
+  let notificationHideMode = "off";
+  let hasNotificationMode = false;
   let notificationSettingLoaded = false;
   let autoOrganizeNotifications = false;
   let automaticSettingLoaded = false;
@@ -67,16 +68,16 @@
   }
   const notificationFilter = globalThis.XReplyNotificationFilter.create({
     accountHandle,tweetId,message,holdLayout,schedule,columnSelector:NOTIFICATION_COLUMN,
-    enabled:() => hideCompletedNotifications,ready:() => notificationSettingLoaded,
+    enabled:() => notificationHideMode !== "off",mode:() => notificationHideMode,ready:() => notificationSettingLoaded,
     autoEnabled:() => autoOrganizeNotifications,autoReady:() => automaticSettingLoaded,
     saveAuto:async value => {
       await chrome.storage.local.set({ autoOrganizeNotifications:value });
       autoOrganizeNotifications = value;
     },
     save:async value => {
-      await chrome.storage.local.set({ hideCompletedNotifications:value });
-      hideCompletedNotifications = value;
-      notificationFilter.invalidate(); lastSignature = ""; schedule();
+      await chrome.storage.local.set({ notificationHideMode:value });
+      notificationHideMode = value; hasNotificationMode = true;
+      notificationFilter.invalidate(); schedule();
     }
   });
 
@@ -444,8 +445,13 @@
       homeSettingLoaded = true;
       homeFilter.invalidate(); schedule();
     }
-    if (changes.hideCompletedNotifications) {
-      hideCompletedNotifications = changes.hideCompletedNotifications.newValue === true;
+    if (changes.notificationHideMode) {
+      notificationHideMode = ["completed","replied"].includes(changes.notificationHideMode.newValue) ?
+        changes.notificationHideMode.newValue : "off";
+      hasNotificationMode = true; notificationSettingLoaded = true;
+      notificationFilter.invalidate(); schedule();
+    } else if (changes.hideCompletedNotifications && !hasNotificationMode) {
+      notificationHideMode = changes.hideCompletedNotifications.newValue === true ? "completed" : "off";
       notificationSettingLoaded = true;
       notificationFilter.invalidate(); schedule();
     }
@@ -473,11 +479,16 @@
       schedule();
     }
   });
-  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","autoOrganizeNotifications","autoHideLikeNotifications","autoHideFollowNotifications","autoHideRepostNotifications"]).then(saved => {
+  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","notificationHideMode","autoOrganizeNotifications","autoHideLikeNotifications","autoHideFollowNotifications","autoHideRepostNotifications"]).then(saved => {
     if (!connected()) return;
     if (!homeSettingLoaded) hideCompletedHome = saved.hideCompletedHome === true;
     homeSettingLoaded = true;
-    if (!notificationSettingLoaded) hideCompletedNotifications = saved.hideCompletedNotifications === true;
+    if (!notificationSettingLoaded) {
+      hasNotificationMode = Object.hasOwn(saved,"notificationHideMode") && saved.notificationHideMode !== undefined;
+      notificationHideMode = hasNotificationMode ?
+        (["completed","replied"].includes(saved.notificationHideMode) ? saved.notificationHideMode : "off") :
+        (saved.hideCompletedNotifications === true ? "completed" : "off");
+    }
     notificationSettingLoaded = true;
     if (!automaticSettingLoaded) autoOrganizeNotifications = saved.autoOrganizeNotifications === true;
     automaticSettingLoaded = true;

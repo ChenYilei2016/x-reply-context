@@ -2,8 +2,9 @@
   "use strict";
   function create(options) {
     const { columnSelector,enabled,ready,holdLayout,save,schedule,accountHandle,
-      autoEnabled,autoReady,saveAuto } = options;
+      autoEnabled,autoReady,saveAuto,mode } = options;
     let button;
+    let repliedButton;
     let applyButton;
     let controls;
     let autoButton;
@@ -24,9 +25,10 @@
       enabled:() => ready() && enabled() && Boolean(button?.isConnected),
       attribute:"data-xrc-notification-hidden",
       stableReading:true,
-      matches:row => Boolean(row?.evidenceId && row.likeEvidenceId &&
-        (row.status === "replied" ||
-         (row.status === "not-reply" && row.origin === "others" && row.likeEvidenceId === row.id)))
+      matches:row => Boolean(row?.evidenceId &&
+        (row.status === "replied" || row.status === "not-reply" && row.origin === "others") &&
+        (mode() === "replied" || row.likeEvidenceId &&
+          (row.status === "replied" || row.likeEvidenceId === row.id)))
     });
 
     const commentsAutomatic = () => ready() && autoReady() && enabled() && autoEnabled();
@@ -81,6 +83,20 @@
       if (cancelled) renderButton();
     }
 
+    async function toggleMode(value,event) {
+      event.stopPropagation();
+      if (saving || !ready() || holdLayout() || filter.applying()) return;
+      saving = true; error = ""; stopAutomatic(); renderButton();
+      const next = mode() === value ? "off" : value;
+      try {
+        await save(next);
+        filter.invalidate();
+        if (next !== "off") { automaticPassAvailable = false; filter.requestApply(); }
+        schedule();
+      } catch { error = "设置未保存，请重试"; }
+      finally { saving = false; renderButton(); }
+    }
+
     function renderButton() {
       const primary = column();
       // Use the existing title bar, not an extra row above X's virtual list.
@@ -89,6 +105,7 @@
         if (!holdLayout()) controls?.remove();
         else {
           if (button) button.disabled = true;
+          if (repliedButton) repliedButton.disabled = true;
           if (applyButton) applyButton.disabled = true;
           if (autoButton) autoButton.disabled = true;
         }
@@ -98,18 +115,13 @@
         button = document.createElement("button");
         button.type = "button";
         button.className = "xrc-notification-filter";
-        button.addEventListener("click",async event => {
-          event.stopPropagation();
-          if (saving || !ready() || holdLayout() || filter.applying()) return;
-          saving = true; error = ""; renderButton();
-          const next = !enabled();
-          try {
-            await save(next);
-            if (next) { automaticPassAvailable = false; filter.requestApply(); schedule(); }
-          }
-          catch { error = "设置未保存，请重试"; }
-          finally { saving = false; renderButton(); }
-        });
+        button.addEventListener("click",event => toggleMode("completed",event));
+      }
+      if (!repliedButton) {
+        repliedButton = document.createElement("button");
+        repliedButton.type = "button";
+        repliedButton.className = "xrc-notification-replied";
+        repliedButton.addEventListener("click",event => toggleMode("replied",event));
       }
       if (!applyButton) {
         applyButton = document.createElement("button");
@@ -142,15 +154,20 @@
         controls.className = "xrc-notification-controls";
         controls.setAttribute("role","group");
         controls.setAttribute("aria-label","通知完成项筛选");
-        controls.append(button,applyButton,autoButton);
+        controls.append(button,repliedButton,applyButton,autoButton);
       }
       if (anchor.previousElementSibling !== controls) anchor.before(controls);
-      const label = error ? "保存失败，重试" : "隐藏已回且已点";
-      if (button.textContent !== label) button.textContent = label;
-      button.setAttribute("aria-pressed",String(enabled()));
-      button.disabled = saving || !ready() || holdLayout() || filter.applying();
-      button.title = error || `${enabled() ? "已开启，点击恢复已隐藏的完成评论" : "点击开启，并隐藏当前已确认完成的评论通知"}。评论按同一原帖、同一个人的文字及红心标签判断。自动隐藏点赞、关注、转发通知可在扩展弹窗分别开关。`;
-      button.setAttribute("aria-label",error ? "隐藏已回且已点，设置保存失败，点击重试" : label);
+      for (const [control,value,label,rule] of [
+        [button,"completed","已回且已点","需要文字回复和红心均有依据；他人原帖及引用帖需要点赞本帖。"],
+        [repliedButton,"replied","仅已回","只要求已有文字回复依据，不要求红心；已经点赞的也包含在内。"]
+      ]) {
+        if (control.textContent !== label) control.textContent = label;
+        const selected = mode() === value;
+        control.setAttribute("aria-pressed",String(selected));
+        control.disabled = saving || !ready() || holdLayout() || filter.applying();
+        control.title = error || `${selected ? "已开启，再点关闭隐藏" : "点击选择此隐藏条件，与另一项互斥"}。${rule}按同一原帖、同一个人的回复证据判断。仅处理已加载通知，不主动翻页。`;
+        control.setAttribute("aria-label",`隐藏${label}${error ? "，设置保存失败，点击重试" : ""}`);
+      }
       controls.setAttribute("aria-busy",String(saving || filter.applying()));
       const hasOrganizable = canOrganize();
       applyButton.disabled = !ready() || saving || holdLayout() || filter.applying() || !hasOrganizable;
