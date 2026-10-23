@@ -2,7 +2,7 @@
   "use strict";
   function create(options) {
     const { columnSelector,enabled,ready,holdLayout,save,schedule,accountHandle,
-      autoEnabled,autoReady,saveAuto } = options;
+      autoEnabled,autoReady,saveAuto,likesEnabled = () => false } = options;
     let button;
     let applyButton;
     let controls;
@@ -19,7 +19,7 @@
     let activityRevision = 0;
     const column = () => /^\/notifications(?:\/|$)/.test(location.pathname) ?
       document.querySelector(columnSelector) : null;
-    const manualLikes = globalThis.XReplyLikeNotifications.create({ column,accountHandle,holdLayout });
+    const likes = globalThis.XReplyLikeNotifications.create({ column,accountHandle,holdLayout,autoEnabled:likesEnabled });
     const filter = globalThis.XReplyCardFilter.create({ ...options,column,
       enabled:() => ready() && enabled() && Boolean(button?.isConnected),
       attribute:"data-xrc-notification-hidden",
@@ -27,8 +27,10 @@
       matches:row => Boolean(row?.status === "replied" && row.evidenceId && row.likeEvidenceId)
     });
 
+    const commentsAutomatic = () => ready() && autoReady() && enabled() && autoEnabled();
+    const automaticPending = () => (commentsAutomatic() && filter.pendingCount()) || likes.pendingAutomatic();
     function automaticAllowed() {
-      return ready() && autoReady() && enabled() && autoEnabled() && !saving &&
+      return (commentsAutomatic() || likesEnabled()) && !saving &&
         !document.hidden && !holdLayout() && Boolean(column() && controls?.isConnected && accountHandle());
     }
 
@@ -44,7 +46,7 @@
       if (automaticAccount !== account) { stopAutomatic(); automaticAccount = account; }
       if (!automaticAllowed()) { stopAutomatic(); return; }
       if (!automaticActive) { automaticActive = true; lastActivity = Date.now(); }
-      if (!filter.pendingCount() || filter.applying()) {
+      if (!automaticPending() || filter.applying()) {
         clearTimeout(automaticTimer); automaticTimer = undefined; return;
       }
       if (automaticTimer !== undefined) return;
@@ -53,23 +55,28 @@
         automaticTimer = undefined;
         if (!automaticAllowed()) { stopAutomatic(); return; }
         if (Date.now()-lastActivity < IDLE_MS || Date.now()-lastAttempt < IDLE_MS) { planAutomatic(); return; }
-        if (filter.applying() || !filter.pendingCount()) return;
+        if (filter.applying() || !automaticPending()) return;
+        if (likes.pendingAutomatic()) {
+          likes.clearAutomaticBelow(); renderButton(); schedule();
+        }
         // Do not poll protected rows: a later activity or data refresh can arm another idle check.
-        if (!filter.hasPendingBelow()) return;
+        if (!commentsAutomatic() || !filter.hasPendingBelow()) return;
         const revision = activityRevision;
         const scrollPosition = window.scrollY;
         lastAttempt = Date.now();
-        filter.requestApplyBelow(() => automaticAllowed() && accountHandle() === account &&
+        filter.requestApplyBelow(() => automaticAllowed() && commentsAutomatic() && accountHandle() === account &&
           activityRevision === revision && window.scrollY === scrollPosition && Date.now()-lastActivity >= IDLE_MS);
         renderButton(); schedule();
       },remaining);
     }
 
-    function activity() {
+    function activity(event) {
       lastActivity = Date.now(); activityRevision++;
+      // Layout-induced scroll and synthetic events must not start a new like-cleanup batch.
+      if (event?.isTrusted && ["wheel","touchmove","pointerdown","keydown"].includes(event.type)) likes.armAutomatic();
       const cancelled = filter.cancelApplyBelow();
       // Scroll/input is a constant-time hot path while an idle check is already armed.
-      if (autoEnabled() && enabled() && filter.pendingCount() && (automaticTimer === undefined || cancelled)) planAutomatic();
+      if ((commentsAutomatic() || likesEnabled()) && automaticPending() && (automaticTimer === undefined || cancelled)) planAutomatic();
       if (cancelled) renderButton();
     }
 
@@ -110,8 +117,8 @@
         applyButton.addEventListener("click",event => {
           event.stopPropagation();
           if (!enabled() || saving || holdLayout() || filter.applying() ||
-              (!filter.pendingCount() && !manualLikes.available().length)) return;
-          manualLikes.clearLoaded();
+              (!filter.pendingCount() && !likes.available().length)) return;
+          likes.clearLoaded();
           filter.requestApply(); renderButton(); schedule();
         });
       }
@@ -141,10 +148,10 @@
       if (button.textContent !== label) button.textContent = label;
       button.setAttribute("aria-pressed",String(enabled()));
       button.disabled = saving || !ready() || holdLayout() || filter.applying();
-      button.title = error || `${enabled() ? "已开启，点击恢复评论及手动整理隐藏的点赞通知" : "点击开启，并隐藏当前已确认完成的评论通知"}。评论按同一原帖、同一个人的文字及红心标签判断。自动整理不处理点赞通知；手动“整理列表”只额外隐藏点击瞬间已加载的点赞通知，关注等保留。`;
+      button.title = error || `${enabled() ? "已开启，点击恢复评论及手动整理隐藏的点赞通知" : "点击开启，并隐藏当前已确认完成的评论通知"}。评论按同一原帖、同一个人的文字及红心标签判断。手动“整理列表”只额外隐藏点击瞬间已加载的点赞通知，关注等保留。自动隐藏点赞通知可在扩展弹窗独立开关。`;
       button.setAttribute("aria-label",error ? "隐藏已回且已点，设置保存失败，点击重试" : label);
       controls.setAttribute("aria-busy",String(saving || filter.applying()));
-      const canOrganize = filter.pendingCount() || manualLikes.available().length;
+      const canOrganize = filter.pendingCount() || likes.available().length;
       applyButton.disabled = !ready() || !enabled() || saving || holdLayout() || filter.applying() || !canOrganize;
       applyButton.title = !enabled() ? "请先开启左侧隐藏开关。" : holdLayout() ? "回复框关闭后可整理列表，编辑时保持背景列表不动。" :
         filter.applying() ? "正在整理，请稍候。" : !canOrganize ? "当前已加载通知没有待整理内容。" :
@@ -165,16 +172,16 @@
     window.addEventListener("pageshow",activity);
     return {
       ...filter,
-      reset() { stopAutomatic(); filter.reset(); manualLikes.restore(); },
+      reset() { stopAutomatic(); filter.reset(); likes.restore(); },
       syncKnown() {
         filter.syncKnown();
-        if (!enabled()) manualLikes.restore();
-        else manualLikes.sync();
+        if (!enabled()) likes.restoreManual();
+        if (likes.sync()) lastActivity = Date.now();
       },
       async refresh() {
         renderButton();
-        if (!enabled()) manualLikes.restore();
-        else manualLikes.sync();
+        if (!enabled()) likes.restoreManual();
+        if (likes.sync()) lastActivity = Date.now();
         if (!automaticAllowed()) filter.cancelApplyBelow();
         try { await filter.refresh(); } finally { planAutomatic(); renderButton(); }
       }

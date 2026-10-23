@@ -16,6 +16,8 @@
   let notificationSettingLoaded = false;
   let autoOrganizeNotifications = false;
   let automaticSettingLoaded = false;
+  let autoHideLikeNotifications = false;
+  let likeSettingLoaded = false;
   const homeFilter = globalThis.XReplyHomeFilter.create({
     accountHandle,tweetId,message,holdLayout,enabled:() => hideCompletedHome
   });
@@ -23,6 +25,7 @@
     accountHandle,tweetId,message,holdLayout,schedule,columnSelector:NOTIFICATION_COLUMN,
     enabled:() => hideCompletedNotifications,ready:() => notificationSettingLoaded,
     autoEnabled:() => autoOrganizeNotifications,autoReady:() => automaticSettingLoaded,
+    likesEnabled:() => likeSettingLoaded && autoHideLikeNotifications,
     saveAuto:async value => {
       await chrome.storage.local.set({ autoOrganizeNotifications:value });
       autoOrganizeNotifications = value;
@@ -266,14 +269,21 @@
       automaticSettingLoaded = true;
       schedule();
     }
+    if (changes.autoHideLikeNotifications) {
+      autoHideLikeNotifications = changes.autoHideLikeNotifications.newValue === true;
+      likeSettingLoaded = true;
+      schedule();
+    }
   });
-  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","autoOrganizeNotifications"]).then(saved => {
+  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","autoOrganizeNotifications","autoHideLikeNotifications"]).then(saved => {
     if (!homeSettingLoaded) hideCompletedHome = saved.hideCompletedHome === true;
     homeSettingLoaded = true;
     if (!notificationSettingLoaded) hideCompletedNotifications = saved.hideCompletedNotifications === true;
     notificationSettingLoaded = true;
     if (!automaticSettingLoaded) autoOrganizeNotifications = saved.autoOrganizeNotifications === true;
     automaticSettingLoaded = true;
+    if (!likeSettingLoaded) autoHideLikeNotifications = saved.autoHideLikeNotifications === true;
+    likeSettingLoaded = true;
     homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {

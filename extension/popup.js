@@ -1,23 +1,25 @@
-(async () => {
-  const checkbox = document.querySelector("#hide-completed-home");
-  const status = document.querySelector("#home-filter-status");
+async function installCheckbox(selector,key,statusSelector,enabledText) {
+  const checkbox = document.querySelector(selector);
+  const status = document.querySelector(statusSelector);
   try {
-    const saved = await chrome.storage.local.get("hideCompletedHome");
-    checkbox.checked = saved.hideCompletedHome === true;
+    const saved = await chrome.storage.local.get(key);
+    checkbox.checked = saved[key] === true;
     checkbox.disabled = false;
     checkbox.addEventListener("change",async () => {
       const value = checkbox.checked;
       checkbox.disabled = true;
       try {
-        await chrome.storage.local.set({ hideCompletedHome:value });
-        status.textContent = value ? "已开启，按本机已确认记录筛选。" : "已关闭，恢复正常显示。";
+        await chrome.storage.local.set({ [key]:value });
+        status.textContent = value ? enabledText : "已关闭，恢复正常显示。";
       } catch {
         checkbox.checked = !value;
         status.textContent = "设置未保存，请重试。";
       } finally { checkbox.disabled = false; }
     });
   } catch { status.textContent = "设置暂时不可用，请重新打开扩展。"; }
-})();
+}
+void installCheckbox("#hide-completed-home","hideCompletedHome","#home-filter-status","已开启，按本机已确认记录筛选。");
+void installCheckbox("#auto-hide-like-notifications","autoHideLikeNotifications","#like-filter-status","已开启，空闲10秒仅处理阅读区下方的一批点赞通知。");
 
 (async () => {
   const status = document.querySelector("#status");

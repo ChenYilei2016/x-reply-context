@@ -8,6 +8,7 @@ import { checkComposerContext } from "./composer-context-check.mjs";
 import { checkFollowing } from "./following-check.mjs";
 import { checkAutomaticFilter } from "./automatic-filter-check.mjs";
 import { checkManualLikes } from "./manual-likes-check.mjs";
+import { checkAutomaticLikes } from "./automatic-likes-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
@@ -21,7 +22,7 @@ core.ingest(state,{ likes:[demoTweets[1].id,demoTweets[8].id].map(id => ({
 })) },"my_account");
 const storageListeners = [];
 const replyWrites = new Map();
-const settings = { hideCompletedHome:false,hideCompletedNotifications:false,autoOrganizeNotifications:false };
+const settings = { hideCompletedHome:false,hideCompletedNotifications:false,autoOrganizeNotifications:false,autoHideLikeNotifications:false };
 let pauseClassification = false;
 let releaseClassification;
 globalThis.chrome = {
@@ -185,6 +186,16 @@ document.querySelector('#check-composer-context').addEventListener('click',async
 });
 document.querySelector("#demo-hide-completed").addEventListener("change",event => {
   void chrome.storage.local.set({ hideCompletedHome:event.target.checked });
+});
+document.querySelector('#check-automatic-likes').addEventListener('click',async event => {
+  event.target.disabled = true;
+  await checkAutomaticLikes(() => {
+    const rows = Array.from({ length:150 },(_,i) => addAggregate(String(9000+i)));
+    timeline.append(...rows);
+    const follow = addAggregate('9300','follow'); timeline.append(follow);
+    return { rows,follow,arrive() { const row = addAggregate('9301'); timeline.append(row); return row; } };
+  });
+  event.target.disabled = false;
 });
 document.querySelector("#simulate").addEventListener("click",event => {
   core.ingest(state,{ tweets:[

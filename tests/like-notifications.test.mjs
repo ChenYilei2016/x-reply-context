@@ -6,15 +6,17 @@ import { likeIconPath } from './fixtures.mjs';
 const source = await readFile(new URL('../extension/like-notifications.js',import.meta.url),'utf8');
 const attribute = 'data-xrc-like-notification-hidden';
 function setup() {
-  const env = { account:'me',modal:false,active:true,cards:[] };
+  const env = { account:'me',modal:false,active:true,auto:false,cards:[] };
   const primary = { contains:card => env.cards.includes(card),querySelectorAll:() => env.cards };
-  const context = vm.createContext({ document:{ querySelectorAll:() => env.cards.filter(card => card.hasAttribute(attribute)) } });
+  const context = vm.createContext({ window:{ innerHeight:720 },
+    document:{ querySelectorAll:selector => env.cards.filter(card => selector.split(',').some(part => card.hasAttribute(part.slice(1,-1)))) } });
   vm.runInContext(source,context);
   const filter = context.XReplyLikeNotifications.create({ column:() => env.active ? primary : null,
-    accountHandle:() => env.account,holdLayout:() => env.modal });
+    accountHandle:() => env.account,holdLayout:() => env.modal,autoEnabled:() => env.auto });
   function card(kind = 'like') {
     const attributes = new Map();
-    const node = { kind,stamp:'2026-10-22T00:00:00Z',summary:'Someone 喜欢了你的回复',href:'/person',snippet:'fixture',
+    const node = { kind,top:1600,stamp:'2026-10-22T00:00:00Z',summary:'Someone 喜欢了你的回复',href:'/person',snippet:'fixture',
+      getBoundingClientRect:() => ({ top:node.top }),
       matches:() => node.kind !== 'tweet',getAttribute:key => attributes.get(key) ?? null,
       hasAttribute:key => attributes.has(key),setAttribute:(key,value) => attributes.set(key,value),
       removeAttribute:key => attributes.delete(key),
@@ -60,4 +62,42 @@ test('单次最多100条，不循环处理余下通知',() => {
   filter.clearLoaded();
   for (let i = 0; i < 10; i++) filter.sync();
   assert.equal(env.cards.filter(node => node.hasAttribute(attribute)).length,100);
+});
+
+const automaticAttribute = 'data-xrc-auto-like-hidden';
+test('自动点赞只处理阅读区下方一批，补位和重复同步不能重新启动',() => {
+  const { env,filter,card } = setup();
+  env.auto = true;
+  const reading = card(); reading.top = 100;
+  const above = card(); above.top = -100;
+  const follow = card('follow'); const tweet = card('tweet');
+  for (let i = 0; i < 150; i++) card();
+  filter.sync(); filter.clearAutomaticBelow();
+  assert.equal(env.cards.filter(node => node.hasAttribute(automaticAttribute)).length,100);
+  for (const node of [reading,above,follow,tweet]) assert.equal(node.hasAttribute(automaticAttribute),false);
+  const arrived = card();
+  for (let i = 0; i < 100; i++) { filter.sync(); filter.clearAutomaticBelow(); }
+  assert.equal(arrived.hasAttribute(automaticAttribute),false);
+  assert.equal(filter.pendingAutomatic(),false);
+  filter.armAutomatic(); filter.clearAutomaticBelow();
+  assert.equal(arrived.hasAttribute(automaticAttribute),true);
+});
+test('自动点赞独立恢复、回复框保持、节点复用与账号切换',() => {
+  const { env,filter,card } = setup();
+  const manual = card(); filter.clearLoaded();
+  env.auto = true;
+  const automatic = card(); filter.sync(); filter.clearAutomaticBelow();
+  assert.equal(automatic.hasAttribute(automaticAttribute),true);
+  env.auto = false; env.modal = true; env.active = false; filter.sync();
+  assert.equal(automatic.hasAttribute(automaticAttribute),true);
+  env.modal = false; env.active = true; filter.sync();
+  assert.equal(automatic.hasAttribute(automaticAttribute),false);
+  assert.equal(manual.hasAttribute(attribute),true);
+  env.auto = true; filter.sync(); filter.clearAutomaticBelow();
+  automatic.stamp = 'different'; filter.sync();
+  assert.equal(automatic.hasAttribute(automaticAttribute),false);
+  filter.armAutomatic(); filter.clearAutomaticBelow(); env.account = 'other'; filter.sync();
+  assert.equal(automatic.hasAttribute(automaticAttribute),false);
+  filter.clearAutomaticBelow(); env.active = false; filter.sync();
+  assert.equal(env.cards.some(node => node.hasAttribute(automaticAttribute)),false);
 });
