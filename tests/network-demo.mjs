@@ -83,8 +83,8 @@ function load() {
     }
     if (evidence.readingTop === null) evidence.readingTop = timeline.querySelector('article')?.getBoundingClientRect().top;
     updateEvidence();
-    // Model X's empty-page auto-pagination; the production adapter must park this next request.
-    if (!count && bottom) load();
+    // Model both empty-page retries and one fill request after the first manual continuation.
+    if ((!count || page === 2) && bottom) load();
   });
   xhr.send(); updateEvidence();
 }

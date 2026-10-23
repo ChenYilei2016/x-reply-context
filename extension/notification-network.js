@@ -61,13 +61,13 @@
     function stateFor(context) {
       if (!states.has(context.key)) {
         if (states.size >= 6) clear();
-        states.set(context.key,{ account:context.account,paused:false,loading:false,bottom:new Set(),top:new Set(),pending:[] });
+        states.set(context.key,{ account:context.account,paused:false,empty:false,loading:false,permitNext:false,bottom:new Set(),top:new Set(),pending:[] });
       }
       return states.get(context.key);
     }
     function announce(context,state) {
       window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_STATUS",account:context.account,
-        key:context.key,paused:state.paused,loading:state.loading,pending:state.pending.length > 0 },location.origin);
+        key:context.key,paused:state.paused,empty:state.empty,loading:state.loading,pending:state.pending.length > 0 },location.origin);
     }
     function clear() {
       for (const state of states.values()) for (const job of [...state.pending]) job.cancel();
@@ -89,9 +89,10 @@
         }
       }
       if (!topRequest && result.removed && !result.remaining) {
-        state.paused = true; state.loading = false; announce(context,state);
-      } else if (!topRequest && state.paused && (result.remaining || (!result.removed && state.loading))) {
-        state.paused = false; state.loading = false; announce(context,state);
+        state.paused = true; state.empty = true; state.loading = false; announce(context,state);
+      } else if (!topRequest && state.paused) {
+        // Stay in single-batch mode after an empty batch, even when the next batch contains comments.
+        state.empty = !result.remaining; state.loading = false; announce(context,state);
       }
       return result.removed ? payload : null;
     }
@@ -99,13 +100,16 @@
     function finishNative(context) {
       const state = states.get(context.key);
       if (state?.top.has(context.cursor)) return;
-      if (state?.loading) { state.loading = false; state.paused = false; announce(context,state); }
+      if (state?.loading) { state.loading = false; announce(context,state); }
     }
 
     function defer(context,run,cancel) {
       if (!valid(context)) { run(); return null; }
       const state = stateFor(context);
       if (!state.paused || !state.bottom.has(context.cursor) || !valid(context)) { run(); return null; }
+      if (state.permitNext) {
+        state.permitNext = false; state.loading = true; run(); announce(context,state); return null;
+      }
       // Bound parked requests; never retain an unlimited retry queue or call the network to fill a page.
       if (state.pending.length >= 4) { cancel(); return null; }
       const job = {
@@ -221,7 +225,8 @@
         const next = { likes:data.likes === true,follows:data.follows === true };
         if (settingsReady && (next.likes !== settings.likes || next.follows !== settings.follows)) {
           for (const [key,state] of states) {
-            state.paused = false; announce({ key,account:state.account },state);
+            state.paused = false; state.loading = false; state.permitNext = false;
+            announce({ key,account:state.account },state);
             for (const job of [...state.pending]) job.run();
           }
         }
@@ -231,8 +236,9 @@
         const state = states.get(data.key);
         if (!state || state.account !== accountHandle() || !active()) return;
         if (state.loading) return;
+        if (!state.paused) return;
         state.loading = state.pending.length > 0;
-        if (!state.loading) state.paused = false;
+        state.permitNext = !state.loading;
         // One explicit click releases one original pagination request, not a fetch loop.
         const [first,...duplicates] = state.pending;
         for (const job of duplicates) job.cancel();

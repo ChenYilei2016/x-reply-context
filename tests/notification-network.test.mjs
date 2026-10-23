@@ -99,7 +99,8 @@ test('XHR 文本及JSON在原生读取时过滤，保留原始接收数据，暂
   message({ type:'NOTIFICATION_FILTER_CONTINUE',key:'me:All' }); assert.equal(env.requests,2);
   next.complete(payload([tweet(),notice('heart_icon')]),'json');
   assert.equal(entries(next.response).length,3); assert.equal(entries(controller.originalXHR(next,'response')).length,4);
-  const after = xhr('bottom-1'); assert.equal(env.requests,3,'有保留内容后恢复原生滚动加载');
+  const after = xhr('bottom-1'); assert.equal(env.requests,2,'有评论后也不能由补位自动放行第二批');
+  message({ type:'NOTIFICATION_FILTER_CONTINUE',key:'me:All' }); assert.equal(env.requests,3);
   after.complete(payload([notice('heart_icon')])); void after.responseText;
   const cancelled = xhr('bottom-1'); let aborted = 0; cancelled.addEventListener('abort',() => aborted++);
   cancelled.abort(); await new Promise(resolve => setImmediate(resolve));
@@ -108,6 +109,19 @@ test('XHR 文本及JSON在原生读取时过滤，保留原始接收数据，暂
   first.open(); controller.sendXHR(first,()=>first.send());
   first.complete(payload([notice('heart_icon')]));
   assert.equal(entries(JSON.parse(first.responseText)).length,3,'复用XHR发送其他操作时移除旧过滤器');
+});
+
+test('没有待发请求时点击继续也只预留一批；评论返回后仍需手动继续',async () => {
+  const { controller,env,message,url,context } = setup();
+  const send = items => async () => { env.requests++; return new Response(JSON.stringify(payload(items))); };
+  await controller.fetch([url('')],context,send([notice('heart_icon')]));
+  message({ type:'NOTIFICATION_FILTER_CONTINUE',key:'me:All' });
+  await controller.fetch([url('bottom-1')],context,send([tweet()]));
+  const abort = new AbortController();
+  const next = controller.fetch([url('bottom-1'),{ signal:abort.signal }],context,send([tweet()]));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(env.requests,2,'一次点击不能让客户端补位再发第二批');
+  abort.abort(); await assert.rejects(next,{ name:'AbortError' });
 });
 
 test('换账号及离页取消等待请求，未知响应和非通知入口不改写',async () => {

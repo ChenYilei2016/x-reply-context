@@ -58,7 +58,6 @@
       networkNotice.className = "xrc-network-notice";
       networkNotice.setAttribute("role","status");
       const text = document.createElement("span");
-      text.textContent = "本批没有可显示通知，已暂停翻页";
       const next = document.createElement("button"); next.type = "button"; next.className = "xrc-network-continue";
       next.addEventListener("click",() => {
         if (holdLayout() || networkStatus?.account !== accountHandle()) return;
@@ -68,6 +67,8 @@
       });
       networkNotice.append(text,next); document.body.append(networkNotice);
     }
+    networkNotice.querySelector("span").textContent = networkStatus.empty ?
+      "本批没有可显示通知，已暂停翻页" : "本批已加载，继续翻页需手动确认";
     const next = networkNotice.querySelector("button");
     next.disabled = networkStatus.loading === true;
     next.textContent = next.disabled ? "加载中" : "继续加载";
