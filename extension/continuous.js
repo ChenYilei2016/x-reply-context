@@ -10,11 +10,11 @@
     return Boolean(box?.width && box.height && getComputedStyle(node).visibility !== "hidden");
   };
   const enabled = node => node && !node.disabled && node.getAttribute("aria-disabled") !== "true";
-  const eligible = (row,feed) => row && !row.evidenceId &&
-    (feed === "home" && row.status === "not-reply" ? row.origin !== "mine" :
+  const eligible = row => row && !row.evidenceId &&
+    (row.status === "not-reply" ? row.origin !== "mine" :
       !["replied","self","not-reply"].includes(row.status));
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels }) {
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,connected = () => true }) {
     let session;
     let notice;
     let noticeTimer;
@@ -108,7 +108,7 @@
     }
 
     function currentSession(s) {
-      if (session !== s || accountHandle() !== s.account || !feedColumn(s)) return false;
+      if (!connected() || session !== s || accountHandle() !== s.account || !feedColumn(s)) return false;
       if (s.feed === "home") {
         if (!/^\/(?:home|compose)(?:\/|$)/.test(location.pathname)) return false;
         const tabs = [...feedColumn(s).querySelectorAll('[role="tab"]')];
@@ -127,6 +127,7 @@
     }
 
     function start(article,feed) {
+      if (!connected()) return;
       const id = tweetId(article);
       const account = accountHandle();
       if (!id || !account) return;
@@ -163,6 +164,7 @@
     }
 
     function closeForNext(s) {
+      if (!currentSession(s)) return;
       if (draftBusy(s)) { render(s); return; }
       const dialog = s.current.dialog;
       const close = dialog?.querySelector(CLOSE);
@@ -223,7 +225,7 @@
           if (!currentSession(s)) return;
           const byId = new Map(result.rows.map(row => [row.id,row]));
           nextId = batch.find(([id,article]) => article.isConnected && tweetId(article) === id &&
-            eligible(byId.get(id),s.feed) && enabled(article.querySelector('[data-testid="reply"]')))?.[0] || "";
+            eligible(byId.get(id)) && enabled(article.querySelector('[data-testid="reply"]')))?.[0] || "";
         }
         if (!nextId) {
           finish(`当前已加载的${s.feed === "home" ? "主页帖子" : "通知"}处理完成。加载更多后，从任一条继续。`);
@@ -397,6 +399,7 @@
     }
 
     function refresh() {
+      if (!connected()) return;
       const s = session;
       if (!s) return;
       if (!currentSession(s)) { finish(); return; }
@@ -509,7 +512,7 @@
         requestAnimationFrame(() => { if (session === s && !composer()) finish(); });
       }
     },true);
-    return { refresh,receiveReply,invalidateContext:() => { contextRevision++; } };
+    return { refresh,receiveReply,stop:finish,invalidateContext:() => { contextRevision++; } };
   }
 
   globalThis.XReplyContinuous = { create };

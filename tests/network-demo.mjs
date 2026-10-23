@@ -4,7 +4,7 @@ const core = globalThis.XReplyContext;
 const state = core.createState(); core.ingest(state,{ users,tweets:demoTweets },'my_account');
 const settings = { autoHideLikeNotifications:true,autoHideFollowNotifications:true };
 const storageListeners = [];
-globalThis.chrome = { runtime:{ onMessage:{ addListener() {} },async sendMessage(message) {
+globalThis.chrome = { runtime:{ id:'local-demo-extension',onMessage:{ addListener() {} },async sendMessage(message) {
   if (message.type === 'INGEST') { core.ingest(state,message.batch,message.account); evidence.ingests++; return { ok:true }; }
   return { ok:true,rows:core.classifyBatch(state,message.account,message.ids || []) };
 } },storage:{ onChanged:{ addListener:fn => storageListeners.push(fn) },local:{

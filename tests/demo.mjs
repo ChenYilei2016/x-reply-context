@@ -1,4 +1,4 @@
-import { users, demoTweets, homeTweets, post,likeIconPath,followIconPath } from "./fixtures.mjs";
+import { users, demoTweets, homeTweets, post,graphql,likeIconPath,followIconPath } from "./fixtures.mjs";
 import { checkLayout } from "./layout-check.mjs";
 import { checkHeights } from "./height-check.mjs";
 import { checkHearts } from "./heart-check.mjs";
@@ -25,6 +25,7 @@ let pauseClassification = false;
 let releaseClassification;
 globalThis.chrome = {
   runtime:{
+    id:"local-demo-extension",
     onMessage:{ addListener() {} },
     async sendMessage(message) {
       if (message.type === "INGEST") {
@@ -147,6 +148,28 @@ await import("/extension/continuous.js");
 const script = document.createElement("script");
 script.src = "/extension/content.js";
 document.body.append(script);
+
+document.querySelector('#disconnect-runtime').addEventListener('click',event => {
+  event.target.disabled = true;
+  globalThis.chrome.runtime.id = undefined;
+  document.querySelector('#runtime-status').textContent = '已模拟失效；应停用插件控件，保留编辑内容，不自动刷新或发送。';
+});
+
+document.querySelector('#simulate-quote').addEventListener('click',event => {
+  event.target.disabled = true;
+  const quote = post('2112500000000940001','202','2112500000000940001','','','带着自己的想法引用了这篇分享。');
+  const value = graphql(quote);
+  value.quoted_status_result = { result:graphql(demoTweets[0]) };
+  core.ingest(state,core.extract(value),'my_account');
+  core.ingest(state,{ tweets:[post('2112500000000940002','101',quote.id,quote.id,'202','谢谢你的补充。')],
+    likes:[{ id:quote.id,liked:true,account:'my_account',observedAt:Date.now() }] },'my_account');
+  const article = addNotification(quote,true);
+  const quoted = document.createElement('div');
+  quoted.setAttribute('role','link');
+  quoted.style.cssText = 'border:1px solid #ccd6dd;border-radius:12px;padding:12px;margin:10px 0';
+  quoted.innerHTML = '<strong>@my_account · 被引用的帖子</strong><div data-testid="tweetText">我分享了一些最近做工具的心得。</div>';
+  article.querySelector('.actions-shell').before(quoted);
+});
 
 document.querySelector('#check-automatic-filter').addEventListener('click',async event => {
   event.target.disabled = true;

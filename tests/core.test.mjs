@@ -113,6 +113,26 @@ test("转帖中的复制字段不冒充自己的回复，原回复仍可读取",
   assert.equal(parsed.tweets.some(tweet => tweet.id === "101"),true);
 });
 
+test("引用帖的回复和红心按外层新原帖判断，不借用被引用帖或楼中楼的红心", () => {
+  const quoted = post("700","101","700");
+  const outer = post("800","202","800");
+  const value = graphql(outer);
+  value.quoted_status_result = { result:graphql(quoted) };
+  const state = stateWith(core.extract(value).tweets);
+  core.ingest(state,{ tweets:[post("701","101","700","700","101")],
+    likes:[{ id:"700",liked:true,account:"my_account",observedAt:Date.now() }] },"my_account");
+  let row = core.classify(state,"my_account","800");
+  assert.equal(row.status,"not-reply"); assert.equal(row.rootId,"800");
+  assert.equal(row.origin,"others"); assert.equal(row.evidenceId,""); assert.equal(row.likeEvidenceId,"");
+  core.ingest(state,{ tweets:[post("801","101","800","800","202"),post("802","202","800","801","101")],
+    likes:[{ id:"802",liked:true,account:"my_account",observedAt:Date.now() }] },"my_account");
+  row = core.classify(state,"my_account","800");
+  assert.equal(row.evidenceId,"801");
+  assert.equal(row.likeEvidenceId,"","点赞楼中楼不能冒充点赞引用帖本身");
+  core.ingest(state,{ likes:[{ id:"800",liked:true,account:"my_account",observedAt:Date.now() }] },"my_account");
+  assert.equal(core.classify(state,"my_account","800").likeEvidenceId,"800");
+});
+
 test("未知父帖、引用、自我串帖不冒充已经回复某个参与者", () => {
   const state = stateWith([
     post("100","101","100"), post("101","101","100","100","101"),
@@ -187,10 +207,13 @@ test("后台串行合并多标签消息，并拒绝非 X 网页调用", async ()
     },
     storage:{ local:{
       get:async () => structuredClone(saved),
-      set:async data => { saved = structuredClone(data); }
+      set:async data => { Object.assign(saved,structuredClone(data)); }
     } }
   };
-  const context = vm.createContext({ chrome,console,URL });
+  const context = vm.createContext({ chrome,console,URL,XReplyStorage:{ create:() => ({
+    load:async () => structuredClone(saved.replyContext),
+    save:async value => { saved.replyContext = structuredClone(value); }
+  }) } });
   vm.runInContext(await readFile(new URL("../extension/core.js",import.meta.url),"utf8"),context);
   context.importScripts = () => {};
   vm.runInContext(await readFile(new URL("../extension/background.js",import.meta.url),"utf8"),context);

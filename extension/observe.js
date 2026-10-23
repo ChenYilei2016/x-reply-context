@@ -49,7 +49,7 @@
     } catch { return ""; }
   }
 
-  async function replyBody(request) {
+  async function requestBody(request,limit) {
     const reader = request.clone().body?.getReader();
     if (!reader) return "";
     const decoder = new TextDecoder();
@@ -60,7 +60,7 @@
         const chunk = await reader.read();
         if (chunk.done) return body + decoder.decode();
         bytes += chunk.value.byteLength;
-        if (bytes > 512 * 1024) { void reader.cancel().catch(() => {}); return ""; }
+        if (bytes > limit) { void reader.cancel().catch(() => {}); return ""; }
         body += decoder.decode(chunk.value,{ stream:true });
       }
     } catch { return ""; }
@@ -136,6 +136,14 @@
         const key = context.operation === "FavoriteTweet" ? "favorite_tweet" : "unfavorite_tweet";
         likes = !payload.errors?.length && payload.data?.[key] === "Done" && tweetId ?
           [{ id:tweetId,liked:context.operation === "FavoriteTweet",observedAt:responseAt }] : [];
+        if (ready) {
+          if (likes.length && context.account && context.account === currentAccount()) {
+            window.postMessage({ channel:CHANNEL,type:"OBSERVED",interaction:true,account:context.account,
+              batch:{ users:batch.users,tweets:batch.tweets,likes:likes.map(like =>
+                ({ ...like,account:context.account,source:"mutation" })) } },location.origin);
+          }
+          return;
+        }
       }
       for (const user of batch.users) {
         if (pendingUsers.size < 500 || pendingUsers.has(user.id)) pendingUsers.set(user.id,user);
@@ -221,13 +229,13 @@
       if (args[1]?.body !== undefined) context.tweetId = reactionId(args[1].body);
       else if (typeof Request !== "undefined" && request instanceof Request) {
         // Read only the target ID from a cloned like request; leave the original body untouched.
-        try { context.tweetId = request.clone().text().then(reactionId,() => ""); }
+        try { context.tweetId = requestBody(request,4096).then(reactionId,() => ""); }
         catch { context.tweetId = ""; }
       }
     }
     if (context && REPLY_RESULTS[context.operation]) {
       const body = args[1]?.body !== undefined ? args[1].body :
-        typeof Request !== "undefined" && request instanceof Request ? replyBody(request) : "";
+        typeof Request !== "undefined" && request instanceof Request ? requestBody(request,512 * 1024) : "";
       watchReply(context,body);
     }
     const send = () => Reflect.apply(originalFetch,this,args);

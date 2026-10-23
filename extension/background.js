@@ -1,8 +1,15 @@
-importScripts("core.js");
+importScripts("core.js","storage.js");
 const core = globalThis.XReplyContext;
-const storageKey = "replyContext";
+const storage = globalThis.XReplyStorage.create();
 let state;
 let queue = Promise.resolve();
+let revision = 0;
+
+async function persist() {
+  await storage.save(state);
+  try { await chrome.storage.local.set({ replyContextRevision:`${Date.now()}:${++revision}` }); }
+  catch { console.warn("回过了：记录已保存，其他标签页的更新通知暂未送达。"); }
+}
 
 function allowedSender(sender) {
   try {
@@ -15,29 +22,29 @@ function allowedSender(sender) {
 
 async function handleMessage(message) {
   if (!state) {
-    const saved = (await chrome.storage.local.get(storageKey))[storageKey];
-    state = saved?.version === 1 ? saved : core.createState();
+    state = await storage.load();
     if (!state.people || Object.values(state.people).some(person =>
       typeof person.myCommentedPosts !== "number" || typeof person.theirCommentedPosts !== "number" ||
       typeof person.firstCommentOnMyPostId !== "string")) {
       core.ingest(state,{},"");
-      await chrome.storage.local.set({ [storageKey]:state });
+      await persist();
     }
   }
   const account = core.handle(message.account);
   if (message.type === "INGEST") {
     core.ingest(state,message.batch,account);
-    await chrome.storage.local.set({ [storageKey]: state });
+    await persist();
     return { ok:true };
   }
   if (message.type === "CLASSIFY" || message.type === "SUMMARY") {
     const me = core.findAccount(state,account);
     if (me && !state.accounts[me.id]) {
       core.ingest(state,{},account);
-      await chrome.storage.local.set({ [storageKey]: state });
+      await persist();
     }
     const rows = message.type === "CLASSIFY" && Array.isArray(message.ids) ?
       core.classifyBatch(state,account,message.ids) : [];
+    if (message.type === "CLASSIFY") return { ok:true,rows,account,recognized:Boolean(me) };
     return {
       ok:true, rows, account, recognized:Boolean(me),
       replyCount: me ? Object.values(state.replies).filter(reply => reply.actorId === me.id).length : 0,

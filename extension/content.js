@@ -5,6 +5,7 @@
   let timer;
   let running = false;
   let again = false;
+  let urgentRefresh = false;
   let lastAccount = "";
   let lastSignature = "";
   let annotationRevision = 0;
@@ -22,9 +23,42 @@
   let followSettingLoaded = false;
   let networkStatus;
   let networkNotice;
+  let disconnected = false;
   const homeFilter = globalThis.XReplyHomeFilter.create({
     accountHandle,tweetId,message,holdLayout,enabled:() => hideCompletedHome
   });
+
+  function disconnectRuntime() {
+    if (disconnected) return;
+    disconnected = true;
+    clearTimeout(timer); timer = undefined; pending.length = 0; again = false;
+    observer.disconnect();
+    continuous?.stop();
+    if (networkNotice) networkNotice.hidden = true;
+    // Pause without resetting filters: restoring hidden rows here would move the reading position.
+    void notificationFilter.refresh();
+    document.querySelectorAll(".xrc-notification-controls button").forEach(button => { button.disabled = true; });
+    const notice = document.createElement("aside");
+    notice.className = "xrc-runtime-notice";
+    notice.setAttribute("role","status");
+    const text = document.createElement("span");
+    text.textContent = "扩展连接已失效，标签暂不可用，请刷新此页。若刚发送过，请先在 X 核对，勿重复发送。";
+    const reload = document.createElement("button");
+    reload.type = "button"; reload.textContent = "刷新此页";
+    reload.addEventListener("click",() => {
+      if (document.querySelector('[role="dialog"] [contenteditable="true"],[role="dialog"] [data-testid="attachments"]')) {
+        text.textContent = "请先手动保存草稿并关闭回复框，再刷新；不会自动重发。";
+        return;
+      }
+      location.reload();
+    });
+    notice.append(text,reload); (document.body || document.documentElement).append(notice);
+  }
+
+  function connected() {
+    if (!disconnected && !chrome.runtime?.id) disconnectRuntime();
+    return !disconnected;
+  }
   const notificationFilter = globalThis.XReplyNotificationFilter.create({
     accountHandle,tweetId,message,holdLayout,schedule,columnSelector:NOTIFICATION_COLUMN,
     enabled:() => hideCompletedNotifications,ready:() => notificationSettingLoaded,
@@ -86,7 +120,7 @@
   }
 
   function holdLayout() {
-    return /^\/compose(?:\/|$)/.test(location.pathname) ||
+    return disconnected || /^\/compose(?:\/|$)/.test(location.pathname) ||
       Array.from(document.querySelectorAll('[role="dialog"],[aria-modal="true"]')).some(dialog => {
         const box = dialog.getBoundingClientRect();
         return box.width > 0 && box.height > 0 && getComputedStyle(dialog).visibility !== "hidden";
@@ -99,9 +133,12 @@
       Array.from(article.querySelectorAll('[role="group"]')).find(outsideQuote);
   }
 
-  function schedule() {
-    if (timer) return;
-    timer = setTimeout(() => { timer = undefined; void refresh(); },250);
+  function schedule(delay = 250) {
+    if (!connected()) return;
+    if (delay === 0) urgentRefresh = true;
+    if (timer && delay !== 0) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => { timer = undefined; void refresh(); },delay);
   }
 
   function invalidateAnnotations() {
@@ -109,9 +146,24 @@
   }
 
   async function message(payload) {
-    const reply = await chrome.runtime.sendMessage(payload);
-    if (!reply?.ok) throw new Error(reply?.error || "扩展连接已断开，请刷新页面");
-    return reply;
+    if (!connected()) throw new Error("扩展连接已失效，请刷新页面");
+    try {
+      const reply = await chrome.runtime.sendMessage(payload);
+      if (!connected()) throw new Error("扩展连接已失效，请刷新页面");
+      if (!reply?.ok) throw new Error(reply?.error || "扩展连接已断开，请刷新页面");
+      return reply;
+    } catch (error) {
+      if (/Extension context invalidated/i.test(error.message) || !chrome.runtime?.id) disconnectRuntime();
+      throw error;
+    }
+  }
+
+  function persistInteraction(batch,account) {
+    const saved = message({ type:"INGEST",account,batch });
+    void saved.then(() => {
+      invalidateAnnotations(); homeFilter.invalidate(); notificationFilter.invalidate(); schedule(0);
+    },error => console.warn("回过了：",error.message));
+    return saved;
   }
 
   function link(label, id, title) {
@@ -127,8 +179,9 @@
   function render(article, result) {
     article.dataset.xrcId = result.id;
     article.dataset.xrcStatus = result.status;
+    article.dataset.xrcOrigin = result.origin;
     let bar = article.querySelector(".xrc-labels");
-    if (["self","not-reply"].includes(result.status)) {
+    if (result.status === "self" || (result.status === "not-reply" && result.origin === "mine")) {
       bar?.remove();
       return;
     }
@@ -161,8 +214,8 @@
     status.className = "xrc-status";
     status.dataset.confirmed = String(Boolean(result.evidenceId));
     if (!result.evidenceId) status.textContent = "文字-待确认";
-    status.title = result.status === "replied" ?
-      `你在同一原帖里已经回复过这个人。点击查看：${result.evidenceText || "我的回复"}` :
+    status.title = result.evidenceId ?
+      `${result.status === "not-reply" ? "你已在这篇原帖下评论过（含楼中楼）" : "你在同一原帖里已经回复过这个人"}。点击查看：${result.evidenceText || "我的回复"}` :
       "当前本地记录还没有确认你回过此人，不代表你从未回复。";
     const heart = result.likeEvidenceId ? link("红心-已点",result.likeEvidenceId) : document.createElement("span");
     heart.className = "xrc-heart";
@@ -201,11 +254,13 @@
   }
 
   async function refresh() {
+    if (!connected()) return;
     continuous?.refresh();
     renderNetworkNotice();
     window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_CONTEXT" },location.origin);
     if (running) { again = true; return; }
     running = true;
+    urgentRefresh = false;
     try {
       const account = accountHandle();
       if (!account) { homeFilter.reset(); notificationFilter.reset(); return; }
@@ -237,7 +292,8 @@
       const signature = account + ":" + ids.join(",");
       const annotationsPresent = articles.every((article,index) => !ids[index] ||
         (article.dataset.xrcId === ids[index] &&
-         (["self","not-reply"].includes(article.dataset.xrcStatus) || article.querySelector(".xrc-labels"))));
+         (article.dataset.xrcStatus === "self" ||
+          (article.dataset.xrcStatus === "not-reply" && article.dataset.xrcOrigin === "mine") || article.querySelector(".xrc-labels"))));
       if (signature === lastSignature && annotationsPresent) return;
       const observedRevision = annotationRevision;
       const byId = new Map();
@@ -257,15 +313,16 @@
       console.warn("回过了：",error.message);
     } finally {
       running = false;
-      if (again) { again = false; schedule(); }
+      if (again) { again = false; schedule(urgentRefresh ? 0 : 250); }
     }
   }
 
-  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels });
+  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels,connected });
 
   window.addEventListener("message", event => {
     if (event.source !== window || event.origin !== location.origin ||
         event.data?.channel !== CHANNEL) return;
+    if (!connected()) return;
     if (event.data.type === "OBSERVER_READY") {
       window.postMessage({ channel:CHANNEL,type:"READY" },location.origin);
       publishNetworkSettings();
@@ -278,15 +335,15 @@
       const data = event.data;
       const saved = data.type === "REPLY_RESULT" && data.status === "sent" &&
         data.account === accountHandle() && data.batch ?
-        message({ type:"INGEST",account:data.account,batch:data.batch }) : null;
-      if (saved) void saved.then(() => {
-        invalidateAnnotations(); homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
-      },
-        error => console.warn("回过了：",error.message));
+        persistInteraction(data.batch,data.account) : null;
       void continuous?.receiveReply(data,saved);
       return;
     }
     if (event.data.type !== "OBSERVED") return;
+    if (event.data.interaction === true) {
+      if (event.data.account === accountHandle() && event.data.batch) persistInteraction(event.data.batch,event.data.account);
+      return;
+    }
     if (pending.length < 10) pending.push(event.data.batch);
     schedule();
   });
@@ -294,8 +351,8 @@
     if (request?.type === "GET_ACCOUNT") respond({ account:accountHandle() });
   });
   chrome.storage.onChanged.addListener((changes,area) => {
-    if (area !== "local") return;
-    if (changes.replyContext) {
+    if (area !== "local" || !connected()) return;
+    if (changes.replyContext || changes.replyContextRevision) {
       invalidateAnnotations(); homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
     }
     if (changes.hideCompletedHome) {
@@ -327,6 +384,7 @@
     }
   });
   void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","autoOrganizeNotifications","autoHideLikeNotifications","autoHideFollowNotifications"]).then(saved => {
+    if (!connected()) return;
     if (!homeSettingLoaded) hideCompletedHome = saved.hideCompletedHome === true;
     homeSettingLoaded = true;
     if (!notificationSettingLoaded) hideCompletedNotifications = saved.hideCompletedNotifications === true;
@@ -341,6 +399,7 @@
     homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
+    if (!connected()) return;
     if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice"))) {
       homeFilter.syncKnown(); notificationFilter.syncKnown(); schedule();
     }

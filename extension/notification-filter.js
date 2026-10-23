@@ -24,7 +24,9 @@
       enabled:() => ready() && enabled() && Boolean(button?.isConnected),
       attribute:"data-xrc-notification-hidden",
       stableReading:true,
-      matches:row => Boolean(row?.status === "replied" && row.evidenceId && row.likeEvidenceId)
+      matches:row => Boolean(row?.evidenceId && row.likeEvidenceId &&
+        (row.status === "replied" ||
+         (row.status === "not-reply" && row.origin === "others" && row.likeEvidenceId === row.id)))
     });
 
     const commentsAutomatic = () => ready() && autoReady() && enabled() && autoEnabled();

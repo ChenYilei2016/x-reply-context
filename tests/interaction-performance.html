@@ -1,0 +1,9 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<title>引用帖和互动反馈性能验证</title><link rel="stylesheet" href="/extension/content.css">
+<style>body{font:16px/1.6 system-ui;max-width:780px;margin:30px auto}article{border:1px solid #ccd6dd;padding:20px}header{display:flex;align-items:center;gap:12px}header h1{flex:1;font-size:22px}.quoted{border:1px solid #ccd6dd;border-radius:12px;margin:15px 0;padding:15px}pre{white-space:pre-wrap}button{padding:7px 15px}</style>
+<p>本地虚构账号 · 真实 IndexedDB · 未连接 X</p><a data-testid="AppTabBar_Profile_Link" href="/me">@me</a>
+<main data-testid="primaryColumn"><header><h1>通知</h1><div><a href="/settings/notifications">⚙</a></div></header>
+<a role="tab" href="/notifications" aria-selected="true">全部</a><section id="timeline"></section></main>
+<button id="run" disabled>验证：模拟150ms点赞回执到标签显示</button><pre id="result" role="status">正在初始化满量虚构记录…</pre>
+<script src="/extension/core.js"></script><script src="/extension/storage.js"></script>
+<script type="module" src="/tests/interaction-performance.mjs"></script></html>

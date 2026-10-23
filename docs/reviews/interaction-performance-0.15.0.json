@@ -1,0 +1,14 @@
+{
+  "afterResponseMs": 78.90000000596046,
+  "fixture": true,
+  "labels": "别人原帖\n文字-已回\n红心-已点\n我评他 1\n他评我 0\n原帖",
+  "networkMs": 153.5,
+  "notificationBytes": 42,
+  "readingTop": [
+    187.4453125,
+    187.4453125
+  ],
+  "totalMs": 232.4000000059605,
+  "quoteHidden": true,
+  "quoteRestored": true
+}

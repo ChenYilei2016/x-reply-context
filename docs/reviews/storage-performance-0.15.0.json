@@ -1,0 +1,45 @@
+{
+  "checks": [
+    {
+      "label": "迁移保留原记录且各表有界",
+      "ok": true
+    },
+    {
+      "label": "一个红心只写一条红心和小元数据",
+      "ok": true
+    },
+    {
+      "label": "重开数据库恢复新红心，不重新迁移旧快照",
+      "ok": true
+    },
+    {
+      "label": "事务中断不留下半份记录",
+      "ok": true
+    },
+    {
+      "label": "失败后下一次保存仍可补齐未落盘修改",
+      "ok": true
+    },
+    {
+      "label": "帖子晚到时红心关系也能增量持久化",
+      "ok": true
+    }
+  ],
+  "fixture": true,
+  "metrics": {
+    "coldReadMs": 204.9000000059605,
+    "migrationMs": 2151.100000023842,
+    "singleLikeComputeMs": 8.599999994039536,
+    "singleLikeSaveMs": 13.5,
+    "singleLikeWrites": [
+      {
+        "bytes": 264,
+        "store": "likes"
+      },
+      {
+        "bytes": 132,
+        "store": "metadata"
+      }
+    ]
+  }
+}

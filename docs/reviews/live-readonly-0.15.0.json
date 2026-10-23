@@ -1,0 +1,12 @@
+{
+  "version": "0.15.0",
+  "source": "real-page-read-only",
+  "cards": 13,
+  "missingLabels": 0,
+  "replied": 5,
+  "liked": 2,
+  "historyCountsVisible": true,
+  "quotePresent": false,
+  "runtimeWarning": false,
+  "staleSendingNotice": false
+}

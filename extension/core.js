@@ -142,17 +142,30 @@
   }
 
   function retainRecords(records, now) {
-    return Object.fromEntries(Object.entries(records)
+    const entries = Object.entries(records);
+    let previous = Infinity;
+    if (entries.length <= LIMIT && entries.every(([,value]) => {
+      const retained = value.seenAt >= now-RETENTION_MS && value.seenAt <= previous;
+      previous = value.seenAt;
+      return retained;
+    })) return records;
+    return Object.fromEntries(entries
       .filter(([, value]) => value.seenAt >= now - RETENTION_MS)
       .sort((a,b) => b[1].seenAt - a[1].seenAt).slice(0,LIMIT));
   }
 
   function prune(state, now) {
+    let relationshipsChanged = false;
     for (const key of ["users", "tweets", "roots", "replies", "likes", "people"]) {
-      state[key] = retainRecords(state[key],now);
+      const retained = retainRecords(state[key],now);
+      if (key !== "likes" && key !== "people" && retained !== state[key]) relationshipsChanged = true;
+      state[key] = retained;
     }
-    state.accounts = Object.fromEntries(Object.entries(state.accounts)
-      .filter(([, seenAt]) => seenAt >= now - RETENTION_MS).slice(-20));
+    const accounts = Object.entries(state.accounts);
+    const retainedAccounts = accounts.filter(([, seenAt]) => seenAt >= now - RETENTION_MS).slice(-20);
+    if (retainedAccounts.length !== accounts.length) relationshipsChanged = true;
+    state.accounts = Object.fromEntries(retainedAccounts);
+    return relationshipsChanged;
   }
 
   function indexPeople(state, now) {
@@ -216,6 +229,7 @@
   }
 
   function ingest(state, batch, accountHandle, now = Date.now()) {
+    const hadPeople = Boolean(state.people);
     state.likes ||= {};
     state.people ||= {};
     for (const raw of (Array.isArray(batch?.users) ? batch.users : []).slice(0,500)) {
@@ -227,7 +241,10 @@
       if (tweet) state.tweets[tweet.id] = mergeKnown(state.tweets[tweet.id], tweet, now);
     }
     const me = findAccount(state, accountHandle);
+    const likesOnly = Boolean(hadPeople && batch?.likes?.length && !batch?.users?.length &&
+      !batch?.tweets?.length && me && state.accounts[me.id]);
     if (me) state.accounts[me.id] = now;
+    const changedLikes = [];
     const actors = new Map([[handle(accountHandle),me]]);
     for (const raw of (Array.isArray(batch?.likes) ? batch.likes : []).slice(0,500)) {
       const actorHandle = handle(raw.account);
@@ -247,16 +264,19 @@
         id:raw.id, actorId:actor.id, liked:raw.liked, observedAt, seenAt:now,
         source:raw.source === "mutation" ? "mutation" : "snapshot"
       };
+      changedLikes.push(state.likes[key]);
     }
-    for (const like of Object.values(state.likes)) {
+    for (const like of likesOnly ? changedLikes : Object.values(state.likes)) {
       const tweet = state.tweets[like.id];
       if (!tweet) continue;
-      like.recipientId = tweet.authorId;
-      like.conversationId = conversationOf(state,tweet) || like.conversationId || "";
+      const conversationId = conversationOf(state,tweet) || like.conversationId || "";
+      if (like.recipientId !== tweet.authorId || like.conversationId !== conversationId) {
+        state.likes[`${like.actorId}:${like.id}`] = { ...like,recipientId:tweet.authorId,conversationId };
+      }
     }
-    indexReplies(state);
-    prune(state, now);
-    indexPeople(state, now);
+    if (!likesOnly) indexReplies(state);
+    const relationshipsPruned = prune(state, now);
+    if (!likesOnly || relationshipsPruned) indexPeople(state, now);
     state.updatedAt = now;
   }
 
@@ -286,7 +306,8 @@
       ...result, origin, rootId, status: original ? "not-reply" : evidence ? "replied" : "unknown",
       rootHandle: state.users[rootAuthorId]?.handle || "",
       evidenceId: evidence?.id || "", evidenceText: evidence?.text || "",
-      likeEvidenceId: result.likeEvidenceId || like?.id || "",
+      // Original cards (including quotes) need a like on that card, not on a reply below it.
+      likeEvidenceId: result.likeEvidenceId || (original ? "" : like?.id || ""),
       personStats: me ? {
         myCommentedPosts:person?.myCommentedPosts || 0,
         theirCommentedPosts:person?.theirCommentedPosts || 0

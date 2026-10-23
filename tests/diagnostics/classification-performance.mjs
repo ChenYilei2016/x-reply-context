@@ -1,25 +1,15 @@
 import { performance } from 'node:perf_hooks';
 import { mkdir,writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import '../../extension/core.js';
+import vm from 'node:vm';
+import { execFileSync } from 'node:child_process';
+import { performanceState,fixtureRootId } from './performance-fixture.mjs';
+if (process.argv[3]) vm.runInThisContext(execFileSync('git',['show',`${process.argv[3]}:extension/core.js`],{ encoding:'utf8' }));
+else await import('../../extension/core.js');
 const core = globalThis.XReplyContext;
-const state = core.createState();
 const now = Date.now();
-const me = '90000000000000000000';
-const rootId = index => String(10000000000000000000n+BigInt(index));
-for (let i = 0; i < 9999; i++) state.users[String(i+2)] = { id:String(i+2),handle:`u${i}`,seenAt:now };
-state.users[me] = { id:me,handle:'me',seenAt:now }; state.accounts[me] = now;
-for (let i = 0; i < 10000; i++) {
-  const id = rootId(i),authorId = String(i%9999+2);
-  state.tweets[id] = { id,authorId,conversationId:id,parentId:'',text:'fixture',seenAt:now };
-  state.roots[id] = { id,authorId,seenAt:now };
-  const conversationId = rootId(i%9900);
-  state.replies[`${me}:${conversationId}:${authorId}`] = {
-    id:String(20000000000000000000n+BigInt(i)),actorId:me,recipientId:authorId,conversationId,text:'old reply',seenAt:now
-  };
-  const likeId = String(30000000000000000000n+BigInt(i));
-  state.likes[`${me}:${likeId}`] = { id:likeId,actorId:me,recipientId:authorId,conversationId:id,liked:true,seenAt:now };
-}
+const state = performanceState(core,now);
+const rootId = fixtureRootId;
 const ids = Array.from({ length:100 },(_,i) => rootId(9900+i));
 const classify = () => core.classifyBatch ? core.classifyBatch(state,'me',ids) : ids.map(id => core.classify(state,'me',id));
 classify();
@@ -34,5 +24,13 @@ const ingestSamples = [];
 for (let i = 0; i < 3; i++) { const started=performance.now(); core.ingest(state,{ likes },'me',now); ingestSamples.push(Number((performance.now()-started).toFixed(2))); }
 result.ingest500LikesMs = ingestSamples;
 result.ingestMedianMs = [...ingestSamples].sort((a,b) => a-b)[1];
+const singleLikeSamples = [];
+for (let i = 0; i < 3; i++) {
+  const started = performance.now(); core.ingest(state,{ likes:[{ ...likes[0],liked:i%2 === 0,observedAt:now+i+1 }] },'me',now+i+1);
+  singleLikeSamples.push(Number((performance.now()-started).toFixed(2)));
+}
+result.singleLikeMs = singleLikeSamples;
+result.singleLikeMedianMs = [...singleLikeSamples].sort((a,b) => a-b)[1];
+result.serializedStateBytes = Buffer.byteLength(JSON.stringify(state));
 if (process.argv[2]) { await mkdir(path.dirname(process.argv[2]),{ recursive:true }); await writeFile(process.argv[2],JSON.stringify(result,null,2)+'\n'); }
 console.log(JSON.stringify(result,null,2));

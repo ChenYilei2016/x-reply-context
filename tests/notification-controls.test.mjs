@@ -125,6 +125,17 @@ async function automaticSetup() {
   return setupState;
 }
 
+test('通知中的他人原帖及引用帖，只有已评论且点赞本帖才可整理隐藏',async () => {
+  const { env,filter,makeCard } = setup();
+  env.cards = ['complete','text-only','heart-only','other-heart','mine'].map(id => makeCard(id,1600));
+  env.reply = request => ({ rows:request.ids.map(id => ({ id,status:'not-reply',
+    origin:id === 'mine' ? 'mine' : 'others',evidenceId:id === 'heart-only' ? '' : 'reply',
+    likeEvidenceId:id === 'text-only' ? '' : id === 'other-heart' ? 'another-post' : id })) });
+  await filter.refresh();
+  filter.requestApply(); await filter.refresh();
+  assert.deepEqual(env.cards.map(card => card.hasAttribute('data-xrc-notification-hidden')),[true,false,false,false,false]);
+});
+
 test('自动整理空闲10秒仅更新阅读区下方，交互重新计时，手动仍可全量整理',async () => {
   const { env,filter,clock,control } = await automaticSetup();
   const hidden = () => env.cards.map(card => card.hasAttribute('data-xrc-notification-hidden'));

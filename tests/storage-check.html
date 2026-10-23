@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>本地 IndexedDB 存储验证</title>
+<style>body{max-width:900px;margin:40px auto;font:16px/1.6 system-ui}pre{white-space:pre-wrap}button{padding:10px 20px}</style>
+<h1>本地存储验证 · 虚构数据</h1>
+<p>仅使用 localhost 的 IndexedDB，不连接 X 账号。验证结束会清理测试数据库。</p>
+<button id="run">验证迁移、增量写入和事务失败恢复</button>
+<pre id="result" role="status">尚未执行</pre>
+<script src="/extension/core.js"></script><script src="/extension/storage.js"></script>
+<script type="module" src="/tests/storage-check.mjs"></script></html>
