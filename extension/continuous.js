@@ -325,7 +325,7 @@
         profile.setAttribute("aria-disabled","true");
         profile.title = "正在确认当前回复对象的账号";
         context.append(labels,profile);
-        bar.prepend(context);
+        bar.append(context);
       }
       let preview = bar.querySelector(".xrc-flow-root");
       if (!preview) {
