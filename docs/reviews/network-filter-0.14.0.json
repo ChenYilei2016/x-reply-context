@@ -1,0 +1,32 @@
+{
+  "initial": {
+    "requests": 1,
+    "ingests": 0,
+    "filteredEvents": 1000,
+    "renderedEvents": 0,
+    "readingTop": 146.5,
+    "afterTop": 146.5
+  },
+  "paused": {
+    "requests": 2,
+    "ingests": 1,
+    "filteredEvents": 1020,
+    "renderedEvents": 0,
+    "readingTop": 146.5,
+    "afterTop": 146.5
+  },
+  "continued": {
+    "requests": 3,
+    "ingests": 1,
+    "filteredEvents": 1020,
+    "renderedEvents": 0,
+    "readingTop": 146.5,
+    "afterTop": 146.5
+  },
+  "dom": {
+    "eventPlaceholders": 0,
+    "firstTop": 146.5,
+    "noticeNodes": 1,
+    "timelineTop": 146.5
+  }
+}

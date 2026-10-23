@@ -7,9 +7,6 @@ import { checkNotificationStability } from "./notification-stability-check.mjs";
 import { checkComposerContext } from "./composer-context-check.mjs";
 import { checkFollowing } from "./following-check.mjs";
 import { checkAutomaticFilter } from "./automatic-filter-check.mjs";
-import { checkManualLikes } from "./manual-likes-check.mjs";
-import { checkAutomaticLikes } from "./automatic-likes-check.mjs";
-import { checkAutomaticFollows } from "./automatic-follows-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
@@ -145,17 +142,12 @@ installComposerDemo({ state,core,addNotification });
 await import("/extension/observe.js");
 await import("/extension/card-filter.js");
 await import("/extension/home-filter.js");
-await import("/extension/like-notifications.js");
 await import("/extension/notification-filter.js");
 await import("/extension/continuous.js");
 const script = document.createElement("script");
 script.src = "/extension/content.js";
 document.body.append(script);
-document.querySelector('#check-manual-likes').addEventListener('click',async event => {
-  event.target.disabled = true;
-  await checkManualLikes(addAggregate);
-  event.target.disabled = false;
-});
+
 document.querySelector('#check-automatic-filter').addEventListener('click',async event => {
   event.target.disabled = true;
   await checkAutomaticFilter(() => {
@@ -188,26 +180,8 @@ document.querySelector('#check-composer-context').addEventListener('click',async
 document.querySelector("#demo-hide-completed").addEventListener("change",event => {
   void chrome.storage.local.set({ hideCompletedHome:event.target.checked });
 });
-document.querySelector('#check-automatic-likes').addEventListener('click',async event => {
-  event.target.disabled = true;
-  await checkAutomaticLikes(() => {
-    const rows = Array.from({ length:150 },(_,i) => addAggregate(String(9000+i)));
-    timeline.append(...rows);
-    const follow = addAggregate('9300','follow'); timeline.append(follow);
-    return { rows,follow,arrive() { const row = addAggregate('9301'); timeline.append(row); return row; } };
-  });
-  event.target.disabled = false;
-});
-document.querySelector('#check-automatic-follows').addEventListener('click',async event => {
-  event.target.disabled = true;
-  await checkAutomaticFollows(() => {
-    const rows = Array.from({ length:150 },(_,i) => addAggregate(String(9400+i),'follow'));
-    timeline.append(...rows);
-    const like = addAggregate('9600'); timeline.append(like);
-    return { rows,like,arrive() { const row = addAggregate('9601','follow'); timeline.append(row); return row; } };
-  });
-  event.target.disabled = false;
-});
+
+
 document.querySelector("#simulate").addEventListener("click",event => {
   core.ingest(state,{ tweets:[
     post("2112500000000000014","101","2112500000000000001","2112500000000000013","505","欢迎来交流！")

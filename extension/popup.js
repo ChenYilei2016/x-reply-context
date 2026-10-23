@@ -10,7 +10,7 @@ async function installCheckbox(selector,key,statusSelector,enabledText,defaultEn
       checkbox.disabled = true;
       try {
         await chrome.storage.local.set({ [key]:value });
-        status.textContent = value ? enabledText : "已关闭，恢复正常显示。";
+        status.textContent = value ? enabledText : defaultEnabled ? "已关闭；刷新通知页可恢复此前被过滤的消息。" : "已关闭，恢复正常显示。";
       } catch {
         checkbox.checked = !value;
         status.textContent = "设置未保存，请重试。";
@@ -19,8 +19,8 @@ async function installCheckbox(selector,key,statusSelector,enabledText,defaultEn
   } catch { status.textContent = "设置暂时不可用，请重新打开扩展。"; }
 }
 void installCheckbox("#hide-completed-home","hideCompletedHome","#home-filter-status","已开启，按本机已确认记录筛选。");
-void installCheckbox("#auto-hide-like-notifications","autoHideLikeNotifications","#like-filter-status","已开启，空闲10秒仅处理阅读区下方的一批点赞通知。",true);
-void installCheckbox("#auto-hide-follow-notifications","autoHideFollowNotifications","#follow-filter-status","已开启，空闲10秒仅处理阅读区下方的一批关注通知。",true);
+void installCheckbox("#auto-hide-like-notifications","autoHideLikeNotifications","#like-filter-status","已开启，后续接收时过滤点赞通知；空批暂停翻页。",true);
+void installCheckbox("#auto-hide-follow-notifications","autoHideFollowNotifications","#follow-filter-status","已开启，后续接收时过滤关注通知；空批暂停翻页。",true);
 
 (async () => {
   const status = document.querySelector("#status");

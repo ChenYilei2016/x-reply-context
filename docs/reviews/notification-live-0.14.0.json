@@ -1,0 +1,40 @@
+{
+  "buttons": [
+    {
+      "box": [
+        645.5,
+        11.5,
+        112,
+        30
+      ],
+      "text": "隐藏已回且已点"
+    },
+    {
+      "box": [
+        765.5,
+        11.5,
+        80,
+        30
+      ],
+      "text": "整理列表"
+    },
+    {
+      "box": [
+        853.5,
+        11.5,
+        64,
+        30
+      ],
+      "text": "自动整理"
+    }
+  ],
+  "collapsedHeight": 0.640625,
+  "collapsedRows": 82,
+  "eventNotifications": 0,
+  "eventPlaceholders": 0,
+  "firstVisibleTop": 107,
+  "paused": false,
+  "scrollY": 0,
+  "tabsBottom": 106,
+  "version": "0.14.0"
+}

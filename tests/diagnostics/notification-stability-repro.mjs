@@ -1,9 +1,10 @@
 import vm from "node:vm";
+import { existsSync } from "node:fs";
 import { readFile,writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { users,demoTweets,post,graphql } from "../fixtures.mjs";
 
-const hasLikesModule = !process.argv[3] || execFileSync('git',['ls-tree','--name-only',process.argv[3],'extension/like-notifications.js'],{ encoding:'utf8' }).trim();
+const hasLikesModule = !process.argv[3] ? existsSync(new URL('../../extension/like-notifications.js',import.meta.url)) : execFileSync('git',['ls-tree','--name-only',process.argv[3],'extension/like-notifications.js'],{ encoding:'utf8' }).trim();
 const sources = await Promise.all(["core.js","observe.js","card-filter.js",...(hasLikesModule ? ["like-notifications.js"] : []),"notification-filter.js"]
   .map(name => process.argv[3] ? execFileSync("git",["show",`${process.argv[3]}:extension/${name}`],{ encoding:"utf8" }) :
     readFile(new URL(`../../extension/${name}`,import.meta.url),"utf8")));

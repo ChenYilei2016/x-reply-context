@@ -20,6 +20,8 @@
   let likeSettingLoaded = false;
   let autoHideFollowNotifications = true;
   let followSettingLoaded = false;
+  let networkStatus;
+  let networkNotice;
   const homeFilter = globalThis.XReplyHomeFilter.create({
     accountHandle,tweetId,message,holdLayout,enabled:() => hideCompletedHome
   });
@@ -27,8 +29,6 @@
     accountHandle,tweetId,message,holdLayout,schedule,columnSelector:NOTIFICATION_COLUMN,
     enabled:() => hideCompletedNotifications,ready:() => notificationSettingLoaded,
     autoEnabled:() => autoOrganizeNotifications,autoReady:() => automaticSettingLoaded,
-    likesEnabled:() => likeSettingLoaded && autoHideLikeNotifications,
-    followsEnabled:() => followSettingLoaded && autoHideFollowNotifications,
     saveAuto:async value => {
       await chrome.storage.local.set({ autoOrganizeNotifications:value });
       autoOrganizeNotifications = value;
@@ -39,6 +39,40 @@
       notificationFilter.invalidate(); lastSignature = ""; schedule();
     }
   });
+
+  function publishNetworkSettings() {
+    if (!likeSettingLoaded || !followSettingLoaded) return;
+    window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_SETTINGS",
+      likes:autoHideLikeNotifications,follows:autoHideFollowNotifications },location.origin);
+  }
+
+  function renderNetworkNotice() {
+    const timeline = location.pathname.includes("mentions") ? "mentions" :
+      location.pathname.includes("verified") ? "verified" : "all";
+    const show = /^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout() &&
+      networkStatus?.paused && networkStatus.account === accountHandle() &&
+      networkStatus.key?.toLowerCase() === `${accountHandle()}:${timeline}`;
+    if (!show) { if (networkNotice) networkNotice.hidden = true; return; }
+    if (!networkNotice) {
+      networkNotice = document.createElement("div");
+      networkNotice.className = "xrc-network-notice";
+      networkNotice.setAttribute("role","status");
+      const text = document.createElement("span");
+      text.textContent = "本批没有可显示通知，已暂停翻页";
+      const next = document.createElement("button"); next.type = "button"; next.className = "xrc-network-continue";
+      next.addEventListener("click",() => {
+        if (holdLayout() || networkStatus?.account !== accountHandle()) return;
+        window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_CONTINUE",key:networkStatus.key },location.origin);
+        networkNotice.hidden = true;
+        window.dispatchEvent(new Event("scroll"));
+      });
+      networkNotice.append(text,next); document.body.append(networkNotice);
+    }
+    const next = networkNotice.querySelector("button");
+    next.disabled = networkStatus.loading === true;
+    next.textContent = next.disabled ? "加载中" : "继续加载";
+    networkNotice.hidden = false;
+  }
 
   function accountHandle() {
     const profile = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
@@ -167,6 +201,8 @@
 
   async function refresh() {
     continuous?.refresh();
+    renderNetworkNotice();
+    window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_CONTEXT" },location.origin);
     if (running) { again = true; return; }
     running = true;
     try {
@@ -231,7 +267,11 @@
         event.data?.channel !== CHANNEL) return;
     if (event.data.type === "OBSERVER_READY") {
       window.postMessage({ channel:CHANNEL,type:"READY" },location.origin);
+      publishNetworkSettings();
       return;
+    }
+    if (event.data.type === "NOTIFICATION_FILTER_STATUS") {
+      networkStatus = event.data; schedule(); return;
     }
     if (["REPLY_STARTED","REPLY_RESULT"].includes(event.data.type)) {
       const data = event.data;
@@ -275,11 +315,13 @@
     if (changes.autoHideLikeNotifications) {
       autoHideLikeNotifications = changes.autoHideLikeNotifications.newValue !== false;
       likeSettingLoaded = true;
+      publishNetworkSettings();
       schedule();
     }
     if (changes.autoHideFollowNotifications) {
       autoHideFollowNotifications = changes.autoHideFollowNotifications.newValue !== false;
       followSettingLoaded = true;
+      publishNetworkSettings();
       schedule();
     }
   });
@@ -294,10 +336,11 @@
     likeSettingLoaded = true;
     if (!followSettingLoaded) autoHideFollowNotifications = saved.autoHideFollowNotifications !== false;
     followSettingLoaded = true;
+    publishNetworkSettings();
     homeFilter.invalidate(); notificationFilter.invalidate(); schedule();
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
-    if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls"))) {
+    if (records.some(record => !record.target.closest?.(".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice"))) {
       homeFilter.syncKnown(); notificationFilter.syncKnown(); schedule();
     }
   });

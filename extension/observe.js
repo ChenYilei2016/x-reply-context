@@ -173,12 +173,12 @@
   });
   window.postMessage({ channel:CHANNEL,type:"OBSERVER_READY" },location.origin);
 
-  async function readResponse(response,context) {
-    if (!response.ok) { void replyResult(context,failureStatus(response.status)); return; }
+  async function responsePayload(response) {
+    if (!response.ok) return null;
     if (!response.body ||
         !response.headers.get("content-type")?.includes("json") ||
         Number(response.headers.get("content-length")) > MAX_BYTES) {
-      void replyResult(context,"unknown"); return;
+      return null;
     }
     const reader = response.clone().body.getReader();
     const decoder = new TextDecoder();
@@ -191,16 +191,26 @@
         bytes += value.byteLength;
         if (bytes > MAX_BYTES) {
           void reader.cancel().catch(() => {});
-          void replyResult(context,"unknown");
-          return;
+          return null;
         }
         body += decoder.decode(value, { stream: true });
       }
       body += decoder.decode();
-      await accept(JSON.parse(body),context);
-    } catch { void replyResult(context,"unknown"); }
+      return JSON.parse(body);
+    } catch { return null; }
     finally { reader.releaseLock(); }
   }
+
+  async function readResponse(response,context) {
+    if (!response.ok) { void replyResult(context,failureStatus(response.status)); return; }
+    const payload = await responsePayload(response);
+    if (payload) await accept(payload,context);
+    else void replyResult(context,"unknown");
+  }
+
+  const notificationNetwork = globalThis.XReplyNotificationNetwork?.create({
+    accountHandle:currentAccount,readPayload:responsePayload,observe:accept
+  });
 
   const originalFetch = window.fetch;
   window.fetch = function (...args) {
@@ -220,7 +230,10 @@
         typeof Request !== "undefined" && request instanceof Request ? replyBody(request) : "";
       watchReply(context,body);
     }
-    const responsePromise = Reflect.apply(originalFetch,this,args);
+    const send = () => Reflect.apply(originalFetch,this,args);
+    const method = String(args[1]?.method || request?.method || "GET").toUpperCase();
+    if (method === "GET" && notificationNetwork?.handles(context)) return notificationNetwork.fetch(args,context,send);
+    const responsePromise = send();
     if (context) void responsePromise.then(response => readResponse(response,context))
       .catch(() => replyResult(context,"unknown"));
     return responsePromise;
@@ -230,7 +243,9 @@
   const originalOpen = XMLHttpRequest.prototype.open;
   const originalSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (method,url,...rest) {
-    requestContexts.set(this,requestContext(url));
+    const context = requestContext(url);
+    requestContexts.set(this,context);
+    notificationNetwork?.prepareXHR(this,context,url,method);
     return Reflect.apply(originalOpen,this,[method,url,...rest]);
   };
   XMLHttpRequest.prototype.send = function (...args) {
@@ -246,13 +261,15 @@
       this.addEventListener("load", () => {
         if (this.status < 200 || this.status >= 300) { void replyResult(context,failureStatus(this.status)); return; }
         try {
-          if (this.responseType === "json") void accept(this.response,context);
+          const value = key => notificationNetwork ? notificationNetwork.originalXHR(this,key) : this[key];
+          if (this.responseType === "json") void accept(value("response"),context);
           else if ((!this.responseType || this.responseType === "text") &&
-                   this.responseText.length <= MAX_BYTES) void accept(JSON.parse(this.responseText),context);
+                   value("responseText").length <= MAX_BYTES) void accept(JSON.parse(value("responseText")),context);
           else void replyResult(context,"unknown");
         } catch { void replyResult(context,"unknown"); }
       }, { once:true });
     }
-    return Reflect.apply(originalSend,this,args);
+    const send = () => Reflect.apply(originalSend,this,args);
+    return notificationNetwork ? notificationNetwork.sendXHR(this,send) : send();
   };
 })();

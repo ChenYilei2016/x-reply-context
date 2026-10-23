@@ -1,12 +1,24 @@
 /* Reserve the slot before X measures a virtual row, even before our labels exist. */
 /* Keep a measurable pixel for X's virtual row observer instead of removing its node. */
-article[data-xrc-home-hidden],article[data-xrc-notification-hidden],article[data-xrc-like-notification-hidden],article[data-xrc-auto-like-hidden],
-article[data-xrc-follow-notification-hidden],article[data-xrc-auto-follow-hidden] {
+article[data-xrc-home-hidden] {
   height: 1px !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important;
   overflow: hidden !important; visibility: hidden !important; pointer-events: none !important;
 }
-article[data-xrc-home-hidden] > *,article[data-xrc-notification-hidden] > *,article[data-xrc-like-notification-hidden] > *,article[data-xrc-auto-like-hidden] > *,
-article[data-xrc-follow-notification-hidden] > *,article[data-xrc-auto-follow-hidden] > * { display: none !important; }
+article[data-xrc-home-hidden] > *,article[data-xrc-notification-hidden] > * { display: none !important; }
+/* Measurable subpixel rows avoid accumulating a pixel and border for every completed comment. */
+article[data-xrc-notification-hidden],
+[data-testid="cellInnerDiv"]:has(article[data-xrc-notification-hidden]) {
+  height: .01px !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important;
+  border: 0 !important; overflow: hidden !important; visibility: hidden !important; pointer-events: none !important;
+}
+.xrc-network-notice {
+  position: fixed; z-index: 2147483646; left: 50%; bottom: 18px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; max-width: 90vw;
+  padding: 10px 14px; border-radius: 12px; background: #183443; color: white;
+  box-shadow: 0 4px 20px #0003; font: 13px/1.5 system-ui,sans-serif;
+}
+.xrc-network-notice[hidden] { display: none; }
+.xrc-network-notice button { flex-shrink: 0; border: 1px solid #ffffff70; border-radius: 16px; padding: 6px 10px; background: transparent; color: inherit; cursor: pointer; }
 .xrc-notification-controls {
   display: flex; align-items: stretch; gap: 8px; flex-shrink: 0; width: 272px; height: 30px;
   box-sizing: border-box; margin-right: 8px;

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>回过了 · 通知接收过滤验证</title>
+<link rel="stylesheet" href="/extension/content.css">
+<style>
+body{margin:0;background:#eef3f6;color:#182b36;font:15px/1.5 system-ui} main{width:min(620px,95vw);margin:20px auto;background:white;border:1px solid #ccd6dd}
+header{display:flex;align-items:center;gap:12px;padding:12px}h1{font-size:21px;margin:0;flex:1}.tabs{display:flex;justify-content:space-around;padding:12px;border-bottom:1px solid #ccd6dd}a{color:#087ebd;text-decoration:none}article{padding:18px;border-bottom:1px solid #dce4e9}.body{min-height:90px}.actions{display:flex;gap:50px;padding-top:12px}button{cursor:pointer}.diagnostic{max-width:620px;margin:12px auto;padding:12px}#network-result{white-space:pre-wrap}
+</style>
+<a data-testid="AppTabBar_Profile_Link" href="/my_account">本地演示 · 虚构账号</a>
+<main data-testid="primaryColumn"><header><h1>通知</h1><div><a href="/settings/notifications">⚙</a></div></header>
+<div class="tabs"><a role="tab" href="/notifications" aria-selected="true">全部</a><span>优先</span><span>提及</span></div>
+<section id="timeline"></section></main>
+<div class="diagnostic"><button id="load-batch">读取下一批（模拟 X 原生请求）</button><p id="network-result" role="status">等待初始响应…</p></div>
+<script src="/extension/core.js"></script><script type="module" src="/tests/network-demo.mjs"></script>
+</html>
