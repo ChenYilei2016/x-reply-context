@@ -5,6 +5,7 @@ import { checkHearts } from "./heart-check.mjs";
 import { checkNotificationFilter } from "./notification-filter-check.mjs";
 import { checkNotificationStability } from "./notification-stability-check.mjs";
 import { checkComposerContext } from "./composer-context-check.mjs";
+import { checkEmptyRecovery } from "./notification-empty-check.mjs";
 import { checkQuickReplies } from "./quick-replies-check.mjs";
 import { checkFollowing } from "./following-check.mjs";
 import { checkAutomaticFilter } from "./automatic-filter-check.mjs";
@@ -196,6 +197,20 @@ document.querySelector('#check-automatic-filter').addEventListener('click',async
       core.ingest(state,{ tweets:[post('2112500000000930004','101',rootId,rows[1].id,'303','稍晚读取的历史回复')] },'my_account');
       notifyDiagnosticChange();
     } };
+  });
+  event.target.disabled = false;
+});
+document.querySelector('#check-empty-recovery').addEventListener('click',async event => {
+  event.target.disabled = true;
+  await checkEmptyRecovery(() => {
+    timeline.replaceChildren(); timeline.style.minHeight = '758px';
+    addNotification(demoTweets[3]); addNotification(demoTweets[7]);
+    const arriving = post('2112500000000999001','303',demoTweets[5].id,demoTweets[6].id,'101','本地新通知');
+    notifyDiagnosticChange();
+    return {
+      add() { core.ingest(state,{tweets:[arriving]},'my_account'); const article=addNotification(arriving); notifyDiagnosticChange(); return article; },
+      hideLater() { core.ingest(state,{tweets:[post('2112500000000999002','101',demoTweets[5].id,arriving.id,'303','本地稍晚回复证据')]},'my_account'); notifyDiagnosticChange(); }
+    };
   });
   event.target.disabled = false;
 });

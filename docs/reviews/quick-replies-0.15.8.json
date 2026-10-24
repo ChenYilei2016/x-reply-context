@@ -1,0 +1,63 @@
+{
+  "fixture": true,
+  "browser": "Chrome",
+  "react": "17.0.2",
+  "draftJs": "0.11.7",
+  "cases": [
+    {
+      "fixture": true,
+      "mode": "empty",
+      "expected": "一起加油好兄弟...",
+      "domText": "一起加油好兄弟...",
+      "stateText": "一起加油好兄弟...",
+      "commands": 0,
+      "sendCalls": 0,
+      "status": "已处理 0 条 · 从当前页选择，略过已回复。",
+      "pass": true
+    },
+    {
+      "fixture": true,
+      "mode": "draft",
+      "expected": "原稿 一起加油好兄弟...",
+      "domText": "原稿 一起加油好兄弟...",
+      "stateText": "原稿 一起加油好兄弟...",
+      "commands": 0,
+      "sendCalls": 0,
+      "status": "已处理 0 条 · 从当前页选择，略过已回复。",
+      "pass": true
+    },
+    {
+      "fixture": true,
+      "mode": "selected",
+      "expected": "原稿 一起加油好兄弟...",
+      "domText": "原稿 一起加油好兄弟...",
+      "stateText": "原稿 一起加油好兄弟...",
+      "commands": 0,
+      "sendCalls": 0,
+      "status": "已处理 0 条 · 从当前页选择，略过已回复。",
+      "pass": true
+    },
+    {
+      "fixture": true,
+      "mode": "blocked",
+      "expected": "原稿",
+      "domText": "原稿",
+      "stateText": "原稿",
+      "commands": 0,
+      "sendCalls": 0,
+      "status": "已处理 0 条 · 快捷填入未完成，请直接在回复框输入。",
+      "pass": true
+    },
+    {
+      "fixture": true,
+      "mode": "rapid",
+      "expected": "一起加油好兄弟...",
+      "domText": "一起加油好兄弟...",
+      "stateText": "一起加油好兄弟...",
+      "commands": 0,
+      "sendCalls": 0,
+      "status": "已处理 0 条 · 从当前页选择，略过已回复。",
+      "pass": true
+    }
+  ]
+}

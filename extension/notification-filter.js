@@ -189,6 +189,13 @@
     return {
       ...filter,
       reset() { stopAutomatic(); filter.reset(); },
+      restoreHidden() {
+        if (saving || holdLayout() || !column()) return false;
+        stopAutomatic(); automaticPassAvailable = false;
+        const restored = filter.restoreHidden();
+        if (restored) schedule(0);
+        return restored;
+      },
       syncKnown() {
         filter.syncKnown();
       },

@@ -5,10 +5,22 @@
   const SEND = '[data-testid="tweetButton"]';
   const CLOSE = '[data-testid="app-bar-close"]';
   const QUICK_REPLIES = [
-    { label:"一起加油",phrases:["一起加油好兄弟","一起加油鸭","一起加油🦆"] },
-    { label:"哈哈",phrases:["哈哈","嘿嘿"] },
-    { label:"难受啊",phrases:["难受啊","难顶呀","太难了"] },
-    { label:"太卷了",phrases:["太卷了","别卷了","卷不动了"] }
+    { label:"一起加油",phrases:[
+      "一起加油好兄弟","一起加油鸭","一起加油🦆","一起加油",
+      "一起加油呀","一起加油啊","一起加油啦","一起加油哇"
+    ] },
+    { label:"哈哈",phrases:[
+      "哈哈","嘿嘿","哈哈哈","嘿嘿嘿"
+    ] },
+    { label:"难受啊",phrases:[
+      "难受啊","难顶呀","太难了","难受呀",
+      "难顶啊","太难了呀"
+    ] },
+    { label:"太卷了",phrases:[
+      "太卷了","别卷了","卷不动了","太卷了呀",
+      "太卷了啊","别卷啦","别卷了呀","卷不动啦",
+      "卷不动了呀"
+    ] }
   ];
   const ENDINGS = ["...","!","!!!","!!"];
   const pick = values => values[Math.floor(Math.random()*values.length)];
@@ -183,7 +195,7 @@
 
     function closeForNext(s) {
       if (!currentSession(s)) return;
-      if (draftBusy(s)) { render(s); return; }
+      if (draftBusy(s) || s.current.quickPending) { render(s); return; }
       const dialog = s.current.dialog;
       const close = dialog?.querySelector(CLOSE);
       if (!enabled(close)) {
@@ -284,7 +296,7 @@
 
     function sendNext(s) {
       if (!currentSession(s)) return;
-      if (draftBusy(s)) { render(s); return; }
+      if (draftBusy(s) || s.current.quickPending) { render(s); return; }
       if (s.phase === "sent") { closeForNext(s); return; }
       const dialog = s.current.dialog;
       const submit = dialog?.querySelector(SEND);
@@ -383,8 +395,8 @@
       });
     }
 
-    function fillQuickReply(s,phrases) {
-      if (!currentSession(s) || !["ready","failed"].includes(s.phase) || s.current.composing ||
+    async function fillQuickReply(s,phrases) {
+      if (!currentSession(s) || !["ready","failed"].includes(s.phase) || s.current.composing || s.current.quickPending ||
           draftBusy(s) || !singleReply(s.current.dialog)) return;
       const editor = s.current.dialog.querySelector(EDITOR);
       if (!editor || editor.getAttribute("aria-disabled") === "true") return;
@@ -397,13 +409,35 @@
       const selection = window.getSelection();
       if (!selection) return;
       selection.removeAllRanges(); selection.addRange(range);
-      // Native editing keeps the editor's input handling and undo history; never replace draft DOM.
-      if (!document.execCommand("insertText",false,value)) {
-        s.note = "快捷填入未完成，请直接在回复框输入。";
-      } else if (s.note === "快捷填入未完成，请直接在回复框输入。") {
-        s.note = "从当前页选择，略过已回复。";
-      }
+      const current = s.current;
+      current.quickPending = true;
       requestRefresh();
+      try {
+        let inserted;
+        if (editor.closest(".DraftEditor-root")) {
+          // Draft owns this DOM. Let its paste handler update EditorState exactly once.
+          // Wait for the browser selectionchange to reach React before appending.
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          if (!currentSession(s) || s.current !== current || !editor.isConnected ||
+              editor.innerText !== before || !selection.isCollapsed || !editor.contains(selection.anchorNode) ||
+              current.composing || draftBusy(s)) return;
+          const clipboard = new DataTransfer();
+          clipboard.setData("text/plain",value);
+          const paste = new ClipboardEvent("paste",{ bubbles:true,cancelable:true,clipboardData:clipboard });
+          editor.dispatchEvent(paste);
+          inserted = paste.defaultPrevented;
+          // Never follow an unhandled Draft paste with a native insert: that caused duplicate text.
+        } else {
+          inserted = document.execCommand("insertText",false,value);
+        }
+        if (!inserted) s.note = "快捷填入未完成，请直接在回复框输入。";
+        else if (s.note === "快捷填入未完成，请直接在回复框输入。") s.note = "从当前页选择，略过已回复。";
+      } catch {
+        s.note = "快捷填入未完成，请直接在回复框输入。";
+      } finally {
+        current.quickPending = false;
+        requestRefresh();
+      }
     }
 
     function render(s) {
@@ -452,7 +486,7 @@
       }
       if (nativeToolbar.nextElementSibling !== bar) nativeToolbar.after(bar);
       renderContext(s,bar);
-      const busy = draftBusy(s);
+      const busy = draftBusy(s) || s.current.quickPending === true;
       const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : ""}已处理 ${s.handled.size} 条 · ${busy ? "回复正在填入或改写，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;

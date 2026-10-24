@@ -9,9 +9,11 @@
     let layoutAccount = "";
     let applyRequested = false;
     let applyBelowAllowed;
+    let view = { total:0,hidden:0 };
     const invalidate = () => { signature = ""; revision++; };
     function reset() {
       document.querySelectorAll(`[${attribute}]`).forEach(article => article.removeAttribute(attribute));
+      view = { total:0,hidden:0 };
       decisions.clear();
       layouts.clear(); pending.clear(); layoutAccount = ""; applyRequested = false; applyBelowAllowed = undefined;
       invalidate();
@@ -84,7 +86,9 @@
       }
       if (applyBelowAllowed && !applyBelowAllowed()) { cancelApplyBelow(); return; }
       pending.clear();
+      let total = 0, hiddenCount = 0;
       for (const { article,id } of cards) {
+        if (article.isConnected) total++;
         if (!id || !article.isConnected || tweetId(article) !== id) continue;
         const desired = Boolean(matches(rows.get(id)));
         let hidden = desired;
@@ -97,13 +101,32 @@
           if (desired !== hidden) pending.add(id);
         }
         setHidden(article,id,hidden);
+        if (hidden) hiddenCount++;
       }
+      view = { primary,account,total,hidden:hiddenCount };
       while (layouts.size > 10000) { const id = layouts.keys().next().value; layouts.delete(id); pending.delete(id); }
       applyRequested = false; applyBelowAllowed = undefined;
       decisions = rows;
       signature = nextSignature;
     }
-    return { refresh,reset,invalidate,syncKnown,requestApply,requestApplyBelow,cancelApplyBelow,hasPendingBelow,
+    function hiddenSummary() {
+      return enabled() && view.primary === column() && view.account === accountHandle() ?
+        { total:view.total,hidden:view.hidden } : { total:0,hidden:0 };
+    }
+    function restoreHidden() {
+      const primary = column(), account = accountHandle();
+      if (holdLayout() || !enabled() || !primary || !account || layoutAccount !== account) return false;
+      invalidate(); applyRequested = false; applyBelowAllowed = undefined;
+      const cards = cardsIn(primary);
+      for (const { article,id } of cards) {
+        if (!article.isConnected) continue;
+        if (id) layouts.set(id,false);
+        pending.delete(id); setHidden(article,id,false);
+      }
+      view = { primary,account,total:cards.length,hidden:0 };
+      return true;
+    }
+    return { refresh,reset,invalidate,syncKnown,requestApply,requestApplyBelow,cancelApplyBelow,hasPendingBelow,hiddenSummary,restoreHidden,
       pendingCount:() => pending.size,applying:() => applyRequested };
   }
   globalThis.XReplyCardFilter = { create };

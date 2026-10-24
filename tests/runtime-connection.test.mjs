@@ -7,7 +7,7 @@ const source = await readFile(new URL('../extension/content.js',import.meta.url)
 
 function setup(savedSettings = {}) {
   const events = new Map(); const tasks = new Map(); const body = [];
-  const state = { uiRenders:0,requests:[],stopped:0,reloads:0,calls:0,editor:false,fail:false,delays:[] };
+  const state = { uiRenders:0,requests:[],posts:[],stopped:0,reloads:0,calls:0,editor:false,fail:false,delays:[] };
   let taskId = 0; let mutation; let storageChanged;
   const frames = new Map();
   class Node {
@@ -16,7 +16,7 @@ function setup(savedSettings = {}) {
     setAttribute() {}
     append(...nodes) { this.children.push(...nodes); }
     addEventListener(name,callback) { this.listeners[name] = callback; }
-    querySelector(tag) { return this.children.find(node => node.tagName === tag); }
+    querySelector(tag) { return this.children.find(node => tag.startsWith(".") ? node.className === tag.slice(1) : node.tagName === tag); }
   }
   const controls = [new Node('button'),new Node('button'),new Node('button')];
   const document = {
@@ -26,14 +26,14 @@ function setup(savedSettings = {}) {
     querySelectorAll:selector => selector.includes('xrc-notification-controls') ? controls : [],
     addEventListener:(name,callback) => events.set(`document:${name}`,callback)
   };
-  const window = { postMessage() {},dispatchEvent() {},addEventListener:(name,callback) => events.set(name,callback) };
+  const window = { postMessage:message => state.posts.push(message),dispatchEvent() {},addEventListener:(name,callback) => events.set(name,callback) };
   const runtime = { id:'extension-id',onMessage:{ addListener() {} },async sendMessage(payload) {
     state.calls++; state.requests.push(payload);
     if (state.fail) throw new Error('Extension context invalidated.');
     if (state.gate) await state.gate;
     return { ok:true,rows:[] };
   } };
-  const filter = () => ({ reset() {},invalidate() {},syncKnown() {},async refresh() {} });
+  const filter = () => ({ reset() {},invalidate() {},syncKnown() {},async refresh() {},hiddenSummary:() => state.summary || ({total:0,hidden:0}),restoreHidden() { state.summary = {total:2,hidden:0}; return true; },applying:() => false });
   const scope = vm.createContext({ document,window,location:{ pathname:'/notifications',origin:'https://x.com',reload:() => state.reloads++ },
     chrome:{ runtime,storage:{ onChanged:{ addListener:callback => { storageChanged = callback; } },local:{ get:async () => savedSettings } } },
     XReplyHomeFilter:{ create:filter },XReplyNotificationFilter:{ create:options => { state.notificationOptions = options; return filter(); } },
@@ -159,4 +159,23 @@ test('通知新模式优先，旧的已回且已点设置兼容且不增加读�
     assert.equal(state.notificationOptions.enabled(),expected!=='off');
     assert.equal(state.calls,0,'加载筛选设置不新增后台分类或接口请求');
   }
+});
+
+
+test('全隐藏恢复与网络暂停共用提示，恢复不放行分页，继续按钮只发一次授权',async()=>{
+  const {state,flush,message,body}=setup({notificationHideMode:'replied'});
+  state.summary={total:2,hidden:2};await flush();
+  let notice=body.find(node=>node.className==='xrc-network-notice');
+  assert.ok(notice && !notice.hidden);
+  assert.equal(notice.querySelector('.xrc-network-continue').hidden,true);
+  const restore=notice.querySelector('.xrc-empty-restore');assert.equal(restore.hidden,false);
+  message({type:'NOTIFICATION_FILTER_STATUS',account:'me',key:'me:All',paused:true,empty:false,loading:false,pending:true});await flush();
+  assert.equal(body.filter(node=>node.className==='xrc-network-notice').length,1);
+  assert.equal(notice.querySelector('.xrc-network-continue').hidden,false);
+  restore.listeners.click();
+  assert.equal(notice.hidden,false,'恢复后网络暂停提示仍保留');
+  assert.equal(restore.hidden,true);
+  assert.equal(state.posts.filter(post=>post.type==='NOTIFICATION_FILTER_CONTINUE').length,0);
+  notice.querySelector('.xrc-network-continue').listeners.click();
+  assert.equal(state.posts.filter(post=>post.type==='NOTIFICATION_FILTER_CONTINUE').length,1);
 });

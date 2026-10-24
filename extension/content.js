@@ -90,9 +90,12 @@
   function renderNetworkNotice() {
     const timeline = location.pathname.includes("mentions") ? "mentions" :
       location.pathname.includes("verified") ? "verified" : "all";
-    const show = /^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout() &&
-      networkStatus?.paused && networkStatus.account === accountHandle() &&
-      networkStatus.key?.toLowerCase() === `${accountHandle()}:${timeline}`;
+    const account = accountHandle();
+    const paused = networkStatus?.paused && networkStatus.account === account &&
+      networkStatus.key?.toLowerCase() === `${account}:${timeline}`;
+    const summary = notificationFilter.hiddenSummary();
+    const allHidden = summary.total > 0 && summary.hidden === summary.total;
+    const show = /^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout() && (paused || allHidden);
     if (!show) { if (networkNotice) networkNotice.hidden = true; return; }
     if (!networkNotice) {
       networkNotice = document.createElement("div");
@@ -101,18 +104,30 @@
       const text = document.createElement("span");
       const next = document.createElement("button"); next.type = "button"; next.className = "xrc-network-continue";
       next.addEventListener("click",() => {
-        if (holdLayout() || networkStatus?.account !== accountHandle()) return;
+        if (holdLayout() || !networkStatus?.paused || networkStatus.account !== accountHandle()) return;
         window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_CONTINUE",key:networkStatus.key },location.origin);
         networkNotice.hidden = true;
         window.dispatchEvent(new Event("scroll"));
       });
-      networkNotice.append(text,next); document.body.append(networkNotice);
+      const restore = document.createElement("button"); restore.type = "button"; restore.className = "xrc-empty-restore";
+      restore.textContent = "显示本批";
+      restore.title = "恢复当前加载且被隐藏的帖子，保留筛选条件；不主动请求，也不自动再次整理。";
+      restore.addEventListener("click",() => {
+        if (holdLayout()) return;
+        notificationFilter.restoreHidden(); renderNetworkNotice();
+      });
+      networkNotice.append(text,next,restore); document.body.append(networkNotice);
     }
-    networkNotice.querySelector("span").textContent = networkStatus.empty ?
-      "本批没有可显示通知，已暂停翻页" : "本批已加载，继续翻页需手动确认";
-    const next = networkNotice.querySelector("button");
-    next.disabled = networkStatus.loading === true;
+    networkNotice.querySelector("span").textContent = allHidden ?
+      `本批 ${summary.hidden} 条帖子均已隐藏${paused ? "，分页已暂停" : "，可显示本批继续查看"}` :
+      networkStatus.empty ? "本批没有可显示通知，已暂停翻页" : "本批已加载，继续翻页需手动确认";
+    const next = networkNotice.querySelector(".xrc-network-continue");
+    next.hidden = !paused;
+    next.disabled = networkStatus?.loading === true;
     next.textContent = next.disabled ? "加载中" : "继续加载";
+    const restore = networkNotice.querySelector(".xrc-empty-restore");
+    restore.hidden = !allHidden;
+    restore.disabled = notificationFilter.applying();
     networkNotice.hidden = false;
   }
 
@@ -363,6 +378,7 @@
       }
       await homeFilter.refresh();
       await notificationFilter.refresh();
+      renderNetworkNotice();
       // Fixed label slots let counts refresh behind a composer without moving rows.
       if (!/^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout()) {
         document.querySelectorAll(".xrc-labels").forEach(node => node.remove());

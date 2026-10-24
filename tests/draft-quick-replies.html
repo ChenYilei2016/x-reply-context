@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>Draft 编辑器重复填入复现 · 本地</title>
+<link rel="stylesheet" href="/vendor/draft-js/dist/Draft.css"><link rel="stylesheet" href="/extension/content.css">
+<style>body{font:16px/1.5 system-ui;max-width:800px;margin:24px auto}article{padding:20px;border:1px solid #ddd}[role=dialog]{padding:24px;border:1px solid #888;margin-top:24px}.public-DraftEditor-content{min-height:90px;border:1px solid #bbb}pre{white-space:pre-wrap}</style>
+<h1>真实 Draft.js 受控编辑器 · 虚构数据</h1><p>不连接 X，不发送内容。</p>
+<a data-testid="AppTabBar_Profile_Link" href="/me">me</a>
+<main data-testid="primaryColumn"><a role="tab" href="/notifications">全部</a><article data-testid="tweet"><a href="/peer/status/100"><time>刚刚</time></a><div data-testid="tweetText">本地例子</div><button data-testid="reply">打开本地回复框</button><button data-testid="like">红心（不请求）</button></article></main>
+<label>场景 <select id="mode"><option value="empty">空编辑器</option><option value="draft">已有草稿</option><option value="selected">选中原稿</option><option value="blocked">编辑器不接收</option><option value="rapid">同一帧连续点击</option></select></label>
+<button id="run">检查一次快捷填入</button><pre id="result" role="status">未执行</pre><pre id="state"></pre>
+<script src="/vendor/react/umd/react.development.js"></script><script src="/vendor/react-dom/umd/react-dom.development.js"></script><script src="/vendor/immutable/dist/immutable.js"></script><script src="/vendor/draft-js/dist/Draft.js"></script>
+<script src="/extension/continuous.js"></script><script type="module" src="/tests/draft-quick-replies.mjs"></script>

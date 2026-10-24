@@ -1,0 +1,37 @@
+{
+  "fixture": true,
+  "cases": [
+    {
+      "name": "第一次整理全隐藏后显示明确提示和恢复入口",
+      "ok": true
+    },
+    {
+      "name": "新到达的未回复通知正常显示，不被旧的全隐藏状态吞掉",
+      "ok": true
+    },
+    {
+      "name": "第二次整理全部收起后仍可恢复",
+      "ok": true
+    },
+    {
+      "name": "显示本批恢复三条卡片并保留仅已回开关",
+      "ok": true
+    },
+    {
+      "name": "恢复后提示收起，标题栏按钮位置不变",
+      "ok": true
+    },
+    {
+      "name": "恢复不发送评论或点赞",
+      "ok": true
+    }
+  ],
+  "paginationAfterOneContinue": {
+    "requests": 3,
+    "ingests": 1,
+    "filteredEvents": 1020,
+    "renderedEvents": 0,
+    "readingTop": 146.5,
+    "afterTop": 146.5
+  }
+}

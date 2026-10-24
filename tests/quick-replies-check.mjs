@@ -23,10 +23,8 @@ export async function checkQuickReplies() {
     const quick = document.querySelector('.xrc-quick-replies');
     const height = quick.getBoundingClientRect().height;
     editor.focus(); document.execCommand('insertText',false,'保留我的草稿');
-    const groups = [
-      ['一起加油好兄弟','一起加油鸭','一起加油🦆'],['哈哈','嘿嘿'],
-      ['难受啊','难顶呀','太难了'],['太卷了','别卷了','卷不动了']
-    ];
+    // The tooltip is the user-visible list of choices; verify insertion against that contract.
+    const groups = buttons.map(button => button.title.match(/^随机填入：(.*?)，末尾随机/)[1].split(' / '));
     const endings = ['...','!','!!!','!!'];
     let samples = 0;
     for (const [index,phrases] of groups.entries()) {
@@ -35,9 +33,11 @@ export async function checkQuickReplies() {
         // A selection in the draft must not get replaced by a quick phrase.
         const selection = window.getSelection(), range = document.createRange();
         range.selectNodeContents(editor); selection.removeAllRanges(); selection.addRange(range);
-        let draws=0; Math.random=()=> draws++===0 ? (variant%phrases.length+.1)/phrases.length : (variant+.1)/4;
+        const phraseIndex = Math.round(variant*(phrases.length-1)/3);
+        let draws=0; Math.random=()=> draws++===0 ? (phraseIndex+.1)/phrases.length : (variant+.1)/4;
         buttons[index].click(); Math.random=random;
-        const expected = before+' '+phrases[variant%phrases.length]+endings[variant];
+        const expected = before+' '+phrases[phraseIndex]+endings[variant];
+        await frames(); await wait(()=>!buttons[index].disabled);
         if (editor.innerText!==expected) throw new Error(`快捷词组${index+1}未按原生编辑路径追加`);
         samples++;
       }
@@ -53,8 +53,11 @@ export async function checkQuickReplies() {
     editor.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true})); await frames();
     check('组字结束后恢复',buttons.every(button=>!button.disabled));
     const beforeFailure = editor.innerText;
-    document.execCommand=()=>false; buttons[0].click(); document.execCommand=execCommand; await frames();
-    check('编辑命令失败保留草稿并显示提示',editor.innerText===beforeFailure && document.querySelector('.xrc-flow-status').textContent.includes('快捷填入未完成'));
+    const blockPaste = event => event.stopImmediatePropagation();
+    editor.addEventListener('paste',blockPaste,true); buttons[0].click();
+    await frames(); await wait(()=>document.querySelector('.xrc-flow-status').textContent.includes('快捷填入未完成'));
+    editor.removeEventListener('paste',blockPaste,true);
+    check('编辑器未接收时保留草稿并显示提示',editor.innerText===beforeFailure && document.querySelector('.xrc-flow-status').textContent.includes('快捷填入未完成'));
     check('填入没有发送、点赞或触发下一条',document.querySelector('#composer-evidence').dataset.requests==='0' &&
       document.querySelector('#composer-evidence').dataset.heartRequests==='0' && document.querySelector('.demo-composer'));
   } catch(error) { checks.push({name:error.message,ok:false}); }

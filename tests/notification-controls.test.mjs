@@ -264,3 +264,32 @@ test('文字模式保存失败或回复框打开时保留旧条件；晚到数�
   env.complete=true; filter.invalidate();await filter.refresh();
   assert.equal(article.hasAttribute('data-xrc-notification-hidden'),false,'后续资料不能直接移走当前阅读行');
 });
+
+test('连续两次整理全隐藏后仍有准确摘要，恢复本批保留筛选且不自动续清',async()=>{
+  const {env,filter,makeCard,clock}=setup(); env.auto=true;
+  env.cards=[makeCard('one',1600),makeCard('two',1800)];
+  await filter.refresh(); filter.requestApply(); await filter.refresh();
+  assert.equal(filter.hiddenSummary().hidden,2);
+  assert.equal(filter.hiddenSummary().total,2);
+  env.cards.push(makeCard('three',2000)); await filter.refresh();
+  assert.equal(filter.hiddenSummary().hidden,2); assert.equal(filter.hiddenSummary().total,3);
+  filter.requestApply(); await filter.refresh();
+  assert.equal(filter.hiddenSummary().hidden,3);
+  assert.equal(filter.restoreHidden(),true); await Promise.all(env.jobs);
+  assert.equal(env.enabled,true); assert.equal(env.mode,'completed');
+  assert.equal(filter.hiddenSummary().hidden,0);
+  assert.ok(env.cards.every(card=>!card.hasAttribute('data-xrc-notification-hidden')));
+  const calls=env.calls;
+  await clock.advance(60000);await Promise.all(env.jobs);
+  assert.equal(env.calls,calls,'恢复本批不循环重算或重新隐藏');
+  assert.ok(env.cards.every(card=>!card.hasAttribute('data-xrc-notification-hidden')));
+});
+
+test('回复框打开或切离通知时不能恢复背景布局',async()=>{
+  const {env,filter,location,article}=setup();
+  await filter.refresh();filter.requestApply();await filter.refresh();
+  env.modal=true;assert.equal(filter.restoreHidden(),false);
+  assert.ok(article.hasAttribute('data-xrc-notification-hidden'));
+  env.modal=false;location.pathname='/home';
+  assert.equal(filter.hiddenSummary().total,0);assert.equal(filter.restoreHidden(),false);
+});

@@ -121,6 +121,12 @@ export function installComposerDemo({ state,core,addNotification }) {
     const editorRoot = document.createElement("div");
     editorRoot.className = "DraftEditor-root";
     editorRoot.append(editor);
+    // Local paste receiver only; real controlled-editor coverage lives in draft-quick-replies.mjs.
+    editor.addEventListener("paste",event => {
+      const text = event.clipboardData?.getData("text/plain");
+      if (!text) return;
+      event.preventDefault(); document.execCommand("insertText",false,text);
+    });
     if (document.querySelector("#reply-result-mode").value === "typing" && !editor.textContent) {
       const ghost = document.createElement("div");
       ghost.id = "xreply-ghost";
