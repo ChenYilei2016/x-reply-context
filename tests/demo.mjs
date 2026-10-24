@@ -83,6 +83,11 @@ globalThis.chrome = {
   }
 };
 
+// A changed local response scenario is a new data version, not a cached successful lookup.
+document.querySelector('#context-result-mode').addEventListener('change',() => {
+  for (const listener of storageListeners) listener({ replyContext:{} },"local");
+});
+
 const timeline = document.querySelector("#timeline");
 function addAggregate(id,kind = 'like') {
   const article = document.createElement('article');

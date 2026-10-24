@@ -99,6 +99,7 @@ article[data-xrc-notification-hidden],
 .xrc-flow-context {
   display: flex; align-items: center; gap: 8px; flex-basis: 100%; min-width: 0; height: 30px;
 }
+.xrc-flow-context-home { justify-content: flex-end; }
 .xrc-flow-context .xrc-labels { position: static; flex: 1; min-width: 0; }
 .xrc-flow-root {
   flex: 0 0 100%; min-width: 0; height: 36px; box-sizing: border-box;

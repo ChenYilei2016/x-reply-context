@@ -401,7 +401,7 @@
     }
   }
 
-  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels,connected });
+  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels,requestRefresh:scheduleControls,connected });
 
   window.addEventListener("message", event => {
     if (event.source !== window || event.origin !== location.origin ||

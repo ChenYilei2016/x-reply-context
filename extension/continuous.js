@@ -14,7 +14,7 @@
     (row.status === "not-reply" ? row.origin !== "mine" :
       !["replied","self","not-reply"].includes(row.status));
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,connected = () => true }) {
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,requestRefresh,connected = () => true }) {
     let session;
     let notice;
     let noticeTimer;
@@ -46,8 +46,18 @@
           !article.hasAttribute("data-xrc-home-hidden") && !article.hasAttribute("data-xrc-notification-hidden"));
     }
 
+    function currentArticle(s) {
+      const cached = s.current.article;
+      const primary = feedColumn(s);
+      if (cached?.isConnected && primary?.contains(cached) && tweetId(cached) === s.current.id &&
+          !cached.closest(COMPOSER) && !cached.hasAttribute("data-xrc-home-hidden") &&
+          !cached.hasAttribute("data-xrc-notification-hidden")) return cached;
+      // X can replace or reuse virtual cards. Revalidate identity before touching a native control.
+      return s.current.article = articles(s).find(node => tweetId(node) === s.current.id);
+    }
+
     function nativeHeart(s) {
-      const article = articles(s).find(node => tweetId(node) === s.current.id);
+      const article = currentArticle(s);
       return Array.from(article?.querySelectorAll('[data-testid="like"],[data-testid="unlike"]') || [])
         .find(button => button.closest('article[data-testid="tweet"]') === article);
     }
@@ -134,7 +144,7 @@
       finish();
       session = {
         account,feed,homeTabIndex:feed === "home" ? selectedHomeTab(document.querySelector(PRIMARY_COLUMN)) : -1,
-        handled:new Set(),current:{ id },phase:"ready",
+        handled:new Set(),current:{ id,article },phase:"ready",
         note:"从当前页选择，略过已回复。",attempt:null
       };
       refresh();
@@ -155,7 +165,7 @@
         rewriteWatch?.disconnect();
         rewriteNode = rewrite;
         if (rewrite) {
-          rewriteWatch = new MutationObserver(refresh);
+          rewriteWatch = new MutationObserver(requestRefresh);
           rewriteWatch.observe(rewrite,{ attributes:true,attributeFilter:["style"],childList:true,subtree:true });
         }
       }
@@ -231,7 +241,7 @@
           finish(`当前已加载的${s.feed === "home" ? "主页帖子" : "通知"}处理完成。加载更多后，从任一条继续。`);
           return;
         }
-        s.current = { id:nextId };
+        s.current = { id:nextId,article:candidates.find(([id]) => id === nextId)?.[1] };
         s.phase = "opening";
         s.note = s.saveClicked ? "上一条已保存到 X 草稿。" : "从当前页选择，略过已回复。";
         openCurrent(s);
@@ -245,7 +255,7 @@
 
     function openCurrent(s) {
       if (!currentSession(s)) return;
-      const article = articles(s).find(node => tweetId(node) === s.current.id);
+      const article = currentArticle(s);
       const reply = article?.querySelector('[data-testid="reply"]');
       if (!enabled(reply)) {
         s.phase = "paused";
@@ -292,12 +302,15 @@
     }
 
     function updateContext(context,row) {
-      renderLabels(context.querySelector(".xrc-labels"),row);
+      const labels = context.querySelector(".xrc-labels");
+      if (labels) renderLabels(labels,row);
       const preview = context.parentElement.querySelector(".xrc-flow-root");
-      const excerpt = (row.rootText || "").replace(/\s+/g," ").trim();
-      const previewText = excerpt ? `原帖：${excerpt}` : "原帖内容暂未缓存";
-      if (preview.textContent !== previewText) preview.textContent = previewText;
-      preview.title = excerpt ? `本地缓存文字摘要：${excerpt}` : "仅使用本地缓存，不自动请求原帖。";
+      if (preview) {
+        const excerpt = (row.rootText || "").replace(/\s+/g," ").trim();
+        const previewText = excerpt ? `原帖：${excerpt}` : "原帖内容暂未缓存";
+        if (preview.textContent !== previewText) preview.textContent = previewText;
+        preview.title = excerpt ? `本地缓存文字摘要：${excerpt}` : "仅使用本地缓存，不自动请求原帖。";
+      }
       const profile = context.querySelector(".xrc-flow-profile");
       const handle = /^[a-zA-Z0-9_]{1,15}$/.test(row.authorHandle || "") ? row.authorHandle : "";
       if (handle) profile.href = `https://x.com/${handle}`;
@@ -308,15 +321,18 @@
     }
 
     function renderContext(s,bar) {
-      if (s.feed !== "notifications") return;
+      const withDetails = s.feed === "notifications";
       let context = bar.querySelector(".xrc-flow-context");
       if (!context) {
         context = document.createElement("div");
-        context.className = "xrc-flow-context";
-        const labels = document.createElement("div");
-        labels.className = "xrc-labels";
-        labels.setAttribute("aria-label","当前回复对象 · 对话提示");
-        renderLabels(labels,{ id:s.current.id,origin:"unknown",status:"unknown" });
+        context.className = withDetails ? "xrc-flow-context" : "xrc-flow-context xrc-flow-context-home";
+        if (withDetails) {
+          const labels = document.createElement("div");
+          labels.className = "xrc-labels";
+          labels.setAttribute("aria-label","当前回复对象 · 对话提示");
+          renderLabels(labels,{ id:s.current.id,origin:"unknown",status:"unknown" });
+          context.append(labels);
+        }
         const profile = document.createElement("a");
         profile.className = "xrc-flow-profile";
         profile.textContent = "他的主页 ↗";
@@ -324,11 +340,11 @@
         profile.rel = "noopener noreferrer";
         profile.setAttribute("aria-disabled","true");
         profile.title = "正在确认当前回复对象的账号";
-        context.append(labels,profile);
+        context.append(profile);
         bar.append(context);
       }
       let preview = bar.querySelector(".xrc-flow-root");
-      if (!preview) {
+      if (withDetails && !preview) {
         preview = document.createElement("div");
         preview.className = "xrc-flow-root";
         preview.setAttribute("aria-label","原帖文字摘要");
@@ -336,12 +352,15 @@
         context.after(preview);
       }
       const current = s.current;
-      if (current.context) updateContext(context,current.context);
+      if (current.context && (current.renderedContext !== context || current.renderedRow !== current.context)) {
+        updateContext(context,current.context);
+        current.renderedContext = context; current.renderedRow = current.context;
+      }
       const revision = contextRevision;
       if (current.contextRevision === revision) return;
       current.contextRevision = revision;
       // Local classification only; never resolve the profile from the conversation's root author.
-      void message({ type:"CLASSIFY",account:s.account,ids:[current.id],includeRootText:true }).then(result => {
+      void message({ type:"CLASSIFY",account:s.account,ids:[current.id],includeRootText:withDetails }).then(result => {
         if (!currentSession(s) || s.current !== current || contextRevision !== revision) return;
         const row = result.rows.find(item => item.id === current.id);
         if (!row) return;
@@ -409,8 +428,9 @@
       const send = bar.querySelector(".xrc-flow-send");
       const sendText = s.phase === "sent" ? "下一条" : s.phase === "sending" ? "发送中…" : "发送并下一条";
       if (send.textContent !== sendText) send.textContent = sendText;
-      send.disabled = busy || (s.phase !== "sent" && (!canAct || !enabled(dialog.querySelector(SEND)) || !singleReply(dialog)));
-      send.title = singleReply(dialog) ? "确认本条发送成功后进入下一条。" : "请先完成多条帖子编辑，再使用连续回复。";
+      const single = singleReply(dialog);
+      send.disabled = busy || (s.phase !== "sent" && (!canAct || !enabled(dialog.querySelector(SEND)) || !single));
+      send.title = single ? "确认本条发送成功后进入下一条。" : "请先完成多条帖子编辑，再使用连续回复。";
     }
 
     function refresh() {
@@ -511,7 +531,9 @@
       if (openingId && tweetId(article) === openingId) return;
       start(article,feed);
     },true);
-    document.addEventListener("input",refresh);
+    document.addEventListener("input",event => {
+      if (session?.current.dialog?.contains(event.target)) requestRefresh();
+    });
     document.addEventListener("keydown",event => {
       const editor = event.target instanceof Element ? event.target.closest(EDITOR) : null;
       if (event.key === "Tab" && !event.altKey && session && editor && session.current.dialog?.contains(editor)) {

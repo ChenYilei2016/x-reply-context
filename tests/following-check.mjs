@@ -31,14 +31,42 @@ export async function checkFollowing() {
     await wait(() => document.querySelector('.xrc-flow-status')?.textContent.includes('正在关注'));
     check('正在关注入口显示完整连续操作',dialog().querySelector('.xrc-flow-heart') &&
       dialog().querySelector('.xrc-flow-skip') && dialog().querySelector('.xrc-flow-send'));
+    await new Promise(resolve => setTimeout(resolve,350));
+    const originalQuery = Element.prototype.querySelectorAll;
+    let timelineScans = 0;
+    Element.prototype.querySelectorAll = function(selector) {
+      if (selector === 'article[data-testid="tweet"]') timelineScans++;
+      return Reflect.apply(originalQuery,this,[selector]);
+    };
+    try {
+      const editor = dialog().querySelector('[data-testid="tweetTextarea_0"]');
+      for (let i=0;i<100;i++) editor.dispatchEvent(new InputEvent('input',{bubbles:true}));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    } finally { Element.prototype.querySelectorAll = originalQuery; }
+    output.dataset.performance = JSON.stringify({inputEvents:100,timelineScans});
+    check('连续输入100次不重新扫描整页卡片',timelineScans === 0);
+    await wait(() => dialog()?.querySelector('.xrc-flow-profile')?.getAttribute('href') === 'https://x.com/carol');
+    check('正在关注显示当前作者主页，另开标签且不添加通知标签或摘要',
+      dialog().querySelector('.xrc-flow-profile').target === '_blank' &&
+      !dialog().querySelector('.xrc-labels,.xrc-flow-root'));
+    const activeCard = document.querySelector(`[data-demo-id="${carol}"]`);
+    const permalink = activeCard.querySelector('time').closest('a');
+    const originalHref = permalink.getAttribute('href');
+    permalink.setAttribute('href',`/bob/status/${bob}`);
+    await wait(() => document.querySelector('.xrc-flow-heart').disabled);
+    check('虚拟卡片换成其他帖子时不使用旧缓存误点赞',document.querySelector('.xrc-flow-heart').disabled);
+    permalink.setAttribute('href',originalHref);
+    await wait(() => !document.querySelector('.xrc-flow-heart').disabled);
     document.querySelector('.xrc-flow-heart').click();
     await wait(() => JSON.parse(evidence().likeRecords || '{}')['101:'+carol]?.liked);
     document.querySelector('.xrc-flow-skip').click();
     await wait(() => current() === bob && document.querySelector('.xrc-flow-send'));
+    await wait(() => dialog()?.querySelector('.xrc-flow-profile')?.getAttribute('href') === 'https://x.com/bob');
     check('手动红心保存，跳过不误记评论，下一条仍属于正在关注',
       evidence().requests === '0' && !record(carol)?.evidenceId &&
       document.querySelector('.xrc-flow-status').textContent.includes('正在关注'));
     fill('正在关注普通评论，仅本地模拟');
+    await wait(() => !document.querySelector('.xrc-flow-send')?.disabled);
     document.querySelector('.xrc-flow-send').click();
     await wait(() => evidence().sent === '1' && record(bob)?.evidenceId && current() === '2112500000000000009' &&
       document.querySelector('.xrc-flow-send'));
@@ -49,6 +77,7 @@ export async function checkFollowing() {
     reply(carol);
     await wait(() => dialog()?.querySelector('.xrc-flow-send'));
     fill('正在关注长评论，仅本地模拟');
+    await wait(() => !document.querySelector('.xrc-flow-send')?.disabled);
     document.querySelector('.xrc-flow-send').click();
     await wait(() => evidence().sent === '2' && record(carol)?.evidenceId && current() === '2112500000000000009' &&
       document.querySelector('.xrc-flow-send'));
@@ -64,12 +93,14 @@ export async function checkFollowing() {
     tabs[0].click();
     reply(carol);
     await wait(() => document.querySelector('.xrc-flow-status')?.textContent.includes('为你推荐'));
-    check('为你推荐原入口仍可正常启动',Boolean(document.querySelector('.xrc-flow-send')));
+    await wait(() => dialog()?.querySelector('.xrc-flow-profile')?.getAttribute('href') === 'https://x.com/carol');
+    check('为你推荐入口与当前作者主页可正常启动',Boolean(document.querySelector('.xrc-flow-send')));
     dialog().querySelector('[data-testid="app-bar-close"]').click();
     tabs[1].click(); reply('2112500000000000009');
     await wait(() => document.querySelector('.xrc-flow-send'));
     document.querySelector('#reply-result-mode').value = 'delayed';
     fill('晚到回执，仅本地模拟');
+    await wait(() => !document.querySelector('.xrc-flow-send')?.disabled);
     document.querySelector('.xrc-flow-send').click();
     tabs[0].click();
     await wait(() => evidence().sent === '3' && record('2112500000000000009')?.evidenceId);

@@ -48,7 +48,7 @@ export async function checkComposerContext() {
     check("查看信息和跳过未发送评论",document.querySelector('#composer-evidence').dataset.requests === '0');
     document.querySelector('[data-testid="app-bar-close"]').click();
     const mode = document.querySelector('#context-result-mode');
-    mode.value = 'failed';
+    mode.value = 'failed'; mode.dispatchEvent(new Event('change',{bubbles:true}));
     carol.querySelector('[data-testid="reply"]').click();
     await wait(() => profile()?.title.includes('读取失败'));
     check("读取失败仍可跳过，固定占位保留",!document.querySelector('.xrc-flow-skip').disabled &&
@@ -56,12 +56,12 @@ export async function checkComposerContext() {
     check("摘要读取失败不改变高度",document.querySelector('.xrc-flow-root').textContent === '原帖内容暂不可用' &&
       document.querySelector('.xrc-flow-root').getBoundingClientRect().height === previewHeight);
     document.querySelector('[data-testid="app-bar-close"]').click();
-    mode.value = 'missing-author';
+    mode.value = 'missing-author'; mode.dispatchEvent(new Event('change',{bubbles:true}));
     carol.querySelector('[data-testid="reply"]').click();
     await wait(() => profile()?.title.includes('尚未读取'));
     check("缺少作者时保留统计，主页入口不可用",context().querySelector('.xrc-person') && !profile().hasAttribute('href'));
     document.querySelector('[data-testid="app-bar-close"]').click();
-    mode.value = 'delayed';
+    mode.value = 'delayed'; mode.dispatchEvent(new Event('change',{bubbles:true}));
     card("2112500000000000004").querySelector('[data-testid="reply"]').click();
     await wait(() => context());
     document.querySelector('.xrc-flow-skip').click();
