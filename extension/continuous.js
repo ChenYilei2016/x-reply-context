@@ -4,6 +4,14 @@
   const EDITOR = '[contenteditable="true"][data-testid="tweetTextarea_0"]';
   const SEND = '[data-testid="tweetButton"]';
   const CLOSE = '[data-testid="app-bar-close"]';
+  const QUICK_REPLIES = [
+    { label:"一起加油",phrases:["一起加油好兄弟","一起加油鸭","一起加油🦆"] },
+    { label:"哈哈",phrases:["哈哈","嘿嘿"] },
+    { label:"难受啊",phrases:["难受啊","难顶呀","太难了"] },
+    { label:"太卷了",phrases:["太卷了","别卷了","卷不动了"] }
+  ];
+  const ENDINGS = ["...","!","!!!","!!"];
+  const pick = values => values[Math.floor(Math.random()*values.length)];
   const PRIMARY_COLUMN = '[data-testid="primaryColumn"]';
   const visible = node => {
     const box = node?.getBoundingClientRect();
@@ -375,6 +383,29 @@
       });
     }
 
+    function fillQuickReply(s,phrases) {
+      if (!currentSession(s) || !["ready","failed"].includes(s.phase) || s.current.composing ||
+          draftBusy(s) || !singleReply(s.current.dialog)) return;
+      const editor = s.current.dialog.querySelector(EDITOR);
+      if (!editor || editor.getAttribute("aria-disabled") === "true") return;
+      const before = editor.innerText;
+      const separator = before && !/\s$/.test(before) ? " " : "";
+      const value = separator+pick(phrases)+pick(ENDINGS);
+      editor.focus({ preventScroll:true });
+      const range = document.createRange();
+      range.selectNodeContents(editor); range.collapse(false);
+      const selection = window.getSelection();
+      if (!selection) return;
+      selection.removeAllRanges(); selection.addRange(range);
+      // Native editing keeps the editor's input handling and undo history; never replace draft DOM.
+      if (!document.execCommand("insertText",false,value)) {
+        s.note = "快捷填入未完成，请直接在回复框输入。";
+      } else if (s.note === "快捷填入未完成，请直接在回复框输入。") {
+        s.note = "从当前页选择，略过已回复。";
+      }
+      requestRefresh();
+    }
+
     function render(s) {
       const dialog = s.current.dialog;
       if (!dialog?.isConnected) return;
@@ -404,7 +435,20 @@
         send.type = "button";
         send.className = "xrc-flow-send";
         send.addEventListener("click",() => sendNext(s));
-        bar.append(status,heart,skip,send);
+        const quickReplies = document.createElement("div");
+        quickReplies.className = "xrc-quick-replies";
+        quickReplies.setAttribute("role","group");
+        quickReplies.setAttribute("aria-label","快捷填入，不自动发送");
+        for (const { label,phrases } of QUICK_REPLIES) {
+          const button = document.createElement("button");
+          button.type = "button"; button.textContent = label;
+          button.className = "xrc-quick-reply";
+          button.title = `随机填入：${phrases.join(" / ")}，末尾随机加标点；追加到草稿末尾，不自动发送。`;
+          button.addEventListener("mousedown",event => event.preventDefault());
+          button.addEventListener("click",() => fillQuickReply(s,phrases));
+          quickReplies.append(button);
+        }
+        bar.append(quickReplies,status,heart,skip,send);
       }
       if (nativeToolbar.nextElementSibling !== bar) nativeToolbar.after(bar);
       renderContext(s,bar);
@@ -429,6 +473,11 @@
       const sendText = s.phase === "sent" ? "下一条" : s.phase === "sending" ? "发送中…" : "发送并下一条";
       if (send.textContent !== sendText) send.textContent = sendText;
       const single = singleReply(dialog);
+      const editor = dialog.querySelector(EDITOR);
+      for (const button of bar.querySelectorAll(".xrc-quick-reply")) {
+        button.disabled = !canAct || busy || !single || s.current.composing === true ||
+          !editor || editor.getAttribute("aria-disabled") === "true";
+      }
       send.disabled = busy || (s.phase !== "sent" && (!canAct || !enabled(dialog.querySelector(SEND)) || !single));
       send.title = single ? "确认本条发送成功后进入下一条。" : "请先完成多条帖子编辑，再使用连续回复。";
     }
@@ -534,6 +583,14 @@
     document.addEventListener("input",event => {
       if (session?.current.dialog?.contains(event.target)) requestRefresh();
     });
+    for (const name of ["compositionstart","compositionend"]) {
+      document.addEventListener(name,event => {
+        if (session?.current.dialog?.contains(event.target)) {
+          session.current.composing = name === "compositionstart";
+          requestRefresh();
+        }
+      });
+    }
     document.addEventListener("keydown",event => {
       const editor = event.target instanceof Element ? event.target.closest(EDITOR) : null;
       if (event.key === "Tab" && !event.altKey && session && editor && session.current.dialog?.contains(editor)) {

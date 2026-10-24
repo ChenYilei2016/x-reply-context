@@ -5,6 +5,7 @@ import { checkHearts } from "./heart-check.mjs";
 import { checkNotificationFilter } from "./notification-filter-check.mjs";
 import { checkNotificationStability } from "./notification-stability-check.mjs";
 import { checkComposerContext } from "./composer-context-check.mjs";
+import { checkQuickReplies } from "./quick-replies-check.mjs";
 import { checkFollowing } from "./following-check.mjs";
 import { checkAutomaticFilter } from "./automatic-filter-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
@@ -196,6 +197,11 @@ document.querySelector('#check-automatic-filter').addEventListener('click',async
       notifyDiagnosticChange();
     } };
   });
+  event.target.disabled = false;
+});
+document.querySelector('#check-quick-replies').addEventListener('click',async event => {
+  event.target.disabled = true;
+  await checkQuickReplies();
   event.target.disabled = false;
 });
 document.querySelector('#check-following').addEventListener('click',async event => {

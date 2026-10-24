@@ -354,7 +354,8 @@
       const account = accountHandle();
       if (!account) { homeFilter.reset(); notificationFilter.reset(); return; }
       if (account !== lastAccount) {
-        document.querySelectorAll(".xrc-labels").forEach(node => node.remove());
+        // The composer owns its labels; initial account detection must not erase an already-open footer.
+        document.querySelectorAll('article[data-testid="tweet"] .xrc-labels').forEach(node => node.remove());
         lastAccount = account;
         invalidateAnnotations();
         homeFilter.reset();

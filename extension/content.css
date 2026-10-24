@@ -95,7 +95,9 @@ article[data-xrc-notification-hidden],
   padding: 10px 16px; border-top: 1px solid #8293a43b; font: 12px/1.5 system-ui,sans-serif;
 }
 .xrc-flow-status { flex: 1; min-width: 0; }
-.xrc-continuous:has(.xrc-flow-context) { flex-wrap: wrap; }
+.xrc-continuous { flex-wrap: wrap; }
+.xrc-quick-replies { display: flex; flex: 0 0 100%; align-items: center; gap: 6px; height: 30px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.xrc-continuous .xrc-quick-reply { padding: 4px 10px; font-size: 12px; }
 .xrc-flow-context {
   display: flex; align-items: center; gap: 8px; flex-basis: 100%; min-width: 0; height: 30px;
 }
