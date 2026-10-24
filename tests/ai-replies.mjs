@@ -68,6 +68,20 @@ document.querySelector('#run').addEventListener('click',async event=>{
     await new Promise(resolve=>setTimeout(resolve,80));
     for(let i=0;i<100;i++)ai.refresh();
     check('默认关闭自动补全，打开和刷新均不请求模型',calls.length===0&&!document.querySelector('.xrc-ai-ghost'));
+    editor().dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));
+    key('q',{altKey:true,code:'KeyQ'});
+    editor().dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));
+    document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'q',code:'KeyQ',altKey:true,bubbles:true,cancelable:true}));
+    key('q',{altKey:true,ctrlKey:true,code:'KeyQ'});key('q',{altKey:true,code:'KeyQ',repeat:true});
+    check('推荐快捷键忽略输入法、框外、额外修饰键和长按重复',calls.length===0);
+    await wait(()=>!document.querySelector('.xrc-ai-recommend').disabled);
+    delay=150;
+    const prevented=!key('œ',{altKey:true,code:'KeyQ'});
+    key('œ',{altKey:true,code:'KeyQ',repeat:true});key('q',{altKey:true,code:'KeyQ'});
+    await wait(()=>!ai.busy(editor()));
+    check('Option Alt Q复用推荐操作且连按仅一条，不发送',prevented&&calls.length===1&&text()==='第一条候选甲'&&sent===0);
+    closeUI();await wait(()=>!editor());calls.length=0;open(0);
+    await wait(()=>document.querySelector('.xrc-ai-recommend'));
     const recommend=async()=>{await wait(()=>!document.querySelector('.xrc-ai-recommend').disabled);document.querySelector('.xrc-ai-recommend').click();};
     delay=100;await recommend();document.querySelector('.xrc-ai-recommend').click();await wait(()=>!ai.busy(editor()));
     check('点击推荐只请求一条并填入一次，连点不重复',calls.length===1&&text()==='第一条候选甲');
@@ -98,6 +112,12 @@ document.querySelector('#run').addEventListener('click',async event=>{
     await wait(()=>!ai.busy(editor()));check('Tab只采用当前候选且不重复',text()==='第一条候选乙');
     delay=150;rewritten='更短的回复';key('Tab',{altKey:true});await wait(()=>ai.busy(editor()));
     await wait(()=>!ai.busy(editor()));check('Option Tab改写替换一次（实际：'+text()+'）',text()==='更短的回复');
+    for(let i=0;i<10;i++) {
+      const expected=text(),replacement='改写选区检查'+i;
+      const replaced=await XReplyEditor.write(editor(),replacement,{replace:true,expected});
+      if(!replaced||text()!==replacement)throw new Error('连续替换选区未同步：'+text());
+    }
+    check('连续10次替换保持Draft状态一致，不追加旧稿',true);
     delay=300;key('Tab',{altKey:true});await wait(()=>ai.busy(editor()));
     await input(' 保留新输入');const manual=text();await wait(()=>!ai.busy(editor()));
     check('改写期间的新草稿不被覆盖',text()===manual);

@@ -461,8 +461,10 @@
         }
         if (aiRecommend) {
           const button=document.createElement("button");
-          button.type="button";button.className="xrc-ai-recommend";button.textContent="推荐评论";
-          button.title="点击生成一条并追加到草稿；等待时若继续编辑则不填入，不自动发送。";
+          button.type="button";button.className="xrc-ai-recommend";
+          button.textContent="推荐评论 · "+(/Mac/.test(globalThis.navigator?.platform || "") ? "⌥Q" : "Alt+Q");
+          button.setAttribute("aria-label","推荐评论");button.setAttribute("aria-keyshortcuts","Alt+q");
+          button.title="Mac：Option+Q；Windows：Alt+Q。点击或按快捷键生成一条并追加到草稿；等待时若继续编辑则不填入，不自动发送。";
           button.addEventListener("mousedown",event=>event.preventDefault());
           button.addEventListener("click",()=>{
             if (!currentSession(s) || !["ready","failed"].includes(s.phase) || draftBusy(s) ||
@@ -615,7 +617,18 @@
       });
     }
     document.addEventListener("keydown",event => {
+      const recommendKey = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
+        (event.code === "KeyQ" || event.key.toLowerCase() === "q");
+      if (!recommendKey && event.key !== "Tab" && event.key !== "Escape") return;
       const editor = event.target instanceof Element ? event.target.closest(EDITOR) : null;
+      if (recommendKey && session && editor && session.current.dialog?.contains(editor) && currentSession(session)) {
+        if (event.isComposing || event.keyCode === 229 || session.current.composing) return;
+        const button = session.current.dialog.querySelector(".xrc-ai-recommend");
+        if (!button) return;
+        event.preventDefault();event.stopImmediatePropagation();
+        if (!event.repeat && !button.disabled) button.click();
+        return;
+      }
       if (event.key === "Tab" && !event.altKey && session && editor && session.current.dialog?.contains(editor)) {
         const suggestion = editor.closest(".DraftEditor-root")?.querySelector("#xreply-ghost")?.dataset.suggestion;
         if (suggestion) {

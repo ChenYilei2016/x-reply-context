@@ -8,9 +8,9 @@
 
 一个 Chrome 扩展，为 X 通知补上对话上下文，减少漏回和重复回复。支持通知筛选、本地原帖摘要，以及通知、主页「为你推荐」「正在关注」中的逐条连续回复。
 
-**当前版本 0.16.2** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
+**当前版本 0.16.3** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
 
-[**下载安装包**](dist/x-reply-context-0.16.2.zip) · [快速安装](#快速安装) · [界面预览](#界面预览) · [筛选开关](#通知筛选) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
+[**下载安装包**](dist/x-reply-context-0.16.3.zip) · [快速安装](#快速安装) · [界面预览](#界面预览) · [筛选开关](#通知筛选) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
 
 *A Chrome extension for X notification context, local interaction history, notification filters, and manual reply-next controls in Notifications, For you and Following.*
 
@@ -29,6 +29,8 @@
 | **整理已完成互动** | 「已回且已点」「仅已回」互斥选择；自动整理保护当前阅读区，空批停下后由你决定是否继续。 |
 | **引用帖也有上下文** | 以外层引用帖为独立原帖显示标签，按选择的文字/红心条件整理隐藏。 |
 | **按记录保存** | IndexedDB 增量写入；成功互动及时更新，不为一次红心重写整份历史。 |
+
+**0.16.3 推荐快捷键**：在回复输入框按 **Option+Q（Mac）／Alt+Q（Windows）**，等同点击「推荐评论」。生成一条并追加草稿，不自动发送；输入法组字、长按重复和忙碌时不会重复触发。[验证记录](docs/reviews/0.16.3.md)。
 
 **0.16.2 数据与性能修复**：修复取消后复用 XHR 误记点赞、部分对象覆盖完整关系、单响应 500 条截断。重复观察仅刷新时间，保留分类缓存，减少全量重建与跨标签页广播；维持过期清理和容量限制，无新增 X 请求。[修复与测量](docs/reviews/0.16.2.md)。
 
@@ -81,7 +83,7 @@
 
 ## 快速安装
 
-1. 下载并解压 [0.16.2 安装包](dist/x-reply-context-0.16.2.zip)。也可用 **Code → Download ZIP** 下载源码。
+1. 下载并解压 [0.16.3 安装包](dist/x-reply-context-0.16.3.zip)。也可用 **Code → Download ZIP** 下载源码。
 2. 在 Chrome 打开 `chrome://extensions`，开启右上角「开发者模式」。
 3. 点击「加载已解压的扩展程序」：安装包选择包含 `manifest.json` 的文件夹；源码选择 **`extension/`**。
 4. 完整刷新已打开的 X 页面。建议将「回过了」固定到工具栏，方便调整筛选开关。
@@ -167,7 +169,7 @@
 
 | 操作 | 行为 |
 | --- | --- |
-| 推荐评论 | 手动请求一条，完成后一次追加到草稿末尾；不自动发送。等待期间继续编辑则不填入。 |
+| 推荐评论 / Option+Q（Mac） / Alt+Q（Windows） | 手动请求一条，完成后一次追加到草稿末尾；不自动发送。等待期间继续编辑则不填入。 |
 | 打开空回复弹窗 | 默认不请求模型。扩展弹窗中开启「自动 AI 补全」后，才自动生成三条灰字候选；预览不是草稿。 |
 | ↑ / ↓ | 空草稿时切换候选；到候选末尾再补一条。 |
 | Tab | 采用当前建议的剩余文字，逐字填入。手输前缀与建议一致时仍可采用后半句。 |

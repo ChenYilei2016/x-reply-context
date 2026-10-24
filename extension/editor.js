@@ -12,6 +12,9 @@
     if (!selection) return false;
     selection.removeAllRanges(); selection.addRange(range);
     if (editor.closest(".DraftEditor-root")) {
+      // Draft reads its own selection state on paste. Notify it before the next frame,
+      // rather than racing the browser's deferred selectionchange event.
+      document.dispatchEvent(new Event("selectionchange"));
       await frame();
       if (!valid() || !editor.isConnected || read(editor) !== expected || !editor.contains(selection.anchorNode) ||
           (replace ? selection.toString().replace(/\n$/,"") !== expected : !selection.isCollapsed)) return false;
