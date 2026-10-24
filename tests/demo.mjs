@@ -30,6 +30,8 @@ globalThis.chrome = {
     id:"local-demo-extension",
     onMessage:{ addListener() {} },
     async sendMessage(message) {
+      if (message.type === "AI_STATUS") return {ok:true,enabled:false};
+      if (message.type === "AI_REQUEST") throw new Error("AI disabled in this fixture");
       if (message.type === "INGEST") {
         core.ingest(state,message.batch,message.account);
         for (const tweet of message.batch.tweets || []) {
@@ -154,6 +156,8 @@ await import("/extension/observe.js");
 await import("/extension/card-filter.js");
 await import("/extension/home-filter.js");
 await import("/extension/notification-filter.js");
+await import("/extension/editor.js");
+await import("/extension/ai-replies.js");
 await import("/extension/continuous.js");
 const script = document.createElement("script");
 script.src = "/extension/content.js";

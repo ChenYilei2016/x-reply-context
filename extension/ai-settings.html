@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>回过了 · AI 回复设置</title>
+<style>
+body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 20px;color:#182b36}h1{font-size:24px}label{display:block;margin-top:18px;font-weight:600}input:not([type=checkbox]),textarea{box-sizing:border-box;width:100%;border:1px solid #8293a480;border-radius:8px;padding:10px;font:inherit}textarea{min-height:150px}button{padding:8px 18px;border-radius:18px;border:1px solid #087ebd;background:white;color:#087ebd;cursor:pointer;margin:16px 8px 0 0}#save{background:#087ebd;color:white}button:disabled{opacity:.5}.hint{color:#536471;font-size:13px}#status{min-height:24px;white-space:pre-wrap}code{background:#eef3f6;padding:2px 4px}
+</style>
+<h1>AI 回复 · 自带 API</h1>
+<p>开启前请停用原来的 XReply，避免两套插件同时生成、处理快捷键和写入草稿。</p>
+<p class="hint">互动历史保留在本机。开启后，打开空回复弹窗会向你配置的模型接口发送当前被回复文本，初始生成三条候选；改写另发送当前草稿。没有新增 X 抓帖请求。Key 仅保存在此扩展本地，不使用 Chrome 同步。</p>
+<form id="settings">
+<label><input id="enabled" type="checkbox"> 开启 AI 回复</label>
+<label for="baseUrl">Base URL</label><input id="baseUrl" type="url" placeholder="https://api.example.com/v1" autocomplete="off"><div class="hint">自动追加 /chat/completions，支持 HTTPS 或 localhost / 127.0.0.1 HTTP 服务。</div>
+<label for="apiKey">API Key</label><input id="apiKey" type="password" autocomplete="off" spellcheck="false">
+<label for="model">模型</label><input id="model" autocomplete="off" spellcheck="false">
+<label for="generatePrompt">生成回复的 Prompt</label><textarea id="generatePrompt" spellcheck="false"></textarea><div class="hint">支持变量 <code>${post}</code>。可粘贴你自己的原有 Prompt，输出用 &lt;reply&gt;...&lt;/reply&gt; 包裹。</div>
+<label for="rewritePrompt">改写草稿的 Prompt</label><textarea id="rewritePrompt" spellcheck="false"></textarea><div class="hint">支持 <code>${post}</code> 和 <code>${draft}</code>。默认模板为独立编写，需原样保持写作风格时请填入你自己的 Prompt。</div>
+<button id="save" type="submit" disabled>保存设置</button><button id="defaults" type="button">填入默认 Prompt</button>
+<p id="status" role="status">读取配置…</p>
+</form>
+<p>↑/↓ 切换候选 · Tab 采用并逐字填入 · Option+Tab 改写草稿。发送始终由你确认；关闭、跳过或切换对象会取消旧任务。Windows 的 Alt+Tab 被系统占用，沿用原快捷键时不能用于改写。</p>
+<script src="ai-config.js"></script><script src="ai-settings.js"></script></html>

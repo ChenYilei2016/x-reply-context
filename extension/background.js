@@ -1,4 +1,5 @@
-importScripts("core.js","storage.js");
+importScripts("core.js","storage.js","ai-config.js","ai-service.js");
+let aiService;
 const core = globalThis.XReplyContext;
 const storage = globalThis.XReplyStorage.create();
 let state;
@@ -65,6 +66,11 @@ async function handleMessage(message) {
 
 chrome.runtime.onMessage.addListener((message,sender,sendResponse) => {
   if (!allowedSender(sender) || !message || typeof message !== "object") return false;
+  if (typeof message.type === "string" && message.type.startsWith("AI_")) {
+    aiService ||= globalThis.XReplyAIService.create();
+    void aiService.handle(message,sender).then(sendResponse,() => sendResponse({ok:false,error:"AI 配置或服务暂不可用，请检查设置。"}));
+    return true;
+  }
   const priority = message.type === "INGEST" && message.interaction === true || message.type === "CLASSIFY";
   (priority ? urgent : ordinary).push({ message,sendResponse });
   void drain();

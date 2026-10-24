@@ -134,3 +134,10 @@ article[data-xrc-notification-hidden],
   border-radius: 12px; color: white; background: #183443; box-shadow: 0 4px 20px #0003;
   font: 13px/1.5 system-ui,sans-serif;
 }
+/* Suggestions are overlays: they never change a timeline row or editor height. */
+.DraftEditor-root.xrc-ai-preview { position: relative; }
+.xrc-ai-preview .public-DraftEditorPlaceholder-root { visibility: hidden; }
+.xrc-ai-ghost { position:absolute; inset:0; overflow:hidden; pointer-events:none; white-space:pre-wrap; overflow-wrap:break-word; color:#7e8b95; z-index:0; }
+.xrc-ai-notice { position:fixed; z-index:2147483647; bottom:24px; left:50%; transform:translateX(-50%); max-width:85vw; display:flex; align-items:center; gap:10px; padding:8px 14px; border-radius:18px; background:#183443; color:#fff; font:13px/1.5 system-ui; }
+.xrc-ai-notice[hidden] { display:none; }
+.xrc-ai-notice button { border:1px solid #ffffff70; border-radius:16px; background:transparent; color:inherit; cursor:pointer; padding:4px 8px; white-space:nowrap; }

@@ -15,6 +15,7 @@
   let lastRevision = "";
   const classifications = new Map();
   let continuous;
+  let aiReplies;
   let hideCompletedHome = false;
   let homeSettingLoaded = false;
   let notificationHideMode = "off";
@@ -40,7 +41,7 @@
     disconnected = true;
     clearTimeout(timer); timer = undefined; pending.clear(); again = false;
     observer.disconnect();
-    continuous?.stop();
+    continuous?.stop(); aiReplies?.stop();
     if (networkNotice) networkNotice.hidden = true;
     // Pause without resetting filters: restoring hidden rows here would move the reading position.
     void notificationFilter.refresh();
@@ -172,6 +173,7 @@
     try {
       const reply = await chrome.runtime.sendMessage(payload);
       if (!connected()) throw new Error("扩展连接已失效，请刷新页面");
+      if (payload.type === "AI_REQUEST" && reply?.cancelled) return reply;
       if (!reply?.ok) throw new Error(reply?.error || "扩展连接已断开，请刷新页面");
       return reply;
     } catch (error) {
@@ -257,7 +259,7 @@
       uiFrame = undefined;
       if (connected()) {
         homeFilter.syncKnown(); notificationFilter.syncKnown();
-        continuous?.refresh();
+        continuous?.refresh(); aiReplies?.refresh();
       }
     });
   }
@@ -359,7 +361,7 @@
 
   async function refresh() {
     if (!connected() || document.hidden) return;
-    continuous?.refresh();
+    continuous?.refresh(); aiReplies?.refresh();
     renderNetworkNotice();
     window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_CONTEXT" },location.origin);
     if (running) { again = true; return; }
@@ -418,7 +420,8 @@
     }
   }
 
-  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels,requestRefresh:scheduleControls,connected });
+  aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,requestRefresh:scheduleControls});
+  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true });
 
   window.addEventListener("message", event => {
     if (event.source !== window || event.origin !== location.origin ||
@@ -520,7 +523,7 @@
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
     if (!connected()) return;
-    const owned = ".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice";
+    const owned = ".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice";
     const relevant = '[data-testid="primaryColumn"],[role="dialog"],[aria-modal="true"],a[data-testid="AppTabBar_Profile_Link"]';
     if (records.some(record => !record.target.closest?.(owned) &&
         (record.target.closest?.(relevant) || [...(record.addedNodes || []),...(record.removedNodes || [])]

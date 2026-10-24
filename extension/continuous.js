@@ -34,7 +34,7 @@
     (row.status === "not-reply" ? row.origin !== "mine" :
       !["replied","self","not-reply"].includes(row.status));
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,requestRefresh,connected = () => true }) {
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,requestRefresh,connected = () => true,aiBusy = () => false }) {
     let session;
     let notice;
     let noticeTimer;
@@ -189,7 +189,7 @@
           rewriteWatch.observe(rewrite,{ attributes:true,attributeFilter:["style"],childList:true,subtree:true });
         }
       }
-      return s.current.fillingText !== undefined ||
+      return aiBusy(editor) || s.current.fillingText !== undefined ||
         (visible(rewrite) && /^改写中/.test(rewrite.innerText.trim()));
     }
 
@@ -403,41 +403,18 @@
       const before = editor.innerText;
       const separator = before && !/\s$/.test(before) ? " " : "";
       const value = separator+pick(phrases)+pick(ENDINGS);
-      editor.focus({ preventScroll:true });
-      const range = document.createRange();
-      range.selectNodeContents(editor); range.collapse(false);
-      const selection = window.getSelection();
-      if (!selection) return;
-      selection.removeAllRanges(); selection.addRange(range);
       const current = s.current;
       current.quickPending = true;
       requestRefresh();
       try {
-        let inserted;
-        if (editor.closest(".DraftEditor-root")) {
-          // Draft owns this DOM. Let its paste handler update EditorState exactly once.
-          // Wait for the browser selectionchange to reach React before appending.
-          await new Promise(resolve => requestAnimationFrame(resolve));
-          if (!currentSession(s) || s.current !== current || !editor.isConnected ||
-              editor.innerText !== before || !selection.isCollapsed || !editor.contains(selection.anchorNode) ||
-              current.composing || draftBusy(s)) return;
-          const clipboard = new DataTransfer();
-          clipboard.setData("text/plain",value);
-          const paste = new ClipboardEvent("paste",{ bubbles:true,cancelable:true,clipboardData:clipboard });
-          editor.dispatchEvent(paste);
-          inserted = paste.defaultPrevented;
-          // Never follow an unhandled Draft paste with a native insert: that caused duplicate text.
-        } else {
-          inserted = document.execCommand("insertText",false,value);
-        }
+        const inserted = await globalThis.XReplyEditor.write(editor,value,{
+          expected:before.replace(/\n$/, ""),
+          valid:() => currentSession(s) && s.current === current && !current.composing && !draftBusy(s)
+        });
         if (!inserted) s.note = "快捷填入未完成，请直接在回复框输入。";
         else if (s.note === "快捷填入未完成，请直接在回复框输入。") s.note = "从当前页选择，略过已回复。";
-      } catch {
-        s.note = "快捷填入未完成，请直接在回复框输入。";
-      } finally {
-        current.quickPending = false;
-        requestRefresh();
-      }
+      } catch {s.note = "快捷填入未完成，请直接在回复框输入。";}
+      finally {current.quickPending = false;requestRefresh();}
     }
 
     function render(s) {

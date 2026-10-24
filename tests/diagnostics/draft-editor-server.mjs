@@ -16,8 +16,8 @@ http.createServer(async (request,response) => {
     if (pathname.startsWith('/vendor/')) {
       base = vendor; relative = pathname.slice(8);
       if (!vendors.has(relative)) throw new Error('Not found');
-    } else if (!['tests/draft-quick-replies.html','tests/draft-quick-replies.mjs',
-      'extension/continuous.js','extension/content.css'].includes(relative)) throw new Error('Not found');
+    } else if (!['tests/draft-quick-replies.html','tests/draft-quick-replies.mjs','tests/ai-replies.html','tests/ai-replies.mjs',
+      'extension/ai-replies.js','extension/editor.js','extension/continuous.js','extension/content.css'].includes(relative)) throw new Error('Not found');
     const file = path.join(base,relative);
     response.writeHead(200,{'Content-Type':file.endsWith('.html')?'text/html; charset=utf-8':
       file.endsWith('.css')?'text/css':'text/javascript','Cache-Control':'no-store'});

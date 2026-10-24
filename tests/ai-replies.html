@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>内置 AI 回复 · 本地受控编辑器验证</title>
+<link rel="stylesheet" href="/vendor/draft-js/dist/Draft.css"><link rel="stylesheet" href="/extension/content.css">
+<style>body{font:15px/1.5 system-ui;max-width:850px;margin:24px auto}article{padding:12px;border:1px solid #ccc}.dialog{padding:20px;border:1px solid #999;margin:20px 0}.public-DraftEditor-content{min-height:100px;border:1px solid #ddd;font-size:18px}pre{white-space:pre-wrap}button{margin:3px;padding:5px}header{display:flex;gap:20px}</style>
+<h1>AI 回复受控编辑器验证 · 虚构数据</h1><p>模型与发送均为本地模拟，不连接 X 或真实模型账号。</p>
+<a data-testid="AppTabBar_Profile_Link" href="/me">@me</a>
+<main data-testid="primaryColumn"><header><h2>通知</h2><div><a href="/settings/notifications">设置</a></div></header><a role="tab" aria-selected="true" href="/notifications">全部</a>
+<article data-testid="tweet"><a href="/alice/status/100"><time>第一条</time></a><div data-testid="tweetText">第一条原帖</div><button data-testid="reply">回复第一条</button><button data-testid="like">点赞（仅计数）</button></article>
+<article data-testid="tweet"><a href="/bob/status/200"><time>第二条</time></a><div data-testid="tweetText">第二条原帖</div><button data-testid="reply">回复第二条</button><button data-testid="like">点赞（仅计数）</button></article></main>
+<button id="run">运行 AI 交互与草稿保护检查</button><pre id="result" role="status">准备中</pre>
+<script src="/vendor/react/umd/react.development.js"></script><script src="/vendor/react-dom/umd/react-dom.development.js"></script><script src="/vendor/immutable/dist/immutable.js"></script><script src="/vendor/draft-js/dist/Draft.js"></script>
+<script src="/extension/editor.js"></script><script src="/extension/ai-replies.js"></script><script src="/extension/continuous.js"></script><script type="module" src="/tests/ai-replies.mjs"></script></html>

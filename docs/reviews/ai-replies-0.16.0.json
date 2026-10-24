@@ -1,0 +1,175 @@
+{
+  "environment": "Chrome, local React 17 / Draft.js 0.11.7; mocked model, no real X actions",
+  "ai": {
+    "refreshMs": 0.19999998807907104,
+    "result": {
+      "checks": [
+        {
+          "name": "空回复框初始三条候选，灰字不写入草稿",
+          "ok": true
+        },
+        {
+          "name": "重复刷新不重复请求",
+          "ok": true
+        },
+        {
+          "name": "上下键切换候选",
+          "ok": true
+        },
+        {
+          "name": "切到末尾只补一条",
+          "ok": true
+        },
+        {
+          "name": "采用期间暂停连续发送与跳过",
+          "ok": true
+        },
+        {
+          "name": "填入中原生发送也被保护",
+          "ok": true
+        },
+        {
+          "name": "Tab只采用当前候选且不重复",
+          "ok": true
+        },
+        {
+          "name": "Option Tab改写替换一次",
+          "ok": true
+        },
+        {
+          "name": "改写期间的新草稿不被覆盖",
+          "ok": true
+        },
+        {
+          "name": "跳过取消旧候选并绑定新对象",
+          "ok": true
+        },
+        {
+          "name": "关闭时停止逐字填入，不写进新回复框",
+          "ok": true
+        },
+        {
+          "name": "一次草稿写入中不并行采用AI候选",
+          "ok": true
+        },
+        {
+          "name": "整个检查没有发送或点赞",
+          "ok": true
+        },
+        {
+          "name": "关闭AI后没有模型请求或灰字",
+          "ok": true
+        }
+      ],
+      "likes": 0,
+      "modelRequests": 15,
+      "sent": 0
+    }
+  },
+  "quickReplies": [
+    {
+      "fixture": true,
+      "mode": "empty",
+      "expected": "一起加油好兄弟...",
+      "domText": "一起加油好兄弟...",
+      "stateText": "一起加油好兄弟...",
+      "commands": 0,
+      "sendCalls": 0,
+      "status": "已处理 0 条 · 从当前页选择，略过已回复。",
+      "pass": true
+    },
+    {
+      "fixture": true,
+      "mode": "draft",
+      "expected": "原稿 一起加油好兄弟...",
+      "domText": "原稿 一起加油好兄弟...",
+      "stateText": "原稿 一起加油好兄弟...",
+      "commands": 0,
+      "sendCalls": 0,
+      "status": "已处理 0 条 · 从当前页选择，略过已回复。",
+      "pass": true
+    },
+    {
+      "fixture": true,
+      "mode": "selected",
+      "expected": "原稿 一起加油好兄弟...",
+      "domText": "原稿 一起加油好兄弟...",
+      "stateText": "原稿 一起加油好兄弟...",
+      "commands": 0,
+      "sendCalls": 0,
+      "status": "已处理 0 条 · 从当前页选择，略过已回复。",
+      "pass": true
+    },
+    {
+      "fixture": true,
+      "mode": "blocked",
+      "expected": "原稿",
+      "domText": "原稿",
+      "stateText": "原稿",
+      "commands": 0,
+      "sendCalls": 0,
+      "status": "已处理 0 条 · 快捷填入未完成，请直接在回复框输入。",
+      "pass": true
+    },
+    {
+      "fixture": true,
+      "mode": "rapid",
+      "expected": "一起加油好兄弟...",
+      "domText": "一起加油好兄弟...",
+      "stateText": "一起加油好兄弟...",
+      "commands": 0,
+      "sendCalls": 0,
+      "status": "已处理 0 条 · 从当前页选择，略过已回复。",
+      "pass": true
+    }
+  ],
+  "existingHomeFlow": {
+    "cases": [
+      {
+        "name": "正在关注入口显示完整连续操作",
+        "ok": true
+      },
+      {
+        "name": "连续输入100次不重新扫描整页卡片",
+        "ok": true
+      },
+      {
+        "name": "正在关注显示当前作者主页，另开标签且不添加通知标签或摘要",
+        "ok": true
+      },
+      {
+        "name": "虚拟卡片换成其他帖子时不使用旧缓存误点赞",
+        "ok": true
+      },
+      {
+        "name": "手动红心保存，跳过不误记评论，下一条仍属于正在关注",
+        "ok": true
+      },
+      {
+        "name": "普通评论成功后保存一次，我评他按原帖加1",
+        "ok": true
+      },
+      {
+        "name": "长评论也保存一次，未漏记另一篇原帖",
+        "ok": true
+      },
+      {
+        "name": "下一条略过自己和两篇已经评论的原帖",
+        "ok": true
+      },
+      {
+        "name": "切换页签立即结束旧会话，不在另一列表续发",
+        "ok": true
+      },
+      {
+        "name": "为你推荐入口与当前作者主页可正常启动",
+        "ok": true
+      },
+      {
+        "name": "发送后切换页签，晚到回执仍保存且不续开另一列表",
+        "ok": true
+      }
+    ],
+    "result": "passed"
+  }
+}
