@@ -51,16 +51,16 @@ test("主页两种时间线与普通/长评论经 fetch/XHR 保存一次，随�
           let finished;
           const location = { origin:"https://x.com",href:"https://x.com/home" };
           const listeners = [];
-          class Xhr {
-            handlers = {};
+          class Xhr extends EventTarget {
+
             open() {}
             send() {}
-            addEventListener(name,fn) { (this.handlers[name] ||= []).push(fn); }
+
             complete(payload) {
               this.status = 200;
               this.responseType = "json";
               this.response = payload;
-              this.handlers.load?.forEach(fn => fn());
+              this.dispatchEvent(new Event('load')); this.dispatchEvent(new Event('loadend'));
             }
           }
           const window = {

@@ -5,9 +5,9 @@ body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding
 </style>
 <h1>AI 回复 · 自带 API</h1>
 <p>开启前请停用原来的 XReply，避免两套插件同时生成、处理快捷键和写入草稿。</p>
-<p class="hint">互动历史保留在本机。开启后，打开空回复弹窗会向你配置的模型接口发送当前被回复文本，初始生成三条候选；改写另发送当前草稿。没有新增 X 抓帖请求。Key 仅保存在此扩展本地，不使用 Chrome 同步。</p>
+<p class="hint">互动历史保留在本机。开启 API 后，可在回复框点击「推荐评论」生成并填入一条。扩展弹窗的「自动 AI 补全」默认关闭，手动开启后才在空回复框生成三条候选；改写另发送当前草稿。没有新增 X 抓帖请求。Key 仅保存在此扩展本地，不使用 Chrome 同步。</p>
 <form id="settings">
-<label><input id="enabled" type="checkbox"> 开启 AI 回复</label>
+<label><input id="enabled" type="checkbox"> 开启 AI API</label>
 <label for="baseUrl">Base URL</label><input id="baseUrl" type="url" placeholder="https://api.example.com/v1" autocomplete="off"><div class="hint">自动追加 /chat/completions，支持 HTTPS 或 localhost / 127.0.0.1 HTTP 服务。</div>
 <label for="apiKey">API Key</label><input id="apiKey" type="password" autocomplete="off" spellcheck="false">
 <label for="model">模型</label><input id="model" autocomplete="off" spellcheck="false">

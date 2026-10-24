@@ -34,7 +34,7 @@
     (row.status === "not-reply" ? row.origin !== "mine" :
       !["replied","self","not-reply"].includes(row.status));
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,requestRefresh,connected = () => true,aiBusy = () => false }) {
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,requestRefresh,connected = () => true,aiBusy = () => false,aiRecommend }) {
     let session;
     let notice;
     let noticeTimer;
@@ -459,12 +459,24 @@
           button.addEventListener("click",() => fillQuickReply(s,phrases));
           quickReplies.append(button);
         }
+        if (aiRecommend) {
+          const button=document.createElement("button");
+          button.type="button";button.className="xrc-ai-recommend";button.textContent="推荐评论";
+          button.title="点击生成一条并追加到草稿；等待时若继续编辑则不填入，不自动发送。";
+          button.addEventListener("mousedown",event=>event.preventDefault());
+          button.addEventListener("click",()=>{
+            if (!currentSession(s) || !["ready","failed"].includes(s.phase) || draftBusy(s) ||
+                s.current.quickPending || s.current.composing || !singleReply(dialog)) return;
+            void aiRecommend(dialog.querySelector(EDITOR));
+          });
+          quickReplies.append(button);
+        }
         bar.append(quickReplies,status,heart,skip,send);
       }
       if (nativeToolbar.nextElementSibling !== bar) nativeToolbar.after(bar);
       renderContext(s,bar);
       const busy = draftBusy(s) || s.current.quickPending === true;
-      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : ""}已处理 ${s.handled.size} 条 · ${busy ? "回复正在填入或改写，完成后可继续。" : s.note}`;
+      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : ""}已处理 ${s.handled.size} 条 · ${busy ? "回复正在生成、填入或改写，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;
       const canAct = ["ready","failed"].includes(s.phase);
@@ -485,7 +497,7 @@
       if (send.textContent !== sendText) send.textContent = sendText;
       const single = singleReply(dialog);
       const editor = dialog.querySelector(EDITOR);
-      for (const button of bar.querySelectorAll(".xrc-quick-reply")) {
+      for (const button of bar.querySelectorAll(".xrc-quick-reply,.xrc-ai-recommend")) {
         button.disabled = !canAct || busy || !single || s.current.composing === true ||
           !editor || editor.getAttribute("aria-disabled") === "true";
       }

@@ -9,11 +9,11 @@ for (const transport of ['fetch','xhr']) test(`${transport} 点赞必须等成�
   const location = { origin:'https://x.com',href:'https://x.com/notifications' };
   let respond;
   const response = new Promise(resolve => { respond = resolve; });
-  class Xhr {
-    handlers = {};
+  class Xhr extends EventTarget {
+
     open() {} send() {}
-    addEventListener(name,fn) { this.handlers[name] = fn; }
-    complete() { this.status=200; this.responseType='json'; this.response={ data:{ favorite_tweet:'Done' } }; this.handlers.load(); }
+
+    complete() { this.status=200; this.responseType='json'; this.response={ data:{ favorite_tweet:'Done' } }; this.dispatchEvent(new Event('load')); this.dispatchEvent(new Event('loadend')); }
   }
   const window = { fetch:() => response,postMessage:message => messages.push(message),
     addEventListener:(_name,fn) => listeners.push(fn) };

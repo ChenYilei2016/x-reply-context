@@ -100,7 +100,8 @@
       if (message.type === "AI_OPEN_SETTINGS") { await chrome.runtime.openOptionsPage(); return {ok:true}; }
       if (message.type === "AI_STATUS") {
         const saved = await load();
-        return {ok:true,enabled:saved.enabled,configured:Boolean(saved.baseUrl && saved.apiKey && saved.model)};
+        const {aiAutoComplete} = await chrome.storage.local.get("aiAutoComplete");
+        return {ok:true,enabled:saved.enabled,autoComplete:aiAutoComplete === true,configured:Boolean(saved.baseUrl && saved.apiKey && saved.model)};
       }
       if (message.type === "AI_CONFIG_GET" || message.type === "AI_CONFIG_SAVE") {
         if (!settingsPage(sender)) return {ok:false,error:"仅设置页可以操作 AI 配置。"};

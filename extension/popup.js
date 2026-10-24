@@ -19,6 +19,7 @@ async function installCheckbox(selector,key,statusSelector,enabledText,defaultEn
     });
   } catch { status.textContent = "设置暂时不可用，请重新打开扩展。"; }
 }
+void installCheckbox("#ai-auto-complete","aiAutoComplete","#ai-auto-status","已开启；空回复框自动生成候选。",false,"已关闭；点击推荐评论才生成，已有草稿保留。");
 void installCheckbox("#hide-completed-home","hideCompletedHome","#home-filter-status","已开启，按本机已确认记录筛选。");
 void installCheckbox("#auto-hide-like-notifications","autoHideLikeNotifications","#like-filter-status","已开启，后续接收时过滤点赞通知；空批暂停翻页。",true);
 void installCheckbox("#auto-hide-follow-notifications","autoHideFollowNotifications","#follow-filter-status","已开启，后续接收时过滤关注通知；空批暂停翻页。",true);

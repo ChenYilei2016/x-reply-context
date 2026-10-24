@@ -165,7 +165,7 @@ test("页面观察器保留原 fetch 行为，只读取成功的目标响应", a
     { headers:{ "content-type":"application/json" } });
   const originalPromise = Promise.resolve(response);
   const location = { origin:"https://x.com",href:"https://x.com/notifications" };
-  class Xhr { open() {} send() {} }
+  class Xhr extends EventTarget { open() {} send() {} }
   const window = {
     fetch:() => originalPromise,
     addEventListener:(_name,listener) => listeners.push(listener),
@@ -328,13 +328,13 @@ test("fetch 和 XHR 仅在点赞回执成功后记录；失败和切换账号不
   let account = "my_account";
   let resolveResponse;
   let currentPromise;
-  class Xhr {
+  class Xhr extends EventTarget {
     open() {}
-    addEventListener(_name,listener) { this.listener = listener; }
+
     send(body) { this.sentBody = body; }
     complete(payload,status=200) {
       this.status = status; this.responseType = "json"; this.response = payload;
-      this.listener();
+      this.dispatchEvent(new Event('load')); this.dispatchEvent(new Event('loadend'));
     }
   }
   const location = { origin:"https://x.com",href:"https://x.com/notifications" };
@@ -392,13 +392,13 @@ test("UserRepliesTimeline 历史页加载后增加回复记录，不仅记录 Cr
   const state = stateWith([demoTweets[0],demoTweets[1],demoTweets[5]]);
   const listeners = [];
   const timers = [];
-  class Xhr {
+  class Xhr extends EventTarget {
     open() {}
     send() {}
-    addEventListener(_name,listener) { this.listener = listener; }
+
     complete(payload) {
       this.status = 200; this.responseType = ""; this.responseText = JSON.stringify(payload);
-      this.listener?.();
+      this.dispatchEvent(new Event('load')); this.dispatchEvent(new Event('loadend'));
     }
   }
   const location = { origin:"https://x.com",href:"https://x.com/my_account/with_replies" };
@@ -438,13 +438,13 @@ test("主页点赞评论后，NotificationsTimeline 新通知能关联原帖及�
   const state = stateWith([]);
   const listeners = [];
   const timers = [];
-  class Xhr {
+  class Xhr extends EventTarget {
     open() {}
     send() {}
-    addEventListener(_name,listener) { this.listener = listener; }
+
     complete(payload) {
       this.status = 200; this.responseType = ""; this.responseText = JSON.stringify(payload);
-      this.listener?.();
+      this.dispatchEvent(new Event('load')); this.dispatchEvent(new Event('loadend'));
     }
   }
   const location = { origin:"https://x.com",href:"https://x.com/home" };
@@ -606,7 +606,7 @@ test("成功回复只保存一次，评论不同原帖累计而同帖重复去�
   const timers = [];
   const listeners = [];
   const roots = ["2112500000000070001","2112500000000070002","2112500000000070003"];
-  class Xhr { open() {} send() {} }
+  class Xhr extends EventTarget { open() {} send() {} }
   const location = { origin:"https://x.com",href:"https://x.com/notifications" };
   const window = {
     fetch:async () => response,
@@ -648,14 +648,14 @@ test("连续回复回执绑定请求、目标和账号；失败、原帖及不�
   const messages = [];
   let account = "my_account";
   let responsePromise;
-  class Xhr {
-    handlers = {};
+  class Xhr extends EventTarget {
+
     open() {}
     send() {}
-    addEventListener(name,handler) { (this.handlers[name] ||= []).push(handler); }
+
     complete(payload) {
       this.status = 200; this.responseType = "json"; this.response = payload;
-      this.handlers.load.forEach(handler => handler());
+      this.dispatchEvent(new Event('load')); this.dispatchEvent(new Event('loadend'));
     }
   }
   const location = { origin:"https://x.com",href:"https://x.com/notifications" };

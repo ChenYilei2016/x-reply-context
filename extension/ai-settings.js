@@ -25,7 +25,7 @@
         throw new Error("域名未授权，设置未保存。");
       }
       await send({type:"AI_CONFIG_SAVE",config});
-      status.textContent = config.enabled ? "已保存并开启。请确认原 XReply 已停用；新打开的回复框会使用内置 AI。" : "已保存，AI 回复已关闭。";
+      status.textContent = config.enabled ? "已保存并开启。请确认原 XReply 已停用；回复框可点击推荐评论；自动补全在扩展弹窗中单独开启。" : "已保存，AI 回复已关闭。";
     } catch (error) {status.textContent = error.message;}
     finally {get("save").disabled = false;}
   });

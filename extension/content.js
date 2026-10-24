@@ -242,8 +242,7 @@
             if (group[name].get(key) === record) group[name].delete(key);
           }
           if (Object.values(group).every(records => !records.size)) pending.delete(account);
-          applyRevision(result.revision);
-          if (!document.hidden) schedule(0);
+          if (result.changed !== false) { applyRevision(result.revision); if (!document.hidden) schedule(0); }
         } catch (error) {
           console.warn("回过了：",error.message);
           break; // Retain the batch for the next observed event; no retry/request loop.
@@ -267,7 +266,7 @@
   function persistInteraction(batch,account) {
     const saved = message({ type:"INGEST",account,batch,interaction:true });
     void saved.then(result => {
-      applyRevision(result.revision); if (!document.hidden) schedule(0);
+      if (result.changed !== false) { applyRevision(result.revision); if (!document.hidden) schedule(0); }
     },error => console.warn("回过了：",error.message));
     return saved;
   }
@@ -421,7 +420,7 @@
   }
 
   aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,requestRefresh:scheduleControls});
-  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true });
+  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor) });
 
   window.addEventListener("message", event => {
     if (event.source !== window || event.origin !== location.origin ||

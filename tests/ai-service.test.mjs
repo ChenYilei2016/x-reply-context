@@ -5,9 +5,9 @@ import {readFile} from 'node:fs/promises';
 const sources=await Promise.all(['ai-config.js','ai-service.js'].map(name=>readFile(new URL(`../extension/${name}`,import.meta.url),'utf8')));
 const config={enabled:true,baseUrl:'https://model.example/v1',apiKey:'test-key',model:'test-model',generatePrompt:'post=${post}',rewritePrompt:'post=${post};draft=${draft}'};
 function setup(fetchImpl=async()=>new Response(JSON.stringify({choices:[{message:{content:'<reply>你好。</reply>'}}]}),{headers:{'content-type':'application/json'}})) {
-  let settings=structuredClone(config);const changed=[];const calls=[];
+  let settings=structuredClone(config),autoComplete;const changed=[];const calls=[];
   const chrome={runtime:{getURL:path=>`chrome-extension://test/${path}`,openOptionsPage:async()=>{}},
-    storage:{local:{get:async()=>({aiConfig:settings}),set:async next=>{settings=next.aiConfig;changed.forEach(fn=>fn({aiConfig:{newValue:settings}},'local'));}},onChanged:{addListener:fn=>changed.push(fn)}},
+    storage:{local:{get:async()=>({aiConfig:settings,aiAutoComplete:autoComplete}),set:async next=>{const change={};if('aiConfig' in next){settings=next.aiConfig;change.aiConfig={newValue:settings};}if('aiAutoComplete' in next){autoComplete=next.aiAutoComplete;change.aiAutoComplete={newValue:autoComplete};}changed.forEach(fn=>fn(change,'local'));}},onChanged:{addListener:fn=>changed.push(fn)}},
     permissions:{contains:async()=>true}};
   const scope=vm.createContext({chrome,fetch:(...args)=>{calls.push(args);return fetchImpl(...args);},URL,Headers,Response,TextDecoder,DOMException,AbortController,setTimeout,clearTimeout});
   sources.forEach(source=>vm.runInContext(source,scope));
@@ -69,4 +69,15 @@ test('超大响应和模型错误返回受控错误，不泄漏服务端正文',
   assert.match((await large.request('large')).error,/过大/);
   const rejected=setup(async()=>new Response('provider secret',{status:401}));
   const result=await rejected.request('unauthorized');assert.equal(result.ok,false);assert.match(result.error,/Key/);assert.ok(!result.error.includes('provider secret'));
+});
+
+test('自动补全默认关闭，独立开关不改接口配置或阻止手动生成',async()=>{
+  const {service,sender,request,calls,chrome}=setup();
+  assert.equal((await service.handle({type:'AI_STATUS'},sender)).autoComplete,false);
+  assert.equal((await request('manual')).ok,true);
+  await chrome.storage.local.set({aiAutoComplete:true});
+  assert.equal((await service.handle({type:'AI_STATUS'},sender)).autoComplete,true);
+  await chrome.storage.local.set({aiAutoComplete:false});
+  assert.equal((await service.handle({type:'AI_STATUS'},sender)).autoComplete,false);
+  assert.equal((await request('manual-again')).ok,true);assert.equal(calls.length,2);
 });

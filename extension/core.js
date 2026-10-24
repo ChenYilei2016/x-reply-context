@@ -95,7 +95,8 @@
                 ("in_reply_to_status_id_str" in legacy || "referenced_tweets" in node)) {
               tweet.conversationId = tweet.id;
             }
-            tweets.set(tweet.id, { ...tweets.get(tweet.id), ...tweet });
+            const previous = tweets.get(tweet.id);
+            tweets.set(tweet.id, previous ? mergeKnown(previous,tweet) : tweet);
             if (typeof legacy.favorited === "boolean") {
               likes.set(tweet.id,{ id:tweet.id,liked:legacy.favorited });
             }
@@ -107,8 +108,7 @@
       }
     }
     return {
-      users: [...users.values()].slice(0,500), tweets: [...tweets.values()].slice(0,500),
-      likes: [...likes.values()].slice(0,500)
+      users: [...users.values()], tweets: [...tweets.values()], likes: [...likes.values()]
     };
   }
 
@@ -119,7 +119,7 @@
   function mergeKnown(previous, next, now) {
     const result = { ...previous };
     for (const [key, value] of Object.entries(next)) if (value !== "") result[key] = value;
-    result.seenAt = now;
+    if (now !== undefined) result.seenAt = now;
     return result;
   }
 
@@ -259,23 +259,67 @@
     replace(state,"people",retainRecords(people,now));
   }
 
+  // Refresh derived evidence timestamps without rebuilding counts for unchanged posts.
+  // Missing derived evidence falls back to the normal rebuild (e.g. after retention).
+  function touchEvidence(state,tweet,now) {
+    const rootId = conversationOf(state,tweet);
+    if (!rootId) return false;
+    let missing = false;
+    function touch(name,key,expected = true) {
+      if (!expected) return;
+      const record = state[name][key];
+      if (!record) { missing = true; return; }
+      if (record.seenAt < now) put(state,name,key,{...record,seenAt:now});
+    }
+    const recipientId = tweet.recipientId || state.tweets[tweet.parentId]?.authorId;
+    touch("roots",rootId,Boolean(state.roots[rootId] || tweet.id === rootId || tweet.parentId === rootId && recipientId));
+    if (state.accounts[tweet.authorId] && tweet.parentId && recipientId && tweet.authorId !== recipientId) {
+      const key = `${tweet.authorId}:${rootId}:${recipientId}`;
+      const reply = state.replies[key];
+      if (!reply) missing = true;
+      else if (reply.id === tweet.id) touch("replies",key);
+    }
+    const rootAuthorId = state.roots[rootId]?.authorId || state.tweets[rootId]?.authorId;
+    if (tweet.parentId && rootAuthorId && rootAuthorId !== tweet.authorId) {
+      if (state.accounts[tweet.authorId]) touch("people",`${tweet.authorId}:${rootAuthorId}`);
+      if (state.accounts[rootAuthorId]) touch("people",`${rootAuthorId}:${tweet.authorId}`);
+    }
+    return missing;
+  }
+
   function ingest(state, batch, accountHandle, now = Date.now()) {
     const cache = cacheFor(state);
     const hadPeople = Boolean(state.people);
+    const empty = !batch?.users?.length && !batch?.tweets?.length && !batch?.likes?.length;
+    let relationshipsChanged = !hadPeople || cache.expiry === 0 || empty;
+    let classificationChanged = false;
+    const observedTweets = [];
     state.likes ||= {};
     state.people ||= {};
     for (const raw of (Array.isArray(batch?.users) ? batch.users : []).slice(0,500)) {
       const user = cleanUser(raw);
-      if (user) { put(state,"users",user.id,{ ...user,seenAt:now }); cache.users = null; }
+      if (user) {
+        if (state.users[user.id]?.handle !== user.handle) { relationshipsChanged = true; cache.users = null; }
+        put(state,"users",user.id,{...user,seenAt:now});
+      }
     }
     for (const raw of (Array.isArray(batch?.tweets) ? batch.tweets : []).slice(0,500)) {
       const tweet = cleanTweet(raw);
-      if (tweet) put(state,"tweets",tweet.id,mergeKnown(state.tweets[tweet.id],tweet,now));
+      if (tweet) {
+        const previous = state.tweets[tweet.id];
+        const merged = mergeKnown(previous,tweet,now);
+        if (!previous || Object.keys(merged).some(key => key !== "seenAt" && previous[key] !== merged[key])) relationshipsChanged = true;
+        put(state,"tweets",tweet.id,merged); observedTweets.push(merged);
+      }
     }
     const me = findAccount(state, accountHandle);
-    const likesOnly = Boolean(hadPeople && batch?.likes?.length && !batch?.users?.length &&
-      !batch?.tweets?.length && me && state.accounts[me.id]);
-    if (me) state.accounts[me.id] = now;
+    if (me) {
+      if (!state.accounts[me.id]) relationshipsChanged = true;
+      state.accounts[me.id] = now;
+    }
+    if (!relationshipsChanged) for (const tweet of observedTweets) {
+      if (touchEvidence(state,tweet,now)) relationshipsChanged = true;
+    }
     const changedLikes = new Set();
     const actors = new Map([[handle(accountHandle),me]]);
     for (const raw of (Array.isArray(batch?.likes) ? batch.likes : []).slice(0,500)) {
@@ -297,21 +341,23 @@
         source:raw.source === "mutation" ? "mutation" : "snapshot"
       });
       if (!previous) cache.likeCount++;
+      if (!previous || previous.liked !== raw.liked) classificationChanged = true;
       changedLikes.add(key);
     }
-    for (const like of likesOnly ? [...changedLikes].map(key => state.likes[key]) : Object.values(state.likes)) {
+    for (const like of relationshipsChanged ? Object.values(state.likes) : [...changedLikes].map(key => state.likes[key])) {
       const tweet = state.tweets[like.id];
       if (!tweet) continue;
       const conversationId = conversationOf(state,tweet) || like.conversationId || "";
       if (like.recipientId !== tweet.authorId || like.conversationId !== conversationId) {
+        classificationChanged = true;
         put(state,"likes",`${like.actorId}:${like.id}`,{ ...like,recipientId:tweet.authorId,conversationId });
       }
     }
-    if (!likesOnly) indexReplies(state);
-    // A known heart changes no relationships. Retention still runs at its next expiry or capacity limit.
-    const maintenance = !likesOnly || now >= cache.expiry || cache.likeCount > LIMIT;
+    if (relationshipsChanged) indexReplies(state);
+    // Timestamp-only observations preserve the existing indexes; expiry is a safe lower bound.
+    const maintenance = relationshipsChanged || now >= cache.expiry || cache.likeCount > LIMIT;
     const relationshipsPruned = maintenance ? prune(state,now) : false;
-    if (!likesOnly || relationshipsPruned) indexPeople(state,now);
+    if (relationshipsChanged || relationshipsPruned) indexPeople(state,now);
     if (maintenance) {
       prepare(state);
       cache.users = null;
@@ -324,6 +370,7 @@
       }
     }
     state.updatedAt = now;
+    return relationshipsChanged || classificationChanged || maintenance;
   }
 
   function classifyWith(state, me, tweetId, lookup) {

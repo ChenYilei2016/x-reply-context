@@ -9,12 +9,16 @@ let draining = false;
 let urgentRun = 0;
 let savedRevision = "";
 let revision = 0;
+let revisionPending = false;
 
-async function persist() {
+async function persist(changed = true) {
+  revisionPending ||= changed;
   await storage.save(state);
+  if (!revisionPending) return false;
   savedRevision = `${Date.now()}:${++revision}`;
-  try { await chrome.storage.local.set({ replyContextRevision:savedRevision }); }
+  try { await chrome.storage.local.set({ replyContextRevision:savedRevision }); revisionPending = false; }
   catch { console.warn("回过了：记录已保存，其他标签页的更新通知暂未送达。"); }
+  return true;
 }
 
 function allowedSender(sender) {
@@ -39,9 +43,8 @@ async function handleMessage(message) {
   }
   const account = core.handle(message.account);
   if (message.type === "INGEST") {
-    core.ingest(state,message.batch,account);
-    await persist();
-    return { ok:true,revision:savedRevision };
+    const changed = await persist(core.ingest(state,message.batch,account));
+    return { ok:true,revision:savedRevision,changed };
   }
   if (message.type === "CLASSIFY" || message.type === "SUMMARY") {
     const me = core.findAccount(state,account);

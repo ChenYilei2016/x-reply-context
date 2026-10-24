@@ -1,23 +1,23 @@
 history.replaceState(null,'','/notifications');
 const output=document.querySelector('#result');
 const listeners=[],calls=[],pending=new Map(),generations=new Map();
-let enabled=true,ai,flow,frame,delay=30,rewritten='改写后的短句',sent=0,likes=0;
+let enabled=true,autoComplete=false,modelError=false,totalRequests=0,ai,flow,frame,delay=30,rewritten='改写后的短句',sent=0,likes=0;
 const requestRefresh=()=>{if(frame)return;frame=requestAnimationFrame(()=>{frame=0;flow?.refresh();ai?.refresh();});};
 globalThis.chrome={storage:{onChanged:{addListener:fn=>listeners.push(fn)}}};
 const accountHandle=()=> 'me';
 const tweetId=article=>article.querySelector('time')?.closest('a')?.getAttribute('href').split('/').pop()||'';
 const message=async message=>{
-  if(message.type==='AI_STATUS')return {ok:true,enabled};
+  if(message.type==='AI_STATUS')return {ok:true,enabled,autoComplete};
   if(message.type==='AI_CANCEL'){
     for(const id of message.ids){const job=pending.get(id);if(job){clearTimeout(job.timer);pending.delete(id);job.resolve({ok:false,cancelled:true});}}
     return {ok:true};
   }
   if(message.type==='AI_REQUEST'){
-    calls.push(message);
+    calls.push(message);totalRequests++;
     return new Promise(resolve=>{
       const same=(generations.get(message.post)||0)+1; if(message.kind==='generate')generations.set(message.post,same);
       const text=message.kind==='rewrite'?rewritten:(message.post.includes('第二')?'第二条':'第一条')+['候选甲','候选乙','候选丙'][((same-1)%3)];
-      const timer=setTimeout(()=>{pending.delete(message.id);resolve({ok:true,text});},delay);
+      const timer=setTimeout(()=>{pending.delete(message.id);resolve(modelError?{ok:false,error:"模拟模型失败"}:{ok:true,text});},delay);
       pending.set(message.id,{timer,resolve});
     });
   }
@@ -25,7 +25,7 @@ const message=async message=>{
   return {ok:true};
 };
 ai=XReplyAIReplies.create({accountHandle,connected:()=>true,message,requestRefresh});
-flow=XReplyContinuous.create({accountHandle,tweetId,columnSelector:'[data-testid="primaryColumn"]',message,requestRefresh,aiBusy:editor=>ai.busy(editor),
+flow=XReplyContinuous.create({accountHandle,tweetId,columnSelector:'[data-testid="primaryColumn"]',message,requestRefresh,aiBusy:editor=>ai.busy(editor),aiRecommend:editor=>ai.recommend(editor),
   renderLabels:(node,row)=>{node.textContent=row.origin;}});
 function DraftEditor(){
   const [state,setState]=React.useState(()=>Draft.EditorState.createEmpty());
@@ -64,6 +64,25 @@ document.querySelector('#run').addEventListener('click',async event=>{
   const check=(name,ok)=>{checks.push({name,ok:Boolean(ok)});if(!ok)throw new Error(name);};
   output.dataset.result='running';
   try{
+    open(0);await wait(()=>document.querySelector('.xrc-ai-recommend'));
+    await new Promise(resolve=>setTimeout(resolve,80));
+    for(let i=0;i<100;i++)ai.refresh();
+    check('默认关闭自动补全，打开和刷新均不请求模型',calls.length===0&&!document.querySelector('.xrc-ai-ghost'));
+    const recommend=async()=>{await wait(()=>!document.querySelector('.xrc-ai-recommend').disabled);document.querySelector('.xrc-ai-recommend').click();};
+    delay=100;await recommend();document.querySelector('.xrc-ai-recommend').click();await wait(()=>!ai.busy(editor()));
+    check('点击推荐只请求一条并填入一次，连点不重复',calls.length===1&&text()==='第一条候选甲');
+    await recommend();await wait(()=>!ai.busy(editor()));
+    check('推荐追加已有草稿，不替换原文（实际：'+text()+'）',text()==='第一条候选甲 第一条候选乙');
+    delay=300;await recommend();await input(' 新内容');const kept=text();await wait(()=>!ai.busy(editor()));
+    check('推荐等待期间的新草稿不被覆盖',text()===kept);
+    modelError=true;await recommend();await wait(()=>!ai.busy(editor()));
+    check('推荐失败不改变草稿，按钮恢复',text()===kept);
+    modelError=false;delay=1000;await recommend();await wait(()=>pending.size===1);closeUI();await wait(()=>!editor());
+    open(1);await new Promise(resolve=>setTimeout(resolve,100));
+    check('关闭取消手动推荐，新对象不会自动请求或串写',pending.size===0&&text()===''&&!document.querySelector('.xrc-ai-ghost'));
+    closeUI();await wait(()=>!editor());
+    autoComplete=true;listeners.forEach(fn=>fn({aiAutoComplete:{newValue:true}},'local'));
+    await new Promise(resolve=>setTimeout(resolve,30));calls.length=0;delay=30;
     open(0);await wait(()=>document.querySelector('.xrc-ai-ghost')?.textContent==='第一条候选甲'&&pending.size===0);
     check('空回复框初始三条候选，灰字不写入草稿',calls.length===3&&text()==='');
     const before=calls.length, refreshStart=performance.now();for(let i=0;i<100;i++)ai.refresh();
@@ -78,7 +97,7 @@ document.querySelector('#run').addEventListener('click',async event=>{
     check('填入中原生发送也被保护',sent===0);
     await wait(()=>!ai.busy(editor()));check('Tab只采用当前候选且不重复',text()==='第一条候选乙');
     delay=150;rewritten='更短的回复';key('Tab',{altKey:true});await wait(()=>ai.busy(editor()));
-    await wait(()=>!ai.busy(editor()));check('Option Tab改写替换一次',text()==='更短的回复');
+    await wait(()=>!ai.busy(editor()));check('Option Tab改写替换一次（实际：'+text()+'）',text()==='更短的回复');
     delay=300;key('Tab',{altKey:true});await wait(()=>ai.busy(editor()));
     await input(' 保留新输入');const manual=text();await wait(()=>!ai.busy(editor()));
     check('改写期间的新草稿不被覆盖',text()===manual);
@@ -99,6 +118,6 @@ document.querySelector('#run').addEventListener('click',async event=>{
     check('关闭AI后没有模型请求或灰字',calls.length===count&&!document.querySelector('.xrc-ai-ghost'));
   }catch(error){checks.push({name:error.message,ok:false});}
   finally{closeUI();event.target.disabled=false;}
-  output.dataset.result=checks.every(row=>row.ok)?'passed':'failed';output.dataset.evidence=JSON.stringify({fixture:true,cases:checks,modelRequests:calls.length,sent,likes});
-  output.textContent=JSON.stringify({checks,modelRequests:calls.length,sent,likes},null,2);
+  output.dataset.result=checks.every(row=>row.ok)?'passed':'failed';output.dataset.evidence=JSON.stringify({fixture:true,cases:checks,modelRequests:totalRequests,sent,likes});
+  output.textContent=JSON.stringify({checks,modelRequests:totalRequests,sent,likes},null,2);
 });

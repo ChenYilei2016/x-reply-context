@@ -3,7 +3,7 @@
   const EDITOR = '[role="dialog"] [contenteditable="true"][data-testid="tweetTextarea_0"]';
   function create({accountHandle,connected,message,requestRefresh}) {
     const edit = globalThis.XReplyEditor;
-    let enabled = false, current, target, notice, configEpoch = 0;
+    let enabled = false, autoComplete = false, current, target, notice, configEpoch = 0;
     let previews = new WeakMap(), conflicts = new WeakSet();
     const textOf = node => node?.innerText.trim() || "";
     function hidePreview(s) {
@@ -45,7 +45,7 @@
     }
     function conflict() { return Boolean(document.querySelector('#xreply-ghost') || document.querySelector('#xreply-toast:not([style*="display: none"])')); }
     function draw(s) {
-      if (!valid(s) || s.writing || s.rewriting) {hidePreview(s);return;}
+      if (!autoComplete || !valid(s) || s.writing || s.rewriting || s.recommending) {hidePreview(s);return;}
       const draft = edit.read(s.editor), candidate = s.candidates[s.index] || "";
       const suggestion = candidate.startsWith(draft) ? candidate.slice(draft.length) : "";
       const label = suggestion || (!draft && s.pending.size ? "生成中…" : "");
@@ -69,7 +69,7 @@
       finally {s.pending.delete(id);}
     }
     function generate(s) {
-      if (!valid(s) || edit.read(s.editor) || s.pending.size >= 3) return;
+      if (!autoComplete || !valid(s) || edit.read(s.editor) || s.pending.size >= 3) return;
       void request(s,"generate").then(result => {
         if (!valid(s) || edit.read(s.editor) || s.writing || s.rewriting) return;
         if (result.ok) {
@@ -110,11 +110,32 @@
       const s = current = {editor,dialog,root,post,account,targetId:target?.id || "",quote,quoteText:quote?.textContent,epoch:configEpoch,pending:new Set(),
         candidates:reuse?[...cached.candidates]:[],index:reuse?cached.index:0,version:0,writing:false,rewriting:false,composing:false};
       target=undefined;
-      if (!edit.read(editor) && (!reuse || cached.retry)) for(let index=0;index<3;index++) generate(s);
+      if (autoComplete && !edit.read(editor) && (!reuse || cached.retry)) for(let index=0;index<3;index++) generate(s);
       else {draw(s);if(reuse && cached.error && !s.candidates.length)toast(`AI：${cached.error}`);}
     }
+    async function recommend(editor) {
+      if (!connected()) return;
+      if (!enabled) {toast("请先在 AI 设置中配置并开启 API；自动补全可保持关闭。");return;}
+      refresh();
+      const s=current;
+      if (!s || s.editor!==editor || !valid(s)) {toast("未找到当前回复文字，请从帖子重新打开回复框。");return;}
+      if (s.writing || s.rewriting || s.recommending || s.composing || edit.busy(editor)) return;
+      const before=edit.read(editor), version=s.version;
+      s.recommending=true;cancelRequests(s);hidePreview(s);requestRefresh();
+      try {
+        const result=await request(s,"generate");
+        if (!valid(s)) return;
+        if (s.version!==version || edit.read(editor)!==before) {toast("草稿已变化，保留你的新内容；本次推荐未填入。");return;}
+        if (!result.ok) {if(!result.cancelled)toast(`AI：${result.error}`);return;}
+        s.writing=true;
+        const value=(before && !/\s$/.test(before)?" ":"")+result.text;
+        const ok=await edit.write(editor,value,{expected:before,valid:()=>valid(s)&&s.version===version&&!s.composing});
+        if (!ok) toast("推荐未完整填入，请核对草稿；不会自动重试。");
+      } catch {if(valid(s))toast("推荐未填入，请检查草稿后重试。");}
+      finally {s.writing=false;s.recommending=false;requestRefresh();}
+    }
     async function adopt(s) {
-      if (!valid(s) || s.writing || s.rewriting || s.composing) return;
+      if (!valid(s) || s.writing || s.rewriting || s.recommending || s.composing) return;
       const before = edit.read(s.editor), full = s.candidates[s.index];
       if (!full?.startsWith(before) || full===before) return;
       const suffix = full.slice(before.length);
@@ -136,7 +157,7 @@
     }
     async function rewrite(s) {
       const before = edit.read(s.editor), version=s.version;
-      if (!before.trim() || s.writing || s.rewriting || s.composing) return;
+      if (!before.trim() || s.writing || s.rewriting || s.recommending || s.composing) return;
       s.rewriting=true;cancelRequests(s);hidePreview(s);toast("改写中…");requestRefresh();
       try {
         const result=await request(s,"rewrite",before);
@@ -154,8 +175,8 @@
       if (!enabled) return;
       const node=event.target instanceof Element?event.target:event.target?.parentElement;
       const article=node?.closest('[data-testid="reply"]')?.closest('article[data-testid="tweet"]');
-      if (node?.closest('[data-testid="tweetButton"]') && current && (current.writing || current.rewriting)) {
-        event.preventDefault();event.stopImmediatePropagation();toast("请等待填入或改写完成，再确认发送。");return;
+      if (node?.closest('[data-testid="tweetButton"]') && current && (current.writing || current.rewriting || current.recommending)) {
+        event.preventDefault();event.stopImmediatePropagation();toast("请等待生成、填入或改写完成，再确认发送。");return;
       }
       if (article && !article.closest('[role="dialog"]')) {
         if (current) stop(); // A new reply action invalidates even a reused editor with identical text.
@@ -166,7 +187,7 @@
     document.addEventListener("input",event=>{
       const s=current;if(!s || event.target!==s.editor)return;
       s.version++;
-      if (s.writing || s.rewriting) return;
+      if (s.writing || s.rewriting || s.recommending) return;
       if(edit.read(s.editor))cancelRequests(s);
       draw(s);
     },true);
@@ -175,12 +196,12 @@
     },true);
     document.addEventListener("keydown",event=>{
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && current &&
-          event.target === current.editor && (current.writing || current.rewriting)) {
-        event.preventDefault();event.stopImmediatePropagation();toast("请等待填入或改写完成，再确认发送。");return;
+          event.target === current.editor && (current.writing || current.rewriting || current.recommending)) {
+        event.preventDefault();event.stopImmediatePropagation();toast("请等待生成、填入或改写完成，再确认发送。");return;
       }
       if (!["Tab","ArrowUp","ArrowDown"].includes(event.key)) return;
       const s=current;if(!s || event.target!==s.editor || !valid(s) || s.composing || event.isComposing || conflict())return;
-      if(s.writing || s.rewriting || edit.busy(s.editor))return;
+      if(s.writing || s.rewriting || s.recommending || edit.busy(s.editor))return;
       if(event.key==="Tab" && event.altKey && edit.read(s.editor).trim()) {
         event.preventDefault();event.stopImmediatePropagation();void rewrite(s);return;
       }
@@ -195,14 +216,14 @@
     },true);
     async function reload() {
       const epoch=++configEpoch;enabled=false;stop();previews=new WeakMap();conflicts=new WeakSet();
-      try {const status=await message({type:"AI_STATUS"});if(epoch===configEpoch){enabled=status.enabled===true;requestRefresh();}}
+      try {const status=await message({type:"AI_STATUS"});if(epoch===configEpoch){enabled=status.enabled===true;autoComplete=status.autoComplete===true;requestRefresh();}}
       catch { /* Existing local features stay usable if AI settings are unavailable. */ }
     }
-    chrome.storage.onChanged.addListener((changes,area)=>{if(area==="local" && changes.aiConfig)void reload();});
+    chrome.storage.onChanged.addListener((changes,area)=>{if(area==="local" && (changes.aiConfig || changes.aiAutoComplete))void reload();});
     document.addEventListener("visibilitychange",()=>{if(document.hidden)stop();else requestRefresh();});
     window.addEventListener("pagehide",stop);
     void reload();
-    return {refresh,stop,busy:editor=>Boolean(current?.editor===editor&&(current.writing||current.rewriting))};
+    return {refresh,stop,recommend,busy:editor=>Boolean(current?.editor===editor&&(current.writing||current.rewriting||current.recommending))};
   }
   globalThis.XReplyAIReplies={create};
 })();

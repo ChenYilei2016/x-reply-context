@@ -103,8 +103,9 @@
       } else status = payload.errors?.length && !createdId ? "failed" : "unknown";
     }
     window.postMessage({ channel:CHANNEL,type:"REPLY_RESULT",parentId,
-      account:context.account,requestId:context.requestId,startedAt:context.observedAt,status,batch },location.origin);
-    return status === "sent";
+      account:context.account,requestId:context.requestId,startedAt:context.observedAt,status,
+      batch:batch && Object.fromEntries(Object.entries(batch).map(([name,items]) => [name,items.slice(0,500)])) },location.origin);
+    return status === "sent" ? batch : null;
   }
 
   function flush() {
@@ -125,12 +126,14 @@
 
   async function accept(payload,context) {
     try {
+      let batch;
       if (REPLY_RESULTS[context.operation]) {
-        const sent = await replyResult(context,"unknown",payload);
-        // Validated replies use one immediate save path, including native replies.
-        if (sent || payload.errors?.length) return;
+        const saved = await replyResult(context,"unknown",payload);
+        // The created reply stays in the immediate batch; extra context uses normal bounded batches.
+        if (saved) batch = Object.fromEntries(Object.entries(saved).map(([name,items]) => [name,items.slice(500)]));
+        else if (payload.errors?.length) return;
       }
-      const batch = core.extract(payload);
+      batch ||= core.extract(payload);
       let likes = batch.likes;
       if (context.reaction) {
         const responseAt = Date.now();
@@ -141,10 +144,11 @@
         if (ready) {
           if (likes.length && context.account && context.account === currentAccount()) {
             window.postMessage({ channel:CHANNEL,type:"OBSERVED",interaction:true,account:context.account,
-              batch:{ users:batch.users,tweets:batch.tweets,likes:likes.map(like =>
+              batch:{ users:batch.users.slice(0,500),tweets:batch.tweets.slice(0,500),likes:likes.map(like =>
                 ({ ...like,account:context.account,source:"mutation" })) } },location.origin);
+            batch.users = batch.users.slice(500); batch.tweets = batch.tweets.slice(500);
           }
-          return;
+          likes = [];
         }
       }
       for (const user of batch.users) {
@@ -255,9 +259,11 @@
   };
 
   const requestContexts = new WeakMap();
+  const xhrCleanups = new WeakMap();
   const originalOpen = XMLHttpRequest.prototype.open;
   const originalSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (method,url,...rest) {
+    xhrCleanups.get(this)?.();
     const context = requestContext(url);
     requestContexts.set(this,context);
     notificationNetwork?.prepareXHR(this,context,url,method);
@@ -270,10 +276,10 @@
       context.observedAt = Date.now();
       if (context.reaction) context.tweetId = reactionId(args[0]);
       watchReply(context,args[0]);
-      for (const event of ["error","abort","timeout"]) {
-        this.addEventListener(event,() => { void replyResult(context,"unknown"); },{ once:true });
-      }
-      this.addEventListener("load", () => {
+      const active = () => requestContexts.get(this) === context;
+      const failed = () => { if (active()) void replyResult(context,"unknown"); cleanup(); };
+      const loaded = () => {
+        if (!active()) return;
         if (this.status < 200 || this.status >= 300) { void replyResult(context,failureStatus(this.status)); return; }
         try {
           const value = key => notificationNetwork ? notificationNetwork.originalXHR(this,key) : this[key];
@@ -282,7 +288,17 @@
                    value("responseText").length <= MAX_BYTES) void accept(JSON.parse(value("responseText")),context);
           else void replyResult(context,"unknown");
         } catch { void replyResult(context,"unknown"); }
-      }, { once:true });
+      };
+      const cleanup = () => {
+        for (const event of ["error","abort","timeout"]) this.removeEventListener(event,failed);
+        this.removeEventListener("load",loaded);
+        this.removeEventListener("loadend",cleanup);
+        if (xhrCleanups.get(this) === cleanup) xhrCleanups.delete(this);
+      };
+      xhrCleanups.set(this,cleanup);
+      for (const event of ["error","abort","timeout"]) this.addEventListener(event,failed,{once:true});
+      this.addEventListener("load",loaded,{once:true});
+      this.addEventListener("loadend",cleanup,{once:true});
     }
     const send = () => Reflect.apply(originalSend,this,args);
     return notificationNetwork ? notificationNetwork.sendXHR(this,send) : send();

@@ -141,3 +141,5 @@ article[data-xrc-notification-hidden],
 .xrc-ai-notice { position:fixed; z-index:2147483647; bottom:24px; left:50%; transform:translateX(-50%); max-width:85vw; display:flex; align-items:center; gap:10px; padding:8px 14px; border-radius:18px; background:#183443; color:#fff; font:13px/1.5 system-ui; }
 .xrc-ai-notice[hidden] { display:none; }
 .xrc-ai-notice button { border:1px solid #ffffff70; border-radius:16px; background:transparent; color:inherit; cursor:pointer; padding:4px 8px; white-space:nowrap; }
+
+.xrc-quick-replies .xrc-ai-recommend { color:#087ebd; border-color:#087ebd66; min-width:76px; }

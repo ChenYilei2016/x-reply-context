@@ -11,6 +11,15 @@
   <a id="history" class="primary" hidden target="_blank" rel="noopener noreferrer">补充我的历史回复</a>
   <a class="secondary" href="https://x.com/notifications" target="_blank" rel="noopener noreferrer">打开 X 通知</a>
   <section class="home-filter-setting">
+    <label><input id="ai-auto-complete" type="checkbox" disabled aria-describedby="ai-auto-help">自动 AI 补全</label>
+    <p id="ai-auto-help" class="setting-hint">默认关闭；点击回复框「推荐评论」才生成并填入。</p>
+    <details><summary>详情</summary>
+      <p>开启后，空回复框自动生成三条灰字候选，可用上下键切换、Tab 采用。关闭后不自动生成，手动推荐和 Option+Tab 改写仍可用。需先在 AI 设置中配置并开启 API；修改此开关不会改动接口或 Key。</p>
+      <p>手动推荐每次只生成一条，追加到已有草稿末尾。等待时继续编辑会保留你的新内容；不会自动发送或点赞。</p>
+    </details>
+    <p id="ai-auto-status" role="status"></p>
+  </section>
+  <section class="home-filter-setting">
     <label><input id="hide-completed-home" type="checkbox" disabled aria-describedby="home-filter-help">主页隐藏自己及已完成原帖</label>
     <p id="home-filter-help" class="setting-hint">仅为你推荐；自己的内容及已评论、已点赞原帖。</p>
     <details><summary>详情</summary>
