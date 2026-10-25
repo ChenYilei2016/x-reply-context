@@ -20,7 +20,9 @@
       "太卷了","别卷了","卷不动了","太卷了呀",
       "太卷了啊","别卷啦","别卷了呀","卷不动啦",
       "卷不动了呀"
-    ] }
+    ] },
+    { label:"可爱捏",phrases:["可爱捏"] },
+    { label:"不许色色",phrases:["不许色色"] }
   ];
   const ENDINGS = ["...","!","!!!","!!"];
   const pick = values => values[Math.floor(Math.random()*values.length)];
@@ -34,7 +36,7 @@
     (row.status === "not-reply" ? row.origin !== "mine" :
       !["replied","self","not-reply"].includes(row.status));
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,requestRefresh,connected = () => true,aiBusy = () => false,aiRecommend }) {
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,requestRefresh,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "",followState = () => undefined }) {
     let session;
     let notice;
     let noticeTimer;
@@ -363,13 +365,33 @@
         context.append(profile);
         bar.append(context);
       }
+      let follow = bar.querySelector(".xrc-follow-context");
+      if (!follow) {
+        follow=document.createElement("div");follow.className="xrc-follow-context";
+        follow.setAttribute("aria-label","本页双向关注状态");
+        follow.title="仅本页已收到的关注关系，不保证实时；缺少字段显示待确认。刷新、关闭页面或切换账号清空，不写入数据库。";
+        for (const [field,label] of [["following","我关注他"],["followedBy","他关注我"]]) {
+          const badge=document.createElement("span");badge.dataset.field=field;
+          badge.textContent=label+"：待确认";follow.append(badge);
+        }
+        context.after(follow);
+      }
+      const row=s.current.context;
+      const relation=row?.authorId ? followState(s.account,row.authorId) : undefined;
+      for (const [field,label] of [["following","我关注他"],["followedBy","他关注我"]]) {
+        const badge=follow.querySelector(`[data-field="${field}"]`),value=relation?.[field];
+        const status=row?.authorHandle === s.account ? "self" : typeof value === "boolean" ? String(value) : "unknown";
+        const caption=label+"："+({true:"已关注",false:"未关注",unknown:"待确认",self:"不适用"}[status]);
+        if (badge.textContent!==caption) badge.textContent=caption;
+        if (badge.dataset.state!==status) badge.dataset.state=status;
+      }
       let preview = bar.querySelector(".xrc-flow-root");
       if (withDetails && !preview) {
         preview = document.createElement("div");
         preview.className = "xrc-flow-root";
         preview.setAttribute("aria-label","原帖文字摘要");
         preview.textContent = "原帖：读取本地缓存…";
-        context.after(preview);
+        follow.after(preview);
       }
       const current = s.current;
       if (current.context && (current.renderedContext !== context || current.renderedRow !== current.context)) {
@@ -446,23 +468,32 @@
         send.type = "button";
         send.className = "xrc-flow-send";
         send.addEventListener("click",() => sendNext(s));
+        const tools = document.createElement("div"); tools.className="xrc-reply-tools";
         const quickReplies = document.createElement("div");
         quickReplies.className = "xrc-quick-replies";
         quickReplies.setAttribute("role","group");
         quickReplies.setAttribute("aria-label","快捷填入，不自动发送");
-        for (const { label,phrases } of QUICK_REPLIES) {
+        for (const [index,{ label,phrases }] of QUICK_REPLIES.entries()) {
           const button = document.createElement("button");
-          button.type = "button"; button.textContent = label;
+          button.type = "button";
+          const caption=document.createElement("span"),key=document.createElement("kbd");
+          caption.textContent=label;key.textContent=(/Mac/.test(globalThis.navigator?.platform || "")?"⌥":"Alt+")+(index+1);
+          button.append(caption,key);button.setAttribute("aria-label",label);button.setAttribute("aria-keyshortcuts",`Alt+${index+1}`);
           button.className = "xrc-quick-reply";
-          button.title = `随机填入：${phrases.join(" / ")}，末尾随机加标点；追加到草稿末尾，不自动发送。`;
+          button.title = `随机填入：${phrases.join(" / ")}，末尾随机加标点；追加到草稿末尾，不自动发送。快捷键：Option/Alt+${index+1}。`;
           button.addEventListener("mousedown",event => event.preventDefault());
           button.addEventListener("click",() => fillQuickReply(s,phrases));
           quickReplies.append(button);
         }
+        tools.append(quickReplies);
+        let aiControl;
         if (aiRecommend) {
           const button=document.createElement("button");
           button.type="button";button.className="xrc-ai-recommend";
-          button.textContent="推荐评论 · "+(/Mac/.test(globalThis.navigator?.platform || "") ? "⌥Q" : "Alt+Q");
+          const caption=document.createElement("span"),key=document.createElement("kbd");
+          caption.className="xrc-ai-caption";caption.textContent="推荐评论";
+          key.textContent=/Mac/.test(globalThis.navigator?.platform || "") ? "⌥Q" : "Alt+Q";
+          button.append(caption,key);button.setAttribute("aria-busy","false");
           button.setAttribute("aria-label","推荐评论");button.setAttribute("aria-keyshortcuts","Alt+q");
           button.title="Mac：Option+Q；Windows：Alt+Q。点击或按快捷键生成一条并追加到草稿；等待时若继续编辑则不填入，不自动发送。";
           button.addEventListener("mousedown",event=>event.preventDefault());
@@ -471,16 +502,29 @@
                 s.current.quickPending || s.current.composing || !singleReply(dialog)) return;
             void aiRecommend(dialog.querySelector(EDITOR));
           });
-          quickReplies.append(button);
+          aiControl=button;
         }
-        bar.append(quickReplies,status,heart,skip,send);
+        bar.append(tools,status);
+        if (aiControl) bar.append(aiControl);
+        bar.append(heart,skip,send);
       }
       if (nativeToolbar.nextElementSibling !== bar) nativeToolbar.after(bar);
       renderContext(s,bar);
+      const phase = aiPhase(dialog.querySelector(EDITOR));
+      const aiLabels={generating:"生成中…",rewriting:"改写中…",writing:"填入中…"};
+      const aiButton=bar.querySelector(".xrc-ai-recommend");
+      if (aiButton) {
+        const caption=aiButton.querySelector(".xrc-ai-caption"),label=aiLabels[phase] || "推荐评论";
+        if (caption.textContent!==label) caption.textContent=label;
+        const active=String(Boolean(phase));
+        if (aiButton.getAttribute("aria-busy")!==active) aiButton.setAttribute("aria-busy",active);
+      }
       const busy = draftBusy(s) || s.current.quickPending === true;
-      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : ""}已处理 ${s.handled.size} 条 · ${busy ? "回复正在生成、填入或改写，完成后可继续。" : s.note}`;
+      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : ""}已处理 ${s.handled.size} 条 · ${phase ? `AI ${aiLabels[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;
+      const active=String(Boolean(phase));
+      if(status.dataset.aiActive!==active) status.dataset.aiActive=active;
       const canAct = ["ready","failed"].includes(s.phase);
       const native = nativeHeart(s);
       const heart = bar.querySelector(".xrc-flow-heart");
@@ -617,13 +661,15 @@
       });
     }
     document.addEventListener("keydown",event => {
-      const recommendKey = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
-        (event.code === "KeyQ" || event.key.toLowerCase() === "q");
-      if (!recommendKey && event.key !== "Tab" && event.key !== "Escape") return;
+      const shortcutModifier = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+      const recommendKey = shortcutModifier && (event.code === "KeyQ" || event.key.toLowerCase() === "q");
+      const digit = shortcutModifier ? event.code.match(/^Digit([1-6])$/)?.[1] || event.key.match(/^[1-6]$/)?.[0] : "";
+      if (!recommendKey && !digit && event.key !== "Tab" && event.key !== "Escape") return;
       const editor = event.target instanceof Element ? event.target.closest(EDITOR) : null;
-      if (recommendKey && session && editor && session.current.dialog?.contains(editor) && currentSession(session)) {
+      if ((recommendKey || digit) && session && editor && session.current.dialog?.contains(editor) && currentSession(session)) {
         if (event.isComposing || event.keyCode === 229 || session.current.composing) return;
-        const button = session.current.dialog.querySelector(".xrc-ai-recommend");
+        const button = recommendKey ? session.current.dialog.querySelector(".xrc-ai-recommend") :
+          session.current.dialog.querySelectorAll(".xrc-quick-reply")[Number(digit)-1];
         if (!button) return;
         event.preventDefault();event.stopImmediatePropagation();
         if (!event.repeat && !button.disabled) button.click();

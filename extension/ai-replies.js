@@ -63,10 +63,10 @@
       s.ghost.append(document.createTextNode(label));s.drawn=signature;
     }
     async function request(s,kind,draft = "") {
-      const id = crypto.randomUUID();s.pending.add(id);
+      const id = crypto.randomUUID();s.pending.add(id);requestRefresh();
       try {return await message({type:"AI_REQUEST",id,kind,post:s.post,draft});}
       catch(error) {return {ok:false,error:error.message};}
-      finally {s.pending.delete(id);}
+      finally {s.pending.delete(id);requestRefresh();}
     }
     function generate(s) {
       if (!autoComplete || !valid(s) || edit.read(s.editor) || s.pending.size >= 3) return;
@@ -223,7 +223,12 @@
     document.addEventListener("visibilitychange",()=>{if(document.hidden)stop();else requestRefresh();});
     window.addEventListener("pagehide",stop);
     void reload();
-    return {refresh,stop,recommend,busy:editor=>Boolean(current?.editor===editor&&(current.writing||current.rewriting||current.recommending))};
+    return {refresh,stop,recommend,phase:editor=>{
+      if (!current || current.editor!==editor) return "";
+      if (current.writing) return "writing";
+      if (current.rewriting) return "rewriting";
+      return current.recommending || current.pending.size ? "generating" : "";
+    },busy:editor=>Boolean(current && current.editor===editor&&(current.writing||current.rewriting||current.recommending))};
   }
   globalThis.XReplyAIReplies={create};
 })();

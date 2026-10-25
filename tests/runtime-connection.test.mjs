@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import '../extension/follow-context.js';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../extension/content.js',import.meta.url),'utf8');
@@ -36,8 +37,9 @@ function setup(savedSettings = {}) {
   const filter = () => ({ reset() {},invalidate() {},syncKnown() {},async refresh() {},hiddenSummary:() => state.summary || ({total:0,hidden:0}),restoreHidden() { state.summary = {total:2,hidden:0}; return true; },applying:() => false });
   const scope = vm.createContext({ document,window,location:{ pathname:'/notifications',origin:'https://x.com',reload:() => state.reloads++ },
     chrome:{ runtime,storage:{ onChanged:{ addListener:callback => { storageChanged = callback; } },local:{ get:async () => savedSettings } } },
+    XReplyFollowContext:globalThis.XReplyFollowContext,
     XReplyHomeFilter:{ create:filter },XReplyNotificationFilter:{ create:options => { state.notificationOptions = options; return filter(); } },
-    XReplyContinuous:{ create:options => { state.connected = options.connected; state.message = options.message; return {
+    XReplyContinuous:{ create:options => { state.followState = options.followState; state.connected = options.connected; state.message = options.message; return {
       refresh() { state.uiRenders++; },stop() { state.stopped++; },invalidateContext() {},receiveReply() { state.received = true; }
     }; } },
     MutationObserver:class { constructor(callback) { mutation = callback; } observe() {} disconnect() {} },
@@ -178,4 +180,16 @@ test('全隐藏恢复与网络暂停共用提示，恢复不放行分页，继�
   assert.equal(state.posts.filter(post=>post.type==='NOTIFICATION_FILTER_CONTINUE').length,0);
   notice.querySelector('.xrc-network-continue').listeners.click();
   assert.equal(state.posts.filter(post=>post.type==='NOTIFICATION_FILTER_CONTINUE').length,1);
+});
+
+test('关注页面消息只更新当前控件，不调用后台或重建互动分类',async()=>{
+ const env=setup();await env.flush();env.frame();
+ const beforeCalls=env.state.calls,beforeRenders=env.state.uiRenders;
+ env.message({type:'FOLLOW_CONTEXT',account:'me',rows:[{id:'2',following:false,followingOrder:1}]});env.frame();
+ assert.equal(env.state.calls,beforeCalls);assert.equal(env.state.uiRenders,beforeRenders+1);
+ assert.equal(env.state.followState('me','2').following,false);
+ env.message({type:'FOLLOW_CONTEXT',account:'me',rows:[{id:'2',following:false,followingOrder:2}]});env.frame();
+ assert.equal(env.state.uiRenders,beforeRenders+1);assert.equal(env.state.calls,beforeCalls);
+ env.message({type:'FOLLOW_CONTEXT',account:'other',rows:[{id:'2',following:true,followingOrder:3}]});env.frame();
+ assert.equal(env.state.followState('me','2').following,false);
 });

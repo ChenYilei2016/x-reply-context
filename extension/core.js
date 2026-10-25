@@ -55,7 +55,7 @@
     };
   }
 
-  function extract(payload) {
+  function extract(payload,onRelationship) {
     const users = new Map();
     const tweets = new Map();
     const likes = new Map();
@@ -69,7 +69,17 @@
         id: node.rest_id || legacy.id_str || (node.username ? node.id : ""),
         handle: node.core?.screen_name || legacy.screen_name || node.username
       });
-      if (user) users.set(user.id, user);
+      if (user) {
+        users.set(user.id,user);
+        if (onRelationship) {
+          const perspective = node.relationship_perspectives;
+          const outgoing = typeof perspective?.following === "boolean" ? perspective.following : legacy.following;
+          const incoming = typeof perspective?.followed_by === "boolean" ? perspective.followed_by : legacy.followed_by;
+          const following = typeof outgoing === "boolean" ? outgoing : undefined;
+          const followedBy = typeof incoming === "boolean" ? incoming : undefined;
+          if (following !== undefined || followedBy !== undefined) onRelationship({id:user.id,following,followedBy});
+        }
+      }
       const recipient = cleanUser({
         id:legacy.in_reply_to_user_id_str, handle:legacy.in_reply_to_screen_name
       });
@@ -382,6 +392,7 @@
     const directLike = me && state.likes?.[`${me.id}:${result.id}`];
     if (directLike?.liked) result.likeEvidenceId = directLike.id;
     if (!tweet) return result;
+    result.authorId = tweet.authorId;
     result.authorHandle = state.users[tweet.authorId]?.handle || "";
     const original = !tweet.parentId && tweet.conversationId === tweet.id;
     if (!original && me && tweet.authorId === me.id) return { ...result, status: "self" };

@@ -7,6 +7,7 @@
   let again = false;
   let urgentRefresh = false;
   let lastAccount = "";
+  const follows = globalThis.XReplyFollowContext?.create();
   let lastSignature = "";
   let annotationRevision = 0;
   const pending = new Map();
@@ -134,7 +135,9 @@
 
   function accountHandle() {
     const profile = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
-    return profile?.getAttribute("href")?.match(/^\/([a-zA-Z0-9_]{1,15})\/?$/)?.[1]?.toLowerCase() || "";
+    const account = profile?.getAttribute("href")?.match(/^\/([a-zA-Z0-9_]{1,15})\/?$/)?.[1]?.toLowerCase() || "";
+    follows?.setAccount(account);
+    return account;
   }
 
   function tweetId(article) {
@@ -420,12 +423,17 @@
   }
 
   aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,requestRefresh:scheduleControls});
-  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor) });
+  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor),aiPhase:editor => aiReplies?.phase(editor) || "",followState:(account,id) => follows?.read(account,id) });
 
   window.addEventListener("message", event => {
     if (event.source !== window || event.origin !== location.origin ||
         event.data?.channel !== CHANNEL) return;
     if (!connected()) return;
+    if (event.data.type === "FOLLOW_CONTEXT") {
+      const account=accountHandle();
+      if (event.data.account === account && follows?.ingest(account,event.data.rows).length && !document.hidden) scheduleControls();
+      return; // Page memory only: never enqueue this message or send it to the service worker.
+    }
     if (event.data.type === "OBSERVER_READY") {
       window.postMessage({ channel:CHANNEL,type:"READY" },location.origin);
       publishNetworkSettings();
@@ -450,6 +458,7 @@
     enqueueObserved(event.data.batch);
     if (!document.hidden) schedule();
   });
+  window.addEventListener("pagehide",() => follows?.clear());
   chrome.runtime.onMessage.addListener((request,_sender,respond) => {
     if (request?.type === "GET_ACCOUNT") respond({ account:accountHandle() });
   });

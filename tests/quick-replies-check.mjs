@@ -17,7 +17,7 @@ export async function checkQuickReplies() {
   try {
     const target = document.querySelector('article[data-testid="tweet"] [data-testid="reply"]');
     const card = target.closest('article'); const top = card.getBoundingClientRect().top;
-    target.click(); await wait(()=>document.querySelectorAll('.xrc-quick-reply').length===4);
+    target.click(); await wait(()=>document.querySelectorAll('.xrc-quick-reply').length===6);
     const buttons = [...document.querySelectorAll('.xrc-quick-reply')];
     const editor = document.querySelector('[data-testid="tweetTextarea_0"]');
     const quick = document.querySelector('.xrc-quick-replies');
@@ -42,7 +42,7 @@ export async function checkQuickReplies() {
         samples++;
       }
     }
-    check('四组词句和四种标点均可原生填入，选中草稿也不覆盖',samples===16 && editor.innerText.startsWith('保留我的草稿'));
+    check('六组词句和四种标点均可原生填入，选中草稿也不覆盖',samples===24 && editor.innerText.startsWith('保留我的草稿'));
     await new Promise(resolve=>setTimeout(resolve,300));
     await frames();
     check('通知回复框原有上下文标签仍保留',!document.querySelector('.xrc-flow-root') || document.querySelector('.xrc-flow-context .xrc-labels'));

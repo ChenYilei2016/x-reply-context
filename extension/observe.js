@@ -10,6 +10,8 @@
   let ready = false;
   let timer;
   let replySequence = 0;
+  const follows = globalThis.XReplyFollowContext?.create();
+  let followEpoch = 0, followSequence = 0;
   const failureStatus = status => status >= 400 && status < 500 && status !== 408 ? "failed" : "unknown";
 
   function operationFor(value) {
@@ -23,16 +25,38 @@
 
   function currentAccount() {
     const path = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.getAttribute("href");
-    return core.handle(path?.match(/^\/([a-zA-Z0-9_]{1,15})\/?$/)?.[1]);
+    const account = core.handle(path?.match(/^\/([a-zA-Z0-9_]{1,15})\/?$/)?.[1]);
+    if (follows?.setAccount(account)) followEpoch++;
+    return account;
   }
 
   function requestContext(url) {
     const operation = operationFor(url);
     if (!operation) return null;
     return {
-      operation, account:currentAccount(), observedAt:Date.now(),
+      operation, account:currentAccount(), observedAt:Date.now(),followEpoch,followOrder:++followSequence,
       reaction:operation === "FavoriteTweet" || operation === "UnfavoriteTweet"
     };
+  }
+
+  function publishFollows(account,rows) {
+    if (rows.length) window.postMessage({channel:CHANNEL,type:"FOLLOW_CONTEXT",account,rows},location.origin);
+  }
+
+  function extractObserved(payload,context) {
+    const account = currentAccount();
+    let rows = [];
+    const collect = follows && context.account && context.account === account && context.followEpoch === followEpoch ? relation => {
+      follows.ingest(account,[relation],context.followOrder);
+      if (!ready) return;
+      // Send current snapshots even if unchanged: the other world's bounded cache may have evicted this ID.
+      const record = follows.read(account,relation.id);
+      if (record) rows.push(record);
+      if (rows.length >= 500) {publishFollows(account,rows);rows=[];}
+    } : undefined;
+    const parsed = core.extract(payload,collect);
+    if (ready) publishFollows(account,rows);
+    return parsed;
   }
 
   function reactionId(body) {
@@ -88,7 +112,7 @@
     let batch;
     if (payload) {
       const result = payload.data?.[REPLY_RESULTS[context.operation]]?.tweet_results?.result;
-      const parsed = core.extract(payload);
+      const parsed = extractObserved(payload,context);
       const createdId = core.id(result?.rest_id || result?.tweet?.rest_id || result?.legacy?.id_str);
       const tweet = parsed.tweets.find(item => item.id === createdId && item.parentId === parentId);
       const user = tweet && parsed.users.find(item => item.id === tweet.authorId && item.handle === context.account);
@@ -133,7 +157,7 @@
         if (saved) batch = Object.fromEntries(Object.entries(saved).map(([name,items]) => [name,items.slice(500)]));
         else if (payload.errors?.length) return;
       }
-      batch ||= core.extract(payload);
+      batch ||= extractObserved(payload,context);
       let likes = batch.likes;
       if (context.reaction) {
         const responseAt = Date.now();
@@ -185,11 +209,23 @@
 
   window.addEventListener("message", event => {
     if (event.source === window && event.origin === location.origin &&
-        event.data?.channel === CHANNEL && event.data.type === "READY") {
-      ready = true;
-      flush();
+        event.data?.channel === CHANNEL) {
+      if (["READY","NOTIFICATION_FILTER_CONTEXT"].includes(event.data.type)) currentAccount();
+      if (event.data.type === "READY") {
+        if (!ready && follows) {
+          const account = currentAccount(); let rows = [];
+          for (const row of follows.values()) {
+            rows.push(row);
+            if (rows.length === 500) {publishFollows(account,rows);rows=[];}
+          }
+          publishFollows(account,rows);
+        }
+        ready = true;
+        flush();
+      }
     }
   });
+  window.addEventListener("pagehide",() => {follows?.clear();followEpoch++;});
   window.postMessage({ channel:CHANNEL,type:"OBSERVER_READY" },location.origin);
 
   async function responsePayload(response) {

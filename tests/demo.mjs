@@ -152,6 +152,7 @@ if (home) {
   addAggregate('8001');
 }
 installComposerDemo({ state,core,addNotification });
+await import("/extension/follow-context.js");
 await import("/extension/observe.js");
 await import("/extension/card-filter.js");
 await import("/extension/home-filter.js");

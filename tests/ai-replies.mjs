@@ -1,7 +1,9 @@
 history.replaceState(null,'','/notifications');
 const output=document.querySelector('#result');
 const listeners=[],calls=[],pending=new Map(),generations=new Map();
-let enabled=true,autoComplete=false,modelError=false,totalRequests=0,ai,flow,frame,delay=30,rewritten='改写后的短句',sent=0,likes=0;
+const followMemory=XReplyFollowContext.create();followMemory.setAccount("me");
+let classifications=0;
+let enabled=true,autoComplete=false,modelError=false,totalRequests=0,ai,flow,frame,delay=1500,rewritten='改写后的短句',sent=0,likes=0;
 const requestRefresh=()=>{if(frame)return;frame=requestAnimationFrame(()=>{frame=0;flow?.refresh();ai?.refresh();});};
 globalThis.chrome={storage:{onChanged:{addListener:fn=>listeners.push(fn)}}};
 const accountHandle=()=> 'me';
@@ -21,11 +23,11 @@ const message=async message=>{
       pending.set(message.id,{timer,resolve});
     });
   }
-  if(message.type==='CLASSIFY')return {ok:true,rows:message.ids.map(id=>({id,status:'unknown',origin:'others',authorHandle:id==='100'?'alice':'bob',rootId:id,rootText:'原帖'}))};
+  if(message.type==='CLASSIFY'){classifications++;return {ok:true,rows:message.ids.map(id=>({id,status:'unknown',origin:'others',authorId:id==='100'?'2':'3',authorHandle:id==='100'?'alice':'bob',rootId:id,rootText:'原帖'}))};}
   return {ok:true};
 };
 ai=XReplyAIReplies.create({accountHandle,connected:()=>true,message,requestRefresh});
-flow=XReplyContinuous.create({accountHandle,tweetId,columnSelector:'[data-testid="primaryColumn"]',message,requestRefresh,aiBusy:editor=>ai.busy(editor),aiRecommend:editor=>ai.recommend(editor),
+flow=XReplyContinuous.create({accountHandle,tweetId,columnSelector:'[data-testid="primaryColumn"]',message,requestRefresh,aiBusy:editor=>ai.busy(editor),aiRecommend:editor=>ai.recommend(editor),aiPhase:editor=>ai.phase(editor),followState:(account,id)=>followMemory.read(account,id),
   renderLabels:(node,row)=>{node.textContent=row.origin;}});
 function DraftEditor(){
   const [state,setState]=React.useState(()=>Draft.EditorState.createEmpty());
@@ -68,6 +70,33 @@ document.querySelector('#run').addEventListener('click',async event=>{
     await new Promise(resolve=>setTimeout(resolve,80));
     for(let i=0;i<100;i++)ai.refresh();
     check('默认关闭自动补全，打开和刷新均不请求模型',calls.length===0&&!document.querySelector('.xrc-ai-ghost'));
+    const follow=()=>document.querySelector('.xrc-follow-context');
+    await wait(()=>follow()&&document.querySelector('.xrc-flow-profile').getAttribute('href')==='https://x.com/alice');
+    check('关注字段未到时双向显示待确认',follow().textContent==='我关注他：待确认他关注我：待确认');
+    const followBox=follow().getBoundingClientRect(),flowHeight=document.querySelector('.xrc-continuous').getBoundingClientRect().height,queryCount=classifications;
+    followMemory.ingest('me',[{id:'2',following:true}],1);requestRefresh();
+    await wait(()=>follow().textContent==='我关注他：已关注他关注我：待确认');
+    followMemory.ingest('me',[{id:'2',following:false,followedBy:true}],2);requestRefresh();
+    await wait(()=>follow().textContent==='我关注他：未关注他关注我：已关注');
+    const updatedBox=follow().getBoundingClientRect();
+    check('双向更新只改固定标签，不增加分类请求或改变位置高度',classifications===queryCount&&updatedBox.x===followBox.x&&updatedBox.y===followBox.y&&updatedBox.width===followBox.width&&updatedBox.height===followBox.height&&document.querySelector('.xrc-continuous').getBoundingClientRect().height===flowHeight);
+    const quickButtons=[...document.querySelectorAll('.xrc-quick-reply')];
+    check('六组词句与快捷键均显示',quickButtons.length===6&&quickButtons.every((b,i)=>b.getAttribute('aria-keyshortcuts')==='Alt+'+(i+1)&&b.textContent.endsWith(String(i+1))));
+    for(let i=0;i<6;i++) {
+      await wait(()=>!quickButtons[i].disabled);
+      const before=text();key(['¡','™','£','¢','∞','§'][i],{altKey:true,code:'Digit'+(i+1)});
+      key('x',{altKey:true,code:'Digit'+(i+1),repeat:true});
+      await wait(()=>text()!==before&&!quickButtons[i].disabled);
+      const phrases=quickButtons[i].title.match(/^随机填入：(.*?)，末尾随机/)[1].split(' / ');
+      const suffix=text().slice(before.length+(before?1:0));
+      check('Option '+(i+1)+'只填入对应词句一次',phrases.some(p=>['...','!','!!!','!!'].some(end=>suffix===p+end)));
+    }
+    const quickText=text();
+    editor().dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));key('6',{altKey:true,code:'Digit6'});
+    editor().dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));
+    document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'6',code:'Digit6',altKey:true,bubbles:true,cancelable:true}));
+    check('词句快捷键忽略输入法及框外，不请求模型',text()===quickText&&calls.length===0);
+    closeUI();await wait(()=>!editor());open(0);await wait(()=>document.querySelector('.xrc-ai-recommend')&&!document.querySelector('.xrc-ai-recommend').disabled);
     editor().dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));
     key('q',{altKey:true,code:'KeyQ'});
     editor().dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));
@@ -76,9 +105,17 @@ document.querySelector('#run').addEventListener('click',async event=>{
     check('推荐快捷键忽略输入法、框外、额外修饰键和长按重复',calls.length===0);
     await wait(()=>!document.querySelector('.xrc-ai-recommend').disabled);
     delay=150;
+    const aiButton=document.querySelector('.xrc-ai-recommend'),tools=document.querySelector('.xrc-reply-tools');
+    const idleBox=aiButton.getBoundingClientRect(),idleHeight=tools.getBoundingClientRect().height;
     const prevented=!key('œ',{altKey:true,code:'KeyQ'});
+    key('1',{altKey:true,code:'Digit1'});
+    await wait(()=>aiButton.getAttribute('aria-busy')==='true');
+    const busyBox=aiButton.getBoundingClientRect();
+    check('AI生成中显示转圈文字且按钮位置行高不变',aiButton.textContent.includes('生成中')&&getComputedStyle(aiButton,'::before').visibility==='visible'&&idleBox.x===busyBox.x&&idleBox.y===busyBox.y&&idleBox.width===busyBox.width&&idleHeight===tools.getBoundingClientRect().height);
     key('œ',{altKey:true,code:'KeyQ',repeat:true});key('q',{altKey:true,code:'KeyQ'});
     await wait(()=>!ai.busy(editor()));
+    await wait(()=>aiButton.getAttribute('aria-busy')==='false');
+    check('生成结束恢复按钮且不残留忙碌状态',aiButton.textContent.includes('推荐评论'));
     check('Option Alt Q复用推荐操作且连按仅一条，不发送',prevented&&calls.length===1&&text()==='第一条候选甲'&&sent===0);
     closeUI();await wait(()=>!editor());calls.length=0;open(0);
     await wait(()=>document.querySelector('.xrc-ai-recommend'));
@@ -93,6 +130,7 @@ document.querySelector('#run').addEventListener('click',async event=>{
     check('推荐失败不改变草稿，按钮恢复',text()===kept);
     modelError=false;delay=1000;await recommend();await wait(()=>pending.size===1);closeUI();await wait(()=>!editor());
     open(1);await new Promise(resolve=>setTimeout(resolve,100));
+    check('下一位没有本页关注数据时回到双向待确认',follow().textContent==='我关注他：待确认他关注我：待确认');
     check('关闭取消手动推荐，新对象不会自动请求或串写',pending.size===0&&text()===''&&!document.querySelector('.xrc-ai-ghost'));
     closeUI();await wait(()=>!editor());
     autoComplete=true;listeners.forEach(fn=>fn({aiAutoComplete:{newValue:true}},'local'));

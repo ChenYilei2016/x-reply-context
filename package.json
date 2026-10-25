@@ -1,6 +1,6 @@
 {
   "name": "x-reply-context",
-  "version": "0.16.3",
+  "version": "0.16.5",
   "private": true,
   "type": "module",
   "description": "在 X 通知里识别原帖归属和已经回应的对话",
