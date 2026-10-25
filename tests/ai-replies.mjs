@@ -1,8 +1,6 @@
 history.replaceState(null,'','/notifications');
 const output=document.querySelector('#result');
 const listeners=[],calls=[],pending=new Map(),generations=new Map();
-const followMemory=XReplyFollowContext.create();followMemory.setAccount("me");
-let classifications=0;
 let enabled=true,autoComplete=false,modelError=false,totalRequests=0,ai,flow,frame,delay=1500,rewritten='改写后的短句',sent=0,likes=0;
 const requestRefresh=()=>{if(frame)return;frame=requestAnimationFrame(()=>{frame=0;flow?.refresh();ai?.refresh();});};
 globalThis.chrome={storage:{onChanged:{addListener:fn=>listeners.push(fn)}}};
@@ -23,11 +21,11 @@ const message=async message=>{
       pending.set(message.id,{timer,resolve});
     });
   }
-  if(message.type==='CLASSIFY'){classifications++;return {ok:true,rows:message.ids.map(id=>({id,status:'unknown',origin:'others',authorId:id==='100'?'2':'3',authorHandle:id==='100'?'alice':'bob',rootId:id,rootText:'原帖'}))};}
+  if(message.type==='CLASSIFY'){return {ok:true,rows:message.ids.map(id=>({id,status:'unknown',origin:'others',authorHandle:id==='100'?'alice':'bob',rootId:id,rootText:'原帖'}))};}
   return {ok:true};
 };
 ai=XReplyAIReplies.create({accountHandle,connected:()=>true,message,requestRefresh});
-flow=XReplyContinuous.create({accountHandle,tweetId,columnSelector:'[data-testid="primaryColumn"]',message,requestRefresh,aiBusy:editor=>ai.busy(editor),aiRecommend:editor=>ai.recommend(editor),aiPhase:editor=>ai.phase(editor),followState:(account,id)=>followMemory.read(account,id),
+flow=XReplyContinuous.create({accountHandle,tweetId,columnSelector:'[data-testid="primaryColumn"]',message,requestRefresh,aiBusy:editor=>ai.busy(editor),aiRecommend:editor=>ai.recommend(editor),aiPhase:editor=>ai.phase(editor),
   renderLabels:(node,row)=>{node.textContent=row.origin;}});
 function DraftEditor(){
   const [state,setState]=React.useState(()=>Draft.EditorState.createEmpty());
@@ -70,16 +68,6 @@ document.querySelector('#run').addEventListener('click',async event=>{
     await new Promise(resolve=>setTimeout(resolve,80));
     for(let i=0;i<100;i++)ai.refresh();
     check('默认关闭自动补全，打开和刷新均不请求模型',calls.length===0&&!document.querySelector('.xrc-ai-ghost'));
-    const follow=()=>document.querySelector('.xrc-follow-context');
-    await wait(()=>follow()&&document.querySelector('.xrc-flow-profile').getAttribute('href')==='https://x.com/alice');
-    check('关注字段未到时双向显示待确认',follow().textContent==='我关注他：待确认他关注我：待确认');
-    const followBox=follow().getBoundingClientRect(),flowHeight=document.querySelector('.xrc-continuous').getBoundingClientRect().height,queryCount=classifications;
-    followMemory.ingest('me',[{id:'2',following:true}],1);requestRefresh();
-    await wait(()=>follow().textContent==='我关注他：已关注他关注我：待确认');
-    followMemory.ingest('me',[{id:'2',following:false,followedBy:true}],2);requestRefresh();
-    await wait(()=>follow().textContent==='我关注他：未关注他关注我：已关注');
-    const updatedBox=follow().getBoundingClientRect();
-    check('双向更新只改固定标签，不增加分类请求或改变位置高度',classifications===queryCount&&updatedBox.x===followBox.x&&updatedBox.y===followBox.y&&updatedBox.width===followBox.width&&updatedBox.height===followBox.height&&document.querySelector('.xrc-continuous').getBoundingClientRect().height===flowHeight);
     const quickButtons=[...document.querySelectorAll('.xrc-quick-reply')];
     check('六组词句与快捷键均显示',quickButtons.length===6&&quickButtons.every((b,i)=>b.getAttribute('aria-keyshortcuts')==='Alt+'+(i+1)&&b.textContent.endsWith(String(i+1))));
     for(let i=0;i<6;i++) {
@@ -130,7 +118,6 @@ document.querySelector('#run').addEventListener('click',async event=>{
     check('推荐失败不改变草稿，按钮恢复',text()===kept);
     modelError=false;delay=1000;await recommend();await wait(()=>pending.size===1);closeUI();await wait(()=>!editor());
     open(1);await new Promise(resolve=>setTimeout(resolve,100));
-    check('下一位没有本页关注数据时回到双向待确认',follow().textContent==='我关注他：待确认他关注我：待确认');
     check('关闭取消手动推荐，新对象不会自动请求或串写',pending.size===0&&text()===''&&!document.querySelector('.xrc-ai-ghost'));
     closeUI();await wait(()=>!editor());
     autoComplete=true;listeners.forEach(fn=>fn({aiAutoComplete:{newValue:true}},'local'));

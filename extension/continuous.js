@@ -36,7 +36,7 @@
     (row.status === "not-reply" ? row.origin !== "mine" :
       !["replied","self","not-reply"].includes(row.status));
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,requestRefresh,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "",followState = () => undefined }) {
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,requestRefresh,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "" }) {
     let session;
     let notice;
     let noticeTimer;
@@ -89,6 +89,7 @@
       const heart = nativeHeart(s);
       if (!enabled(heart)) return;
       // Only this explicit click invokes X's native control; its response uses the existing save path.
+      s.current.heartPending={startedAt:Date.now()};
       heart.click();
       refresh();
     }
@@ -296,6 +297,74 @@
       },8000);
     }
 
+    const beforeSend = s => s && ["liking","send-delay"].includes(s.phase);
+    function stopLikeSend(s,note,uncertain = false) {
+      if (session!==s || !beforeSend(s)) return;
+      clearTimeout(s.timeout);s.likeSend=null;
+      s.phase=uncertain?"uncertain":"failed";s.note=note;render(s);
+    }
+
+    function validLikeSend(s,operation) {
+      return currentSession(s) && s.likeSend===operation && s.current===operation.current &&
+        !document.hidden && operation.editor?.isConnected && s.current.dialog===composer() &&
+        s.current.dialog.querySelector(EDITOR)===operation.editor && operation.editor.innerText===operation.draft &&
+        !s.current.composing && !s.current.quickPending && !draftBusy(s);
+    }
+
+    function waitThenSend(s,operation) {
+      if (!validLikeSend(s,operation)) {stopLikeSend(s,"编辑状态已变化，未发送；请再次确认。");return;}
+      clearTimeout(s.timeout);s.phase="send-delay";
+      s.note="已点赞，稍候发送…";render(s);
+      s.timeout=setTimeout(()=>{
+        if (!validLikeSend(s,operation)) {stopLikeSend(s,"编辑状态已变化，未发送；请再次确认。");return;}
+        const heart=nativeHeart(s),submit=s.current.dialog.querySelector(SEND);
+        if (heart?.getAttribute("data-testid")!=="unlike" || !enabled(submit) || !singleReply(s.current.dialog)) {
+          stopLikeSend(s,"点赞或回复状态已变化，未发送；请核对后重试。");return;
+        }
+        s.likeSend=null;s.phase="ready";sendNext(s);
+      },200+Math.floor(Math.random()*301));
+    }
+
+    function likeSendNext(s) {
+      if (!currentSession(s) || draftBusy(s) || s.current.quickPending) return;
+      if (s.phase==="sent") {closeForNext(s);return;}
+      const dialog=s.current.dialog,submit=dialog?.querySelector(SEND),heart=nativeHeart(s);
+      if (!["ready","failed"].includes(s.phase) || !enabled(submit) || !singleReply(dialog) || s.current.composing) return;
+      if (!enabled(heart)) {s.note="找不到本帖可用的点赞按钮，未发送。";render(s);return;}
+      if (heart.getAttribute("data-testid")==="unlike" && s.current.heartPending) {
+        s.note="上一笔点赞尚未确认，未发送；请稍候或重新打开核对。";render(s);return;
+      }
+      const editor=dialog.querySelector(EDITOR);
+      const operation=s.likeSend={current:s.current,editor,draft:editor.innerText,clickedAt:Date.now(),settled:false};
+      s.phase="liking";s.note="正在点赞，确认成功后再发送…";render(s);
+      if (heart.getAttribute("data-testid")==="unlike") {waitThenSend(s,operation);return;}
+      s.timeout=setTimeout(()=>stopLikeSend(s,"点赞结果未确认，未发送。请核对后重新打开回复框。",true),10000);
+      s.current.heartPending={startedAt:operation.clickedAt};
+      heart.click();
+    }
+
+    async function receiveLike(data,saved) {
+      const s=session,current=s?.current;
+      if (!s || !currentSession(s) || data.account!==s.account || !Number.isFinite(data.requestStartedAt) || !saved) return;
+      const likes=Array.isArray(data.batch?.likes)?data.batch.likes:[];
+      const like=likes.slice(0,500).find(row=>row?.id===current.id && typeof row.liked==="boolean" && row.source==="mutation");
+      if (!like) return;
+      const pending=current.heartPending,operation=s.likeSend;
+      const settlesPending=pending && data.requestStartedAt>=pending.startedAt;
+      const settlesOperation=operation && s.phase==="liking" && !operation.settled && like.liked && data.requestStartedAt>=operation.clickedAt;
+      if (!settlesPending && !settlesOperation) return;
+      if (settlesOperation) operation.settled=true;
+      try {
+        await saved;
+        if (session===s && s.current===current && settlesPending && current.heartPending===pending) {
+          current.heartPending=null;requestRefresh();
+        }
+        if (settlesOperation && s.likeSend===operation && s.phase==="liking") waitThenSend(s,operation);
+      } catch {
+        if (settlesOperation && s.likeSend===operation) stopLikeSend(s,"点赞已成功，但本地记录未保存；未发送，请核对后再操作。",true);
+      }
+    }
+
     function sendNext(s) {
       if (!currentSession(s)) return;
       if (draftBusy(s) || s.current.quickPending) { render(s); return; }
@@ -365,33 +434,13 @@
         context.append(profile);
         bar.append(context);
       }
-      let follow = bar.querySelector(".xrc-follow-context");
-      if (!follow) {
-        follow=document.createElement("div");follow.className="xrc-follow-context";
-        follow.setAttribute("aria-label","本页双向关注状态");
-        follow.title="仅本页已收到的关注关系，不保证实时；缺少字段显示待确认。刷新、关闭页面或切换账号清空，不写入数据库。";
-        for (const [field,label] of [["following","我关注他"],["followedBy","他关注我"]]) {
-          const badge=document.createElement("span");badge.dataset.field=field;
-          badge.textContent=label+"：待确认";follow.append(badge);
-        }
-        context.after(follow);
-      }
-      const row=s.current.context;
-      const relation=row?.authorId ? followState(s.account,row.authorId) : undefined;
-      for (const [field,label] of [["following","我关注他"],["followedBy","他关注我"]]) {
-        const badge=follow.querySelector(`[data-field="${field}"]`),value=relation?.[field];
-        const status=row?.authorHandle === s.account ? "self" : typeof value === "boolean" ? String(value) : "unknown";
-        const caption=label+"："+({true:"已关注",false:"未关注",unknown:"待确认",self:"不适用"}[status]);
-        if (badge.textContent!==caption) badge.textContent=caption;
-        if (badge.dataset.state!==status) badge.dataset.state=status;
-      }
       let preview = bar.querySelector(".xrc-flow-root");
       if (withDetails && !preview) {
         preview = document.createElement("div");
         preview.className = "xrc-flow-root";
         preview.setAttribute("aria-label","原帖文字摘要");
         preview.textContent = "原帖：读取本地缓存…";
-        follow.after(preview);
+        context.after(preview);
       }
       const current = s.current;
       if (current.context && (current.renderedContext !== context || current.renderedRow !== current.context)) {
@@ -467,7 +516,7 @@
         const send = document.createElement("button");
         send.type = "button";
         send.className = "xrc-flow-send";
-        send.addEventListener("click",() => sendNext(s));
+        send.addEventListener("click",() => likeSendNext(s));
         const tools = document.createElement("div"); tools.className="xrc-reply-tools";
         const quickReplies = document.createElement("div");
         quickReplies.className = "xrc-quick-replies";
@@ -539,7 +588,7 @@
         "当前帖子已移出列表或缺少原生红心控件，请关闭回复框后从列表重新打开。";
       bar.querySelector(".xrc-flow-skip").disabled = !canAct || busy;
       const send = bar.querySelector(".xrc-flow-send");
-      const sendText = s.phase === "sent" ? "下一条" : s.phase === "sending" ? "发送中…" : "发送并下一条";
+      const sendText = s.phase === "sent" ? "下一条" : s.phase === "liking" ? "点赞中…" : s.phase === "send-delay" ? "等待发送…" : s.phase === "sending" ? "发送中…" : "点赞发送下条";
       if (send.textContent !== sendText) send.textContent = sendText;
       const single = singleReply(dialog);
       const editor = dialog.querySelector(EDITOR);
@@ -547,8 +596,8 @@
         button.disabled = !canAct || busy || !single || s.current.composing === true ||
           !editor || editor.getAttribute("aria-disabled") === "true";
       }
-      send.disabled = busy || (s.phase !== "sent" && (!canAct || !enabled(dialog.querySelector(SEND)) || !single));
-      send.title = single ? "确认本条发送成功后进入下一条。" : "请先完成多条帖子编辑，再使用连续回复。";
+      send.disabled = busy || (s.phase !== "sent" && (!canAct || !enabled(native) || !enabled(dialog.querySelector(SEND)) || !single));
+      send.title = single ? "先点赞（已点不重复），成功并保存记录后随机等待200～500ms，再发送；发送成功后进入下一条。" : "请先完成多条帖子编辑，再使用连续回复。";
     }
 
     function refresh() {
@@ -639,6 +688,8 @@
         const tabs = Array.from(feedColumn(session)?.querySelectorAll('[role="tab"]') || []);
         if (tabs.includes(tab) && tab !== tabs[session.homeTabIndex]) finish();
       }
+      if (beforeSend(session) && target?.closest(COMPOSER) && session.current.dialog?.contains(target) &&
+          !target.closest(".xrc-flow-send")) stopLikeSend(session,"操作已变化，已取消组合发送；草稿保留。");
       const close = target?.closest(CLOSE);
       if (close && session && !internalClose && close.closest(COMPOSER) === composer()) { finish(); return; }
       const reply = target?.closest('[data-testid="reply"]');
@@ -649,13 +700,20 @@
       if (openingId && tweetId(article) === openingId) return;
       start(article,feed);
     },true);
+    document.addEventListener("visibilitychange",()=>{
+      if (document.hidden && beforeSend(session)) stopLikeSend(session,"页面已切到后台，未发送；请回来后再次确认。");
+    });
+    window.addEventListener("pagehide",()=>{if(beforeSend(session))finish();});
     document.addEventListener("input",event => {
-      if (session?.current.dialog?.contains(event.target)) requestRefresh();
+      if (session?.current.dialog?.contains(event.target)) {
+        stopLikeSend(session,"草稿已变化，未发送；请再次确认。");requestRefresh();
+      }
     });
     for (const name of ["compositionstart","compositionend"]) {
       document.addEventListener(name,event => {
         if (session?.current.dialog?.contains(event.target)) {
           session.current.composing = name === "compositionstart";
+          if (session.current.composing) stopLikeSend(session,"正在编辑草稿，已取消组合发送。");
           requestRefresh();
         }
       });
@@ -664,8 +722,12 @@
       const shortcutModifier = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
       const recommendKey = shortcutModifier && (event.code === "KeyQ" || event.key.toLowerCase() === "q");
       const digit = shortcutModifier ? event.code.match(/^Digit([1-6])$/)?.[1] || event.key.match(/^[1-6]$/)?.[0] : "";
-      if (!recommendKey && !digit && event.key !== "Tab" && event.key !== "Escape") return;
+      const nativeSend = event.key==="Enter" && (event.ctrlKey || event.metaKey) && beforeSend(session);
+      if (!recommendKey && !digit && !nativeSend && event.key !== "Tab" && event.key !== "Escape") return;
       const editor = event.target instanceof Element ? event.target.closest(EDITOR) : null;
+      if (nativeSend && editor && session.current.dialog?.contains(editor)) {
+        stopLikeSend(session,"已转为原生发送，停止组合操作。");return;
+      }
       if ((recommendKey || digit) && session && editor && session.current.dialog?.contains(editor) && currentSession(session)) {
         if (event.isComposing || event.keyCode === 229 || session.current.composing) return;
         const button = recommendKey ? session.current.dialog.querySelector(".xrc-ai-recommend") :
@@ -688,7 +750,7 @@
         requestAnimationFrame(() => { if (session === s && !composer()) finish(); });
       }
     },true);
-    return { refresh,receiveReply,stop:finish,invalidateContext:() => { contextRevision++; } };
+    return { refresh,receiveReply,receiveLike,stop:finish,invalidateContext:() => { contextRevision++; } };
   }
 
   globalThis.XReplyContinuous = { create };

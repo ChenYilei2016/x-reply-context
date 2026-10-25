@@ -102,6 +102,7 @@ export async function checkFollowing() {
     fill('晚到回执，仅本地模拟');
     await wait(() => !document.querySelector('.xrc-flow-send')?.disabled);
     document.querySelector('.xrc-flow-send').click();
+    await wait(() => evidence().requests === '3');
     tabs[0].click();
     await wait(() => evidence().sent === '3' && record('2112500000000000009')?.evidenceId);
     check('发送后切换页签，晚到回执仍保存且不续开另一列表',

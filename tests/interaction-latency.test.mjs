@@ -34,6 +34,7 @@ for (const transport of ['fetch','xhr']) test(`${transport} 点赞必须等成�
   const observed = messages.find(message => message.type === 'OBSERVED');
   assert.ok(observed,'没有执行任何合批计时器也应立即收到成功回执');
   assert.equal(observed.interaction,true);
+  assert.ok(Number.isFinite(observed.requestStartedAt) && observed.requestStartedAt<=observed.batch.likes[0].observedAt);
   assert.equal(observed.account,'me'); assert.equal(observed.batch.likes[0].id,'123');
   assert.equal(observed.batch.likes[0].source,'mutation');
   assert.equal(timers.length,0);

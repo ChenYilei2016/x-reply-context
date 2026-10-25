@@ -46,16 +46,17 @@ export async function checkHearts() {
     check("跳过不自动点赞",requestCount() === 3);
     const nextId = dialog().dataset.targetId;
     const editor = dialog().querySelector('[contenteditable="true"]');
-    editor.textContent = "本地模拟：发送不附带点赞";
+    editor.textContent = "本地模拟：组合点赞后发送";
     editor.dispatchEvent(new InputEvent("input",{ bubbles:true,inputType:"insertText",data:editor.textContent }));
+    await wait(() => !document.querySelector(".xrc-flow-send").disabled);
     document.querySelector(".xrc-flow-send").click();
     await wait(() => evidence.dataset.sent === "1" && dialog()?.dataset.targetId !== nextId && heart());
-    check("发送并下一条不自动点赞",requestCount() === 3);
+    check("组合按钮只给本条点赞并保存后发送",requestCount() === 4 && records()[`101:${nextId}`]?.liked === true);
     const currentId = dialog().dataset.targetId;
     document.querySelector(`[data-demo-id="${currentId}"]`).remove();
     await wait(() => heart().disabled);
     heart().click();
-    check("原卡片移出后禁用，不误点其他帖",requestCount() === 3 && heart().textContent.includes("不可用"));
+    check("原卡片移出后禁用，不误点其他帖",requestCount() === 4 && heart().textContent.includes("不可用"));
   } catch (error) {
     results.push({ name:error.message,ok:false });
   } finally {

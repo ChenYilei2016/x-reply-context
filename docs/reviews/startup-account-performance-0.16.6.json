@@ -1,0 +1,27 @@
+{
+  "archivedSample": true,
+  "scriptElements": 10,
+  "candidateCharacters": 203792,
+  "identityMatched": true,
+  "samplesMs": [
+    4.147667000000013,
+    5.618500000000012,
+    1.5028329999999812,
+    1.2630000000000052,
+    1.3898329999999817,
+    1.168834000000004,
+    1.2347910000000013,
+    1.218500000000006,
+    1.9618330000000128,
+    1.3852080000000058
+  ],
+  "meanMs": 2.089099900000002,
+  "maxMs": 5.618500000000012,
+  "countsFor10FreshReaders": {
+    "collections": 10,
+    "prefix": 10,
+    "full": 10
+  },
+  "noAdditionalReadsAcross1000CachedCalls": true,
+  "note": "Node offline sample; no network, no saved identity or raw initialization text; excludes browser layout"
+}
