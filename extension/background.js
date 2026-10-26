@@ -1,5 +1,12 @@
-importScripts("core.js","storage.js","ai-config.js","ai-service.js");
+importScripts("core.js","storage.js","ai-config.js","ai-service.js","companion.js");
 let aiService;
+let companion;
+function companionWindow() {
+  return companion ||= globalThis.XReplyCompanion.create(chrome);
+}
+chrome.windows?.onRemoved.addListener(id => {
+  void companionWindow().removed(id).catch(() => {});
+});
 const core = globalThis.XReplyContext;
 const storage = globalThis.XReplyStorage.create();
 let state;
@@ -69,6 +76,10 @@ async function handleMessage(message) {
 
 chrome.runtime.onMessage.addListener((message,sender,sendResponse) => {
   if (!allowedSender(sender) || !message || typeof message !== "object") return false;
+  if (message.type === "COMPANION_OPEN") {
+    void companionWindow().open(message,sender).then(sendResponse);
+    return true;
+  }
   if (typeof message.type === "string" && message.type.startsWith("AI_")) {
     aiService ||= globalThis.XReplyAIService.create();
     void aiService.handle(message,sender).then(sendResponse,() => sendResponse({ok:false,error:"AI 配置或服务暂不可用，请检查设置。"}));

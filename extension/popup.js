@@ -35,6 +35,7 @@ void installCheckbox("#auto-hide-repost-notifications","autoHideRepostNotificati
     const summary = await chrome.runtime.sendMessage({ type:"SUMMARY",account });
     if (!summary?.ok) throw new Error(summary?.error || "本地记录暂不可用");
     status.textContent = `@${account}\n已记录 ${summary.replyCount} 组文字回复 · ${summary.likeCount} 条红心`;
+    status.title = "文字按当前账号、原帖和对方去重；红心按帖子去重，仅统计本地仍有已点赞证据的记录。历史来源不同，二者不保证相等。";
     const history = document.querySelector("#history");
     history.href = `https://x.com/${account}/with_replies`;
     history.hidden = false;

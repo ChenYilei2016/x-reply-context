@@ -7,14 +7,17 @@ import { checkNotificationStability } from "./notification-stability-check.mjs";
 import { checkComposerContext } from "./composer-context-check.mjs";
 import { checkEmptyRecovery } from "./notification-empty-check.mjs";
 import { checkQuickReplies } from "./quick-replies-check.mjs";
+import { checkCompanion } from "./companion-check.mjs";
+import { checkProfile } from "./profile-check.mjs";
 import { checkFollowing } from "./following-check.mjs";
 import { checkAutomaticFilter } from "./automatic-filter-check.mjs";
 import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
 const home = location.pathname === "/home";
+const profile = /^\/carol(?:\/with_replies)?$/.test(location.pathname);
 core.ingest(state,{ users,tweets:demoTweets },"my_account");
-if (home) core.ingest(state,{ users,tweets:homeTweets,likes:[{
+if (home || profile) core.ingest(state,{ users,tweets:homeTweets,likes:[{
   id:homeTweets[3].id,liked:true,account:"my_account",observedAt:Date.now()
 }] },"my_account");
 core.ingest(state,{ likes:[demoTweets[1].id,demoTweets[8].id].map(id => ({
@@ -30,6 +33,12 @@ globalThis.chrome = {
     id:"local-demo-extension",
     onMessage:{ addListener() {} },
     async sendMessage(message) {
+      if (message.type === "COMPANION_OPEN") {
+        const evidence=document.querySelector('#companion-evidence');
+        evidence.dataset.calls=String(Number(evidence.dataset.calls || 0)+1);
+        await new Promise(resolve=>setTimeout(resolve,100));
+        return {ok:true,reused:true,handle:message.handle};
+      }
       if (message.type === "AI_STATUS") return {ok:true,enabled:false};
       if (message.type === "AI_REQUEST") throw new Error("AI disabled in this fixture");
       if (message.type === "INGEST") {
@@ -147,6 +156,20 @@ if (home) {
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
   document.querySelector(".aside").append(button);
+} else if (profile) {
+  document.querySelector("h1").textContent = "Carol 的个人主页";
+  const tabs = document.querySelector(".tabs");
+  tabs.innerHTML = '<a role="tab" href="/carol">帖子</a><a role="tab" href="/carol/with_replies">回复</a><a role="tab" href="/carol/media">媒体</a>';
+  for (const tab of tabs.children) {
+    tab.setAttribute("aria-selected",String(tab.getAttribute("href") === location.pathname));
+    tab.addEventListener("click",event => {
+      event.preventDefault();
+      history.replaceState(null,"",tab.getAttribute("href"));
+      for (const item of tabs.children) item.setAttribute("aria-selected",String(item === tab));
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+  }
+  [homeTweets[2],homeTweets[3],homeTweets[0],homeTweets[1],homeTweets[4]].forEach(tweet => addNotification(tweet));
 } else {
   for (const index of [11,3,7,4,8,10]) addNotification(demoTweets[index]);
   addAggregate('8001');
@@ -324,4 +347,16 @@ document.querySelector("#check-stability").addEventListener("click",async event 
     }
   });
   event.target.disabled = false;
+});
+
+document.querySelector('#check-profile').addEventListener('click',async event => {
+  event.target.disabled = true;
+  await checkProfile();
+  event.target.disabled = false;
+});
+
+document.querySelector('#check-companion').addEventListener('click',async event=>{
+  event.target.disabled=true;
+  await checkCompanion();
+  event.target.disabled=false;
 });

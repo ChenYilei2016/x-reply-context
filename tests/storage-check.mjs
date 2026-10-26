@@ -57,6 +57,15 @@ document.querySelector('#run').addEventListener('click',async event => {
     core.ingest(state,{ tweets:[{ id:likeId,authorId:'2',conversationId:likeId,parentId:'',recipientId:'',text:'迟到的原帖' }] },'me',now+3);
     await storage.save(state);
     check('帖子晚到时红心关系也能增量持久化',(await globalThis.XReplyStorage.create().load()).likes[key].conversationId === likeId);
+    // A discarded negative snapshot's watermark must survive worker/database reopen.
+    core.ingest(state,{likes:[{id:'555',account:'me',liked:false,observedAt:now+4,source:'snapshot'}]},'me',now+4);
+    await storage.save(state);
+    const guarded=await globalThis.XReplyStorage.create().load();core.prepare(guarded);
+    const actor=core.findAccount(guarded,'me').id;
+    check('普通负快照不能挤掉满量的真实红心',!guarded.likes[actor+':555'] && Object.keys(guarded.likes).length===10000);
+    check('旧快照时间保护与真实红心同时持久化',guarded.likeSnapshotFloors?.[actor]?.at===now+4 && guarded.likes[key].interactionEvidence===true);
+    core.ingest(guarded,{likes:[{id:'555',account:'me',liked:true,observedAt:now+3,source:'snapshot'}]},'me',now+5);
+    check('重开后迟到旧正快照仍不能误恢复',!guarded.likes[actor+':555']);
     const result = { fixture:true,checks,metrics };
     output.dataset.evidence = JSON.stringify(result);
     output.dataset.result = 'passed'; output.textContent = JSON.stringify(result,null,2);

@@ -104,13 +104,15 @@
       if (!anchor) {
         if (!holdLayout()) controls?.remove();
         else {
-          if (button) button.disabled = true;
-          if (repliedButton) repliedButton.disabled = true;
-          if (applyButton) applyButton.disabled = true;
-          if (autoButton) autoButton.disabled = true;
+          for (const control of [button,repliedButton,applyButton,autoButton]) {
+            if (control && !control.disabled) control.disabled = true;
+          }
         }
         return;
       }
+      // Read layout before changing controls, and reuse it within this synchronous render.
+      const applying = filter.applying();
+      const unavailable = saving || !ready() || holdLayout() || applying;
       if (!button) {
         button = document.createElement("button");
         button.type = "button";
@@ -163,21 +165,31 @@
       ]) {
         if (control.textContent !== label) control.textContent = label;
         const selected = mode() === value;
-        control.setAttribute("aria-pressed",String(selected));
-        control.disabled = saving || !ready() || holdLayout() || filter.applying();
-        control.title = error || `${selected ? "已开启，再点关闭隐藏" : "点击选择此隐藏条件，与另一项互斥"}。${rule}按同一原帖、同一个人的回复证据判断。仅处理已加载通知，不主动翻页。`;
-        control.setAttribute("aria-label",`隐藏${label}${error ? "，设置保存失败，点击重试" : ""}`);
+        const pressed = String(selected);
+        if (control.getAttribute("aria-pressed") !== pressed) control.setAttribute("aria-pressed",pressed);
+        if (control.disabled !== unavailable) control.disabled = unavailable;
+        const title = error || `${selected ? "已开启，再点关闭隐藏" : "点击选择此隐藏条件，与另一项互斥"}。${rule}按同一原帖、同一个人的回复证据判断。仅处理已加载通知，不主动翻页。`;
+        if (control.title !== title) control.title = title;
+        const accessibleLabel = `隐藏${label}${error ? "，设置保存失败，点击重试" : ""}`;
+        if (control.getAttribute("aria-label") !== accessibleLabel) control.setAttribute("aria-label",accessibleLabel);
       }
-      controls.setAttribute("aria-busy",String(saving || filter.applying()));
+      const busy = String(saving || applying);
+      if (controls.getAttribute("aria-busy") !== busy) controls.setAttribute("aria-busy",busy);
       const hasOrganizable = canOrganize();
-      applyButton.disabled = !ready() || saving || holdLayout() || filter.applying() || !hasOrganizable;
-      applyButton.title = "仅一次应用已加载评论的完成状态；点赞、关注、转发按各自开关在接收时过滤，不再追加隐藏占位。回复框关闭后可操作。";
+      const applyDisabled = unavailable || !hasOrganizable;
+      if (applyButton.disabled !== applyDisabled) applyButton.disabled = applyDisabled;
+      const applyTitle = "仅一次应用已加载评论的完成状态；点赞、关注、转发按各自开关在接收时过滤，不再追加隐藏占位。回复框关闭后可操作。";
+      if (applyButton.title !== applyTitle) applyButton.title = applyTitle;
       const applyText = "整理列表";
       if (applyButton.textContent !== applyText) applyButton.textContent = applyText;
-      autoButton.setAttribute("aria-pressed",String(autoEnabled()));
-      autoButton.setAttribute("aria-label",autoError || "自动整理：空闲10秒后处理阅读区下方，保护当前及上方卡片");
-      autoButton.disabled = !ready() || !autoReady() || saving || holdLayout() || filter.applying();
-      autoButton.title = autoError || `${autoEnabled() ? "已开启，点击关闭" : "默认关闭，点击开启"}。主动操作后空闲10秒，仅整理下方600px以外的卡片，每次只执行一轮；补位、新数据和页面自行滚动不会继续触发。回复框、后台及隐藏开关关闭时暂停，当前及上方保留。`;
+      const automatic = autoEnabled(), automaticPressed = String(automatic);
+      if (autoButton.getAttribute("aria-pressed") !== automaticPressed) autoButton.setAttribute("aria-pressed",automaticPressed);
+      const autoLabel = autoError || "自动整理：空闲10秒后处理阅读区下方，保护当前及上方卡片";
+      if (autoButton.getAttribute("aria-label") !== autoLabel) autoButton.setAttribute("aria-label",autoLabel);
+      const autoDisabled = unavailable || !autoReady();
+      if (autoButton.disabled !== autoDisabled) autoButton.disabled = autoDisabled;
+      const autoTitle = autoError || `${automatic ? "已开启，点击关闭" : "默认关闭，点击开启"}。主动操作后空闲10秒，仅整理下方600px以外的卡片，每次只执行一轮；补位、新数据和页面自行滚动不会继续触发。回复框、后台及隐藏开关关闭时暂停，当前及上方保留。`;
+      if (autoButton.title !== autoTitle) autoButton.title = autoTitle;
     }
 
     for (const name of ["scroll","wheel","touchmove","pointerdown","keydown","input"]) {

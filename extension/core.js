@@ -23,7 +23,10 @@
   }
   function replace(state,name,records) {
     const previous = state[name];
-    for (const key of Object.keys(previous)) if (!Object.hasOwn(records,key)) mark(state,name,key);
+    for (const key of Object.keys(previous)) if (!Object.hasOwn(records,key)) {
+      if (name === "likes") rememberDiscardedLike(state,previous[key]);
+      mark(state,name,key);
+    }
     for (const key of Object.keys(records)) {
       if (equalRecord(previous[key],records[key])) records[key] = previous[key];
       else mark(state,name,key);
@@ -113,7 +116,7 @@
   }
 
   function createState() {
-    return { version: 1, users: {}, tweets: {}, roots: {}, replies: {}, likes: {}, people: {}, accounts: {}, updatedAt: 0 };
+    return { version: 1, users: {}, tweets: {}, roots: {}, replies: {}, likes: {}, people: {}, accounts: {}, likeSnapshotFloors: {}, updatedAt: 0 };
   }
 
   function mergeKnown(previous, next, now) {
@@ -172,7 +175,18 @@
     }
   }
 
-  function retainRecords(records, now) {
+  const likeEvidence = value => Boolean(value && (value.liked === true || value.source === "mutation" || value.interactionEvidence === true));
+  function rememberDiscardedLike(state,like) {
+    if (like.liked || !Number.isFinite(like.observedAt)) return;
+    // Eviction loses the per-post negative timestamp. Do not turn an older, now unverifiable snapshot into a positive.
+    const previous = state.likeSnapshotFloors[like.actorId];
+    const inclusive = like.source === "mutation";
+    if (!previous || like.observedAt > previous.at) state.likeSnapshotFloors[like.actorId] = {at:like.observedAt,inclusive};
+    else if (like.observedAt === previous.at && inclusive && !previous.inclusive) {
+      state.likeSnapshotFloors[like.actorId] = {at:previous.at,inclusive:true};
+    }
+  }
+  function retainRecords(records, now,protectLikes = false) {
     const entries = Object.entries(records);
     let previous = Infinity;
     if (entries.length <= LIMIT && entries.every(([,value]) => {
@@ -182,13 +196,14 @@
     })) return records;
     return Object.fromEntries(entries
       .filter(([, value]) => value.seenAt >= now - RETENTION_MS)
-      .sort((a,b) => b[1].seenAt - a[1].seenAt).slice(0,LIMIT));
+      .sort((a,b) => (protectLikes ? Number(likeEvidence(b[1]))-Number(likeEvidence(a[1])) : 0) ||
+        b[1].seenAt - a[1].seenAt).slice(0,LIMIT));
   }
 
   function prune(state, now) {
     let relationshipsChanged = false;
     for (const key of ["users", "tweets", "roots", "replies", "likes", "people"]) {
-      const retained = retainRecords(state[key],now);
+      const retained = retainRecords(state[key],now,key === "likes");
       if (key !== "likes" && key !== "people" && retained !== state[key]) relationshipsChanged = true;
       if (retained !== state[key]) replace(state,key,retained);
     }
@@ -196,6 +211,9 @@
     const retainedAccounts = accounts.filter(([, seenAt]) => seenAt >= now - RETENTION_MS).slice(-20);
     if (retainedAccounts.length !== accounts.length) relationshipsChanged = true;
     state.accounts = Object.fromEntries(retainedAccounts);
+    state.likeSnapshotFloors = Object.fromEntries(Object.entries(state.likeSnapshotFloors)
+      .filter(([actor,floor]) => id(actor) && Number.isFinite(floor?.at) && floor.at >= now-RETENTION_MS)
+      .sort((a,b) => b[1].at-a[1].at).slice(0,20));
     return relationshipsChanged;
   }
 
@@ -296,6 +314,7 @@
     const observedTweets = [];
     state.likes ||= {};
     state.people ||= {};
+    state.likeSnapshotFloors ||= {};
     for (const raw of (Array.isArray(batch?.users) ? batch.users : []).slice(0,500)) {
       const user = cleanUser(raw);
       if (user) {
@@ -331,12 +350,16 @@
       const key = `${actor.id}:${raw.id}`;
       const previous = state.likes[key];
       const observedAt = Math.min(raw.observedAt,now);
+      const floor = state.likeSnapshotFloors[actor.id];
+      if (!previous && raw.source !== "mutation" && floor &&
+          (observedAt < floor.at || floor.inclusive && observedAt === floor.at)) continue;
       // An older timeline response must not undo a newer successful like/unlike.
       if (previous && previous.observedAt > observedAt) continue;
       if (previous?.source === "mutation" && previous.observedAt === observedAt &&
           raw.source !== "mutation") continue;
       put(state,"likes",key,{
         ...previous,
+        ...(likeEvidence(previous) || raw.liked || raw.source === "mutation" ? {interactionEvidence:true} : {}),
         id:raw.id, actorId:actor.id, liked:raw.liked, observedAt, seenAt:now,
         source:raw.source === "mutation" ? "mutation" : "snapshot"
       });

@@ -16,8 +16,8 @@ function setup() {
   const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
   function node() {
     const attributes = new Map();
-    const el = { children:[],isConnected:false,hidden:false,disabled:false,textContent:'',
-      setAttribute:(key,value) => attributes.set(key,value),
+    const el = { children:[],isConnected:false,hidden:false,disabled:false,textContent:'',writes:0,
+      setAttribute:(key,value) => {el.writes++;attributes.set(key,value);},
       getAttribute:key => attributes.get(key) ?? null,
       hasAttribute:key => attributes.has(key),removeAttribute:key => attributes.delete(key),
       closest:() => null,getBoundingClientRect:() => ({ top:el.top ?? 120,height:157 }),
@@ -38,15 +38,18 @@ function setup() {
       },
       get previousElementSibling() { return this.parentElement?.children[this.parentElement.children.indexOf(this)-1]; }
     };
+    for (const key of ['disabled','title','textContent']) {
+      let value=el[key];Object.defineProperty(el,key,{get:()=>value,set:next=>{el.writes++;value=next;}});
+    }
     created.push(el); return el;
   }
   const header = node(); header.isConnected = true;
   const settings = node(); header.append(settings);
   const article = node(); article.isConnected = true; article.id = '123';
-  const env = { mode:"completed",enabled:true,auto:false,modal:false,hidden:false,complete:true,cards:[article],calls:0,jobs:[],accountReads:0 };
+  const env = { mode:"completed",enabled:true,auto:false,modal:false,hidden:false,complete:true,cards:[article],calls:0,jobs:[],accountReads:0,cardScans:0,layoutChecks:0 };
   const primary = { contains:card => env.cards.includes(card),
     querySelector:() => ({ parentElement:settings }),
-    querySelectorAll:() => env.cards };
+    querySelectorAll:() => {env.cardScans++;return env.cards;} };
   const location = { pathname:'/notifications' };
   const window = { innerHeight:720,scrollY:0,addEventListener:listen };
   const context = vm.createContext({ window,location,Date:{ now:() => now },
@@ -62,7 +65,7 @@ function setup() {
       if (env.failSaveAuto) throw new Error('failed');
       env.auto = value;
     },
-    ready:() => true,holdLayout:() => env.modal,save:async value => {
+    ready:() => true,holdLayout:() => {env.layoutChecks++;return env.modal;},save:async value => {
       if (env.failSave) throw new Error("failed");
       env.enabled = value !== "off"; env.mode = value;
     },
@@ -292,4 +295,27 @@ test('回复框打开或切离通知时不能恢复背景布局',async()=>{
   assert.ok(article.hasAttribute('data-xrc-notification-hidden'));
   env.modal=false;location.pathname='/home';
   assert.equal(filter.hiddenSummary().total,0);assert.equal(filter.restoreHidden(),false);
+});
+
+test('未变的标题栏反复刷新不重写DOM，状态变化仍即时生效',async()=>{
+ const {env,filter,control}=setup();await filter.refresh();
+ const controls=['xrc-notification-controls','xrc-notification-filter','xrc-notification-replied','xrc-filter-apply','xrc-filter-auto'].map(control);
+ const before=controls.reduce((n,c)=>n+c.writes,0);env.cardScans=0;env.layoutChecks=0;
+ for(let i=0;i<100;i++)await filter.refresh();
+ const writes=controls.reduce((n,c)=>n+c.writes,0)-before;
+ assert.equal(writes,0,'不应重复写入相同属性');
+ assert.equal(env.calls,1,'分类复用保持不变');assert.equal(env.cardScans,100,'每轮只读取一次当前卡片快照');
+ assert.ok(env.layoutChecks<=300,'每次渲染只检查一次弹窗布局');
+ const selected=control('xrc-notification-filter');selected.setAttribute('aria-pressed','false');await filter.refresh();
+ assert.equal(selected.getAttribute('aria-pressed'),'true','读取实际DOM值，外部改动仍能修正');
+ env.modal=true;await filter.refresh();assert.equal(selected.disabled,true);
+ env.modal=false;await filter.refresh();assert.equal(selected.disabled,false);
+});
+test('只复用当前同步轮次的卡片，新挂载与复用节点仍重新核对',async()=>{
+ const {env,filter,article,makeCard}=setup();await filter.refresh();
+ env.cardScans=0;await filter.refresh();assert.equal(env.cardScans,1);
+ const replacement=makeCard('123',100);env.cards=[replacement];filter.requestApply();await filter.refresh();
+ assert.equal(replacement.getAttribute('data-xrc-notification-hidden'),'123');
+ replacement.id='456';filter.syncKnown();assert.equal(replacement.hasAttribute('data-xrc-notification-hidden'),false);
+ assert.equal(article.hasAttribute('data-xrc-notification-hidden'),false);
 });

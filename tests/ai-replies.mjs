@@ -68,6 +68,12 @@ document.querySelector('#run').addEventListener('click',async event=>{
     await new Promise(resolve=>setTimeout(resolve,80));
     for(let i=0;i<100;i++)ai.refresh();
     check('默认关闭自动补全，打开和刷新均不请求模型',calls.length===0&&!document.querySelector('.xrc-ai-ghost'));
+    await wait(()=>document.querySelector('.xrc-flow-profile')?.getAttribute('href')==='https://x.com/alice');
+    const noOpWatch=new MutationObserver(()=>{});
+    noOpWatch.observe(document.querySelector('.xrc-continuous'),{subtree:true,attributes:true,childList:true,characterData:true});
+    for(let i=0;i<100;i++)flow.refresh();
+    const noOpWrites=noOpWatch.takeRecords().length;noOpWatch.disconnect();
+    check('空闲控件100次刷新不产生重复DOM变更',noOpWrites===0);
     const quickButtons=[...document.querySelectorAll('.xrc-quick-reply')];
     check('六组词句与快捷键均显示',quickButtons.length===6&&quickButtons.every((b,i)=>b.getAttribute('aria-keyshortcuts')==='Alt+'+(i+1)&&b.textContent.endsWith(String(i+1))));
     for(let i=0;i<6;i++) {
@@ -98,6 +104,10 @@ document.querySelector('#run').addEventListener('click',async event=>{
     const prevented=!key('œ',{altKey:true,code:'KeyQ'});
     key('1',{altKey:true,code:'Digit1'});
     await wait(()=>aiButton.getAttribute('aria-busy')==='true');
+    const busyWatch=new MutationObserver(()=>{});busyWatch.observe(document.querySelector('.xrc-continuous'),{subtree:true,attributes:true,childList:true,characterData:true});
+    for(let i=0;i<100;i++)flow.refresh();
+    const busyWrites=busyWatch.takeRecords().length;busyWatch.disconnect();
+    check('AI等待期间100次刷新不重复写入禁用状态',busyWrites===0);
     const busyBox=aiButton.getBoundingClientRect();
     check('AI生成中显示转圈文字且按钮位置行高不变',aiButton.textContent.includes('生成中')&&getComputedStyle(aiButton,'::before').visibility==='visible'&&idleBox.x===busyBox.x&&idleBox.y===busyBox.y&&idleBox.width===busyBox.width&&idleHeight===tools.getBoundingClientRect().height);
     key('œ',{altKey:true,code:'KeyQ',repeat:true});key('q',{altKey:true,code:'KeyQ'});

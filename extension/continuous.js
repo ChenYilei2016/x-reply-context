@@ -52,13 +52,39 @@
     }
 
     function feedColumn(s) {
-      return document.querySelector(s.feed === "home" ? PRIMARY_COLUMN : columnSelector);
+      return document.querySelector(s.feed === "notifications" ? columnSelector : PRIMARY_COLUMN);
     }
 
     function selectedHomeTab(primary) {
       const tabs = Array.from(primary?.querySelectorAll('[role="tab"]') || []);
       const index = tabs.findIndex(tab => tab.getAttribute("aria-selected") === "true");
       return index === 0 || index === 1 ? index : -1;
+    }
+
+    function tabPath(tab) {
+      const link = tab?.matches("a[href]") ? tab : tab?.querySelector("a[href]");
+      if (!link) return "";
+      try {
+        const url = new URL(link.getAttribute("href"),location.href);
+        return url.origin === location.origin ? url.pathname.replace(/\/$/,"").toLowerCase() : "";
+      } catch { return ""; }
+    }
+
+    function profileTabs(primary,root) {
+      // Positive profile identity: both Posts and Replies links must belong to this owner.
+      const tabs = Array.from(primary?.querySelectorAll('[role="tab"]') || []);
+      return tabs.some(tab => tabPath(tab) === root) &&
+        tabs.some(tab => tabPath(tab) === root+"/with_replies") ? tabs : [];
+    }
+
+    function profileEntry(primary) {
+      const path = location.pathname.replace(/\/$/,"").toLowerCase();
+      const match = path.match(/^\/([a-z0-9_]{1,15})(?:\/with_replies)?$/);
+      if (!match) return null;
+      const root = "/"+match[1];
+      const tabs = profileTabs(primary,root);
+      const selected = tabs.find(tab => tab.getAttribute("aria-selected") === "true");
+      return tabs.length && selected && tabPath(selected) === path ? { root,path } : null;
     }
 
     function articles(s) {
@@ -148,6 +174,13 @@
         const selected = tabs.find(tab => tab.getAttribute("aria-selected") === "true");
         return tabs.length > 0 && (!selected || selected === tabs[s.homeTabIndex]);
       }
+      if (s.feed === "profile") {
+        const path = location.pathname.replace(/\/$/,"").toLowerCase();
+        if (path !== s.profile.path && !/^\/compose(?:\/|$)/.test(path)) return false;
+        const tabs = profileTabs(feedColumn(s),s.profile.root);
+        const selected = tabs.find(tab => tab.getAttribute("aria-selected") === "true");
+        return tabs.length > 0 && (!selected || tabPath(selected) === s.profile.path);
+      }
       return /^\/(?:notifications|compose)(?:\/|$)/.test(location.pathname);
     }
 
@@ -155,8 +188,9 @@
       if (article.closest(COMPOSER)) return "";
       if (/^\/notifications(?:\/|$)/.test(location.pathname) && article.closest(columnSelector)) return "notifications";
       const primary = document.querySelector(PRIMARY_COLUMN);
-      return /^\/home\/?$/.test(location.pathname) && primary?.contains(article) &&
-        selectedHomeTab(primary) >= 0 ? "home" : "";
+      if (!primary?.contains(article)) return "";
+      if (/^\/home\/?$/.test(location.pathname) && selectedHomeTab(primary) >= 0) return "home";
+      return profileEntry(primary) ? "profile" : "";
     }
 
     function start(article,feed) {
@@ -164,8 +198,11 @@
       const id = tweetId(article);
       const account = accountHandle();
       if (!id || !account) return;
+      const profile = feed === "profile" ? profileEntry(document.querySelector(PRIMARY_COLUMN)) : null;
+      if (feed === "profile" && !profile) return;
       finish();
       session = {
+        profile,
         account,feed,homeTabIndex:feed === "home" ? selectedHomeTab(document.querySelector(PRIMARY_COLUMN)) : -1,
         handled:new Set(),current:{ id,article },phase:"ready",
         note:"从当前页选择，略过已回复。",attempt:null
@@ -261,7 +298,7 @@
             eligible(byId.get(id)) && enabled(article.querySelector('[data-testid="reply"]')))?.[0] || "";
         }
         if (!nextId) {
-          finish(`当前已加载的${s.feed === "home" ? "主页帖子" : "通知"}处理完成。加载更多后，从任一条继续。`);
+          finish(`当前已加载的${s.feed === "notifications" ? "通知" : "主页帖子"}处理完成。加载更多后，从任一条继续。`);
           return;
         }
         s.current = { id:nextId,article:candidates.find(([id]) => id === nextId)?.[1] };
@@ -407,7 +444,7 @@
       if (handle) profile.href = `https://x.com/${handle}`;
       else profile.removeAttribute("href");
       profile.setAttribute("aria-disabled",String(!handle));
-      profile.title = handle ? `在新标签页打开当前回复对象 @${handle} 的主页，保留此回复框。` :
+      profile.title = handle ? `在单个伴随窗口查看 @${handle}；已有窗口只唤起，不刷新或换人。换人前请保存并关闭旧窗口。` :
         "尚未读取到当前回复对象的账号，暂不能打开主页。";
     }
 
@@ -426,11 +463,28 @@
         }
         const profile = document.createElement("a");
         profile.className = "xrc-flow-profile";
-        profile.textContent = "他的主页 ↗";
+        profile.textContent = "伴随主页 ↗";
         profile.target = "_blank";
         profile.rel = "noopener noreferrer";
         profile.setAttribute("aria-disabled","true");
         profile.title = "正在确认当前回复对象的账号";
+        profile.addEventListener("click",async event => {
+          if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+          event.preventDefault(); event.stopPropagation();
+          if (!currentSession(s) || profile.getAttribute("aria-disabled") === "true" ||
+              profile.getAttribute("aria-busy") === "true") return;
+          const handle = s.current.context?.authorHandle;
+          if (!/^[a-zA-Z0-9_]{1,15}$/.test(handle || "")) return;
+          profile.setAttribute("aria-busy","true");
+          try {
+            const result = await message({type:"COMPANION_OPEN",handle});
+            if (result.handle && result.handle.toLowerCase() !== handle.toLowerCase() && currentSession(s)) {
+              showNotice("已唤起原伴随窗口，保留其页面和草稿。换人前请保存并关闭旧窗口，再打开。",null,true);
+            }
+          } catch (error) {
+            if (currentSession(s)) showNotice(error.message,null,true);
+          } finally { profile.removeAttribute("aria-busy"); }
+        });
         context.append(profile);
         bar.append(context);
       }
@@ -569,7 +623,7 @@
         if (aiButton.getAttribute("aria-busy")!==active) aiButton.setAttribute("aria-busy",active);
       }
       const busy = draftBusy(s) || s.current.quickPending === true;
-      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : ""}已处理 ${s.handled.size} 条 · ${phase ? `AI ${aiLabels[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
+      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : s.feed === "profile" ? "个人主页 · " : ""}已处理 ${s.handled.size} 条 · ${phase ? `AI ${aiLabels[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;
       const active=String(Boolean(phase));
@@ -582,22 +636,28 @@
       if (heart.textContent !== heartText) heart.textContent = heartText;
       const pressed = String(liked);
       if (heart.getAttribute("aria-pressed") !== pressed) heart.setAttribute("aria-pressed",pressed);
-      heart.disabled = !canAct || !enabled(native);
-      heart.title = native ?
+      const heartDisabled = !canAct || !enabled(native);
+      if (heart.disabled !== heartDisabled) heart.disabled = heartDisabled;
+      const heartTitle = native ?
         `${liked ? "取消" : "给"}当前正在回复的这条帖子${liked ? "的点赞" : "点赞"}，不影响文字回复或下一条；结果以 X 原生状态为准。` :
         "当前帖子已移出列表或缺少原生红心控件，请关闭回复框后从列表重新打开。";
-      bar.querySelector(".xrc-flow-skip").disabled = !canAct || busy;
+      if (heart.title !== heartTitle) heart.title = heartTitle;
+      const skip = bar.querySelector(".xrc-flow-skip"), skipDisabled = !canAct || busy;
+      if (skip.disabled !== skipDisabled) skip.disabled = skipDisabled;
       const send = bar.querySelector(".xrc-flow-send");
       const sendText = s.phase === "sent" ? "下一条" : s.phase === "liking" ? "点赞中…" : s.phase === "send-delay" ? "等待发送…" : s.phase === "sending" ? "发送中…" : "点赞发送下条";
       if (send.textContent !== sendText) send.textContent = sendText;
       const single = singleReply(dialog);
       const editor = dialog.querySelector(EDITOR);
+      const quickDisabled = !canAct || busy || !single || s.current.composing === true ||
+        !editor || editor.getAttribute("aria-disabled") === "true";
       for (const button of bar.querySelectorAll(".xrc-quick-reply,.xrc-ai-recommend")) {
-        button.disabled = !canAct || busy || !single || s.current.composing === true ||
-          !editor || editor.getAttribute("aria-disabled") === "true";
+        if (button.disabled !== quickDisabled) button.disabled = quickDisabled;
       }
-      send.disabled = busy || (s.phase !== "sent" && (!canAct || !enabled(native) || !enabled(dialog.querySelector(SEND)) || !single));
-      send.title = single ? "先点赞（已点不重复），成功并保存记录后随机等待200～500ms，再发送；发送成功后进入下一条。" : "请先完成多条帖子编辑，再使用连续回复。";
+      const sendDisabled = busy || (s.phase !== "sent" && (!canAct || !enabled(native) || !enabled(dialog.querySelector(SEND)) || !single));
+      if (send.disabled !== sendDisabled) send.disabled = sendDisabled;
+      const sendTitle = single ? "先点赞（已点不重复），成功并保存记录后随机等待200～500ms，再发送；发送成功后进入下一条。" : "请先完成多条帖子编辑，再使用连续回复。";
+      if (send.title !== sendTitle) send.title = sendTitle;
     }
 
     function refresh() {
@@ -688,6 +748,8 @@
         const tabs = Array.from(feedColumn(session)?.querySelectorAll('[role="tab"]') || []);
         if (tabs.includes(tab) && tab !== tabs[session.homeTabIndex]) finish();
       }
+      if (tab && session?.feed === "profile" && feedColumn(session)?.contains(tab) &&
+          tabPath(tab) !== session.profile.path) finish();
       if (beforeSend(session) && target?.closest(COMPOSER) && session.current.dialog?.contains(target) &&
           !target.closest(".xrc-flow-send")) stopLikeSend(session,"操作已变化，已取消组合发送；草稿保留。");
       const close = target?.closest(CLOSE);

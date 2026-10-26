@@ -40,9 +40,11 @@
       if (!stableReading || !primary || !enabled() || !account) return;
       if (layoutAccount && layoutAccount !== account) reset();
       layoutAccount = account;
-      for (const { article,id } of cardsIn(primary)) {
+      const cards = cardsIn(primary);
+      for (const { article,id } of cards) {
         if (layouts.has(id)) setHidden(article,id,layouts.get(id));
       }
+      return {primary,account,cards};
     }
 
     const belowReadingArea = article => article.getBoundingClientRect().top > window.innerHeight+600;
@@ -60,14 +62,15 @@
     }
 
     async function refresh() {
-      syncKnown();
+      const synced = syncKnown();
       if (applyBelowAllowed && !applyBelowAllowed()) cancelApplyBelow();
       // Keep native controls mounted and the background steady while composing.
       if (holdLayout()) return;
       const primary = column();
       const account = accountHandle();
       if (!enabled() || !primary || !account) { reset(); return; }
-      const cards = cardsIn(primary);
+      // This snapshot was read in the same synchronous turn; never retain it across refreshes.
+      const cards = synced?.primary === primary && synced.account === account ? synced.cards : cardsIn(primary);
       const nextSignature = account+":"+cards.map(card => card.id).join(",");
       const observedRevision = revision;
       const rows = signature === nextSignature ? decisions : new Map();

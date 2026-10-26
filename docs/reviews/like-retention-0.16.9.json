@@ -1,0 +1,21 @@
+{
+  "fixture": true,
+  "initialPositiveLikes": 1,
+  "initialReplyGroups": 1,
+  "unlikedSnapshots": 10000,
+  "unlikeActions": 0,
+  "results": [
+    {
+      "version": "0.16.8",
+      "positiveLikes": 0,
+      "replyGroups": 1,
+      "allLikeRecords": 10000
+    },
+    {
+      "version": "0.16.9",
+      "positiveLikes": 1,
+      "replyGroups": 1,
+      "allLikeRecords": 10000
+    }
+  ]
+}

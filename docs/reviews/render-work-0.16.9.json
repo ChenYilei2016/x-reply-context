@@ -1,0 +1,22 @@
+{
+  "baselineVersion": "0.16.8",
+  "before": {
+    "fixture": true,
+    "ref": "HEAD",
+    "unchangedRefreshes": 100,
+    "propertyWrites": 3000,
+    "cardScans": 200,
+    "layoutChecks": 900,
+    "classifyCallsIncludingWarmup": 1
+  },
+  "after": {
+    "fixture": true,
+    "ref": "worktree",
+    "unchangedRefreshes": 100,
+    "propertyWrites": 0,
+    "cardScans": 100,
+    "layoutChecks": 300,
+    "classifyCallsIncludingWarmup": 1
+  },
+  "note": "Controlled DOM fixture call counts, not real browser frame time."
+}

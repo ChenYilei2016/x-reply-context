@@ -70,7 +70,7 @@
         else store.delete(change.key);
       }
       transaction.objectStore("metadata").put({ key:"state",value:{
-        version:state.version,accounts:state.accounts,updatedAt:state.updatedAt,initialized:true
+        version:state.version,accounts:state.accounts,likeSnapshotFloors:state.likeSnapshotFloors || {},updatedAt:state.updatedAt,initialized:true
       } });
       await done;
       for (const change of changes) {
@@ -94,7 +94,7 @@
         if (metadata.value.version !== 1 || collections.some(rows => rows.length > limit)) {
           throw new Error("本地记录格式或数量异常，请保留原记录后检查");
         }
-        const state = { version:1,accounts:metadata.value.accounts,updatedAt:metadata.value.updatedAt };
+        const state = { version:1,accounts:metadata.value.accounts,likeSnapshotFloors:metadata.value.likeSnapshotFloors || {},updatedAt:metadata.value.updatedAt };
         COLLECTIONS.forEach((name,index) => {
           state[name] = Object.fromEntries(collections[index].map(row => [row.key,row.value]));
           snapshots.set(name,new Map(Object.entries(state[name])));
