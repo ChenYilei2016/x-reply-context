@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="590" viewBox="0 0 960 590" role="img" aria-labelledby="title desc">
+<title id="title">通知不离开，旁边看看他的主页</title>
+<desc id="desc">两个独立窗口的示意图，位置不代表自动分屏。原通知回复框保留草稿；单个伴随窗口加载 X 原生主页。同一个人只唤起，换人复用原窗口导航；不会检查右侧草稿。</desc>
+<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif">
+<rect x="0" y="0" width="960" height="590" rx="22" fill="#f3f7fc" stroke="none"/>
+<text x="32" y="49" font-size="32" fill="#0f172a" font-weight="700" text-anchor="start">通知不离开，旁边看看他的主页</text>
+<text x="32" y="84" font-size="21" fill="#536471" font-weight="400" text-anchor="start">两个独立窗口 · 位置仅为示意，不是页面内嵌</text>
+<rect x="32" y="110" width="422" height="360" rx="16" fill="#fff" stroke="#d2dce8"/>
+<rect x="32" y="110" width="422" height="46" rx="15" fill="#e7edf5" stroke="none"/>
+<text x="55" y="141" font-size="22" fill="#0f172a" font-weight="650" text-anchor="start">原通知窗口</text>
+<text x="421" y="141" font-size="25" fill="#687780" font-weight="400" text-anchor="start">×</text>
+<text x="56" y="198" font-size="22" fill="#536471" font-weight="400" text-anchor="start">回复 @朋友</text>
+<text x="56" y="246" font-size="25" fill="#0f172a" font-weight="400" text-anchor="start">谢谢分享，刚好也在研究！</text>
+<text x="56" y="284" font-size="22" fill="#536471" font-weight="400" text-anchor="start">这段草稿继续留在这里。</text>
+<rect x="56" y="320" width="110" height="42" rx="21" fill="#fff" stroke="none"/>
+<text x="111.0" y="349" font-size="22" fill="#536471" font-weight="600" text-anchor="middle">跳过</text>
+<rect x="181" y="320" width="242" height="42" rx="21" fill="#0969da" stroke="none"/>
+<text x="302.0" y="349" font-size="22" fill="#fff" font-weight="600" text-anchor="middle">点赞发送下条</text>
+<rect x="251" y="398" width="172" height="42" rx="21" fill="#e8f3ff" stroke="none"/>
+<text x="337.0" y="427" font-size="22" fill="#0969da" font-weight="600" text-anchor="middle">伴随主页 ↗</text>
+<text x="56" y="428" font-size="20" fill="#536471" font-weight="400" text-anchor="start">背景列表保留</text>
+<text x="480" y="308" font-size="29" fill="#7891a5" font-weight="600" text-anchor="middle">→</text>
+<rect x="506" y="110" width="422" height="360" rx="16" fill="#fff" stroke="#a9bfdc"/>
+<rect x="506" y="110" width="422" height="46" rx="15" fill="#dbeaff" stroke="none"/>
+<text x="530" y="141" font-size="22" fill="#0969da" font-weight="650" text-anchor="start">单个伴随窗口</text>
+<text x="895" y="141" font-size="25" fill="#687780" font-weight="400" text-anchor="start">×</text>
+<text x="530" y="199" font-size="25" fill="#0f172a" font-weight="650" text-anchor="start">朋友的 X 原生主页</text>
+<text x="530" y="235" font-size="21" fill="#536471" font-weight="400" text-anchor="start">帖子     回复</text>
+<rect x="530" y="254" width="374" height="1" rx="0" fill="#e5eaf0" stroke="none"/>
+<text x="530" y="293" font-size="23" fill="#0f172a" font-weight="400" text-anchor="start">最近做了一个有趣的小工具…</text>
+<rect x="530" y="310" width="132" height="42" rx="21" fill="#f3f7fc" stroke="none"/>
+<text x="596.0" y="339" font-size="20" fill="#536471" font-weight="600" text-anchor="middle">原生回复</text>
+<rect x="530" y="369" width="374" height="1" rx="0" fill="#e5eaf0" stroke="none"/>
+<text x="530" y="409" font-size="23" fill="#0f172a" font-weight="400" text-anchor="start">今天分享一个新发现…</text>
+<text x="530" y="443" font-size="20" fill="#536471" font-weight="400" text-anchor="start">接着使用现有主页回复工具栏</text>
+<rect x="32" y="495" width="280" height="42" rx="21" fill="#e5f4ed" stroke="none"/>
+<text x="172.0" y="524" font-size="22" fill="#147854" font-weight="600" text-anchor="middle">同一个人，只唤起</text>
+<rect x="340" y="495" width="280" height="42" rx="21" fill="#e5f4ed" stroke="none"/>
+<text x="480.0" y="524" font-size="22" fill="#147854" font-weight="600" text-anchor="middle">换人，复用原窗口</text>
+<rect x="648" y="495" width="280" height="42" rx="21" fill="#e5f4ed" stroke="none"/>
+<text x="788.0" y="524" font-size="22" fill="#147854" font-weight="600" text-anchor="middle">关闭窗口，释放页面</text>
+<text x="480" y="568" font-size="22" fill="#536471" font-weight="400" text-anchor="middle">换人前请保存右侧草稿；插件不检查草稿，左侧通知保持不动。</text>
+</g>
+</svg>

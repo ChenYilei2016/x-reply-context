@@ -1,30 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-labelledby="title desc">
-  <title id="title">回过了 · X 通知助手</title>
-  <desc id="desc">在 X 通知里区分自己的原帖和别人的原帖，并分别显示文字回复、红心状态。右侧是标签示意，完整口径在 README 正文。</desc>
-  <rect width="1200" height="340" rx="24" fill="#f6f8fa"/>
-  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
-    <g id="identity" fill="#0f1419">
-      <text x="52" y="65" fill="#536471" font-size="22" letter-spacing="2">X NOTIFICATION CONTEXT</text>
-      <text x="48" y="163" font-size="82" font-weight="750">回过了</text>
-      <text x="52" y="229" font-size="34" font-weight="550">回过、点过，一眼看清。</text>
-      <text x="52" y="284" fill="#536471" font-size="22">本地记录 · 同帖判断 · 逐条回复</text>
-    </g>
-    <g id="notification-context">
-      <path d="M570 108v124" fill="none" stroke="#d0d7de" stroke-width="3"/>
-      <circle cx="570" cy="108" r="8" fill="#0969da"/>
-      <circle cx="570" cy="232" r="8" fill="#7540b5"/>
-      <rect x="598" y="55" width="550" height="102" rx="16" fill="#fff" stroke="#d8dee4"/>
-      <rect x="620" y="75" width="116" height="37" rx="6" fill="#0969da"/>
-      <text x="678" y="102" fill="#fff" text-anchor="middle" font-size="25" font-weight="650">我原帖</text>
-      <text x="757" y="102" fill="#007b55" font-size="25" font-weight="600">文字-已回</text>
-      <text x="935" y="102" fill="#b5175b" font-size="25" font-weight="600">红心-已点</text>
-      <text x="620" y="140" fill="#536471" font-size="21">同一原帖里，已经回应过这个人</text>
-      <rect x="598" y="183" width="550" height="102" rx="16" fill="#fff" stroke="#d8dee4"/>
-      <rect x="620" y="203" width="140" height="37" rx="6" fill="#7540b5"/>
-      <text x="690" y="230" fill="#fff" text-anchor="middle" font-size="25" font-weight="650">别人原帖</text>
-      <text x="782" y="230" fill="#536471" font-size="25">文字-待确认</text>
-      <text x="620" y="268" fill="#536471" font-size="21">先看上下文，再决定是否回复</text>
-      <text x="1148" y="315" fill="#687780" text-anchor="end" font-size="16">标签示意</text>
-    </g>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+<title id="title">回过了 · 少点几次，把时间留给聊天</title>
+<desc id="desc">X 通知助手。查看互动记录，手动点赞发送下条，或打开单个伴随主页窗口。功能示意。</desc>
+<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif">
+<rect x="0" y="0" width="1200" height="360" rx="24" fill="#f3f7fc" stroke="none"/>
+<rect x="36" y="36" width="68" height="68" rx="18" fill="#0f172a" stroke="none"/>
+<text x="70" y="84" font-size="42" fill="#fff" font-weight="650" text-anchor="middle">X</text>
+<text x="124" y="65" font-size="30" fill="#0f172a" font-weight="700" text-anchor="start">回过了</text>
+<text x="124" y="96" font-size="22" fill="#536471" font-weight="400" text-anchor="start">X 通知助手</text>
+<text x="40" y="177" font-size="58" fill="#0f172a" font-weight="750" text-anchor="start">少点几次，</text>
+<text x="40" y="252" font-size="58" fill="#0f172a" font-weight="750" text-anchor="start">把时间留给聊天。</text>
+<text x="43" y="315" font-size="25" fill="#536471" font-weight="400" text-anchor="start">互动记录 · 逐条确认 · 草稿保留</text>
+<rect x="668" y="40" width="492" height="123" rx="16" fill="#fff" stroke="#dbe4ee"/>
+<text x="696" y="78" font-size="29" fill="#0f172a" font-weight="700" text-anchor="start">01 / 点赞发送下条</text>
+<text x="696" y="119" font-size="22" fill="#536471" font-weight="400" text-anchor="start">你确认这一条，成功后再到下一条。</text>
+<rect x="668" y="185" width="492" height="123" rx="16" fill="#fff" stroke="#dbe4ee"/>
+<text x="696" y="223" font-size="29" fill="#0f172a" font-weight="700" text-anchor="start">02 / 伴随主页</text>
+<text x="696" y="264" font-size="22" fill="#536471" font-weight="400" text-anchor="start">通知留在原处，旁边看看他的帖子。</text>
+<text x="1158" y="339" font-size="16" fill="#687780" font-weight="400" text-anchor="end">功能示意</text>
+</g>
 </svg>

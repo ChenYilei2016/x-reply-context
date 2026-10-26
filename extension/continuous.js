@@ -444,7 +444,7 @@
       if (handle) profile.href = `https://x.com/${handle}`;
       else profile.removeAttribute("href");
       profile.setAttribute("aria-disabled",String(!handle));
-      profile.title = handle ? `在单个伴随窗口查看 @${handle}；已有窗口只唤起，不刷新或换人。换人前请保存并关闭旧窗口。` :
+      profile.title = handle ? `在单个伴随窗口查看 @${handle}；同一个人只唤起，换人直接切换原窗口，不检查右侧草稿。` :
         "尚未读取到当前回复对象的账号，暂不能打开主页。";
     }
 
@@ -479,7 +479,7 @@
           try {
             const result = await message({type:"COMPANION_OPEN",handle});
             if (result.handle && result.handle.toLowerCase() !== handle.toLowerCase() && currentSession(s)) {
-              showNotice("已唤起原伴随窗口，保留其页面和草稿。换人前请保存并关闭旧窗口，再打开。",null,true);
+              showNotice("伴随窗口已按最近一次点击切换到其他对象；如需当前对象，请再点一次。",null,true);
             }
           } catch (error) {
             if (currentSession(s)) showNotice(error.message,null,true);

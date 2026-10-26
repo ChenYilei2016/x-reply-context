@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="470" viewBox="0 0 960 470" role="img" aria-labelledby="title desc">
+<title id="title">写好这一条，再点赞发送下条</title>
+<desc id="desc">功能示意，不是真实发送截图。手动确认后先点赞，确认并保存，再发送；回复成功保存后进入下一条。已有红心不重复点击，异常时暂停。</desc>
+<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif">
+<rect x="0" y="0" width="960" height="470" rx="22" fill="#f3f7fc" stroke="none"/>
+<text x="32" y="49" font-size="32" fill="#0f172a" font-weight="700" text-anchor="start">写好这一条，再继续下一条</text>
+<text x="928" y="47" font-size="17" fill="#687780" font-weight="400" text-anchor="end">功能示意</text>
+<rect x="32" y="76" width="896" height="213" rx="16" fill="#fff" stroke="#dbe4ee"/>
+<text x="58" y="116" font-size="23" fill="#536471" font-weight="400" text-anchor="start">回复 @朋友</text>
+<text x="58" y="159" font-size="29" fill="#0f172a" font-weight="400" text-anchor="start">这个思路挺有意思，一起加油！</text>
+<rect x="56" y="190" width="848" height="1" rx="0" fill="#e5eaf0" stroke="none"/>
+<rect x="56" y="215" width="148" height="42" rx="21" fill="#e8f3ff" stroke="none"/>
+<text x="130.0" y="244" font-size="22" fill="#0969da" font-weight="600" text-anchor="middle">推荐评论</text>
+<rect x="218" y="215" width="112" height="42" rx="21" fill="#fff" stroke="none"/>
+<text x="274.0" y="244" font-size="22" fill="#536471" font-weight="600" text-anchor="middle">♡ 点赞</text>
+<rect x="344" y="215" width="96" height="42" rx="21" fill="#fff" stroke="none"/>
+<text x="392.0" y="244" font-size="22" fill="#536471" font-weight="600" text-anchor="middle">跳过</text>
+<rect x="656" y="207" width="248" height="42" rx="21" fill="#0969da" stroke="none"/>
+<text x="780.0" y="236" font-size="25" fill="#fff" font-weight="600" text-anchor="middle">点赞发送下条</text>
+<text x="56" y="272" font-size="17" fill="#536471" font-weight="400" text-anchor="start">推荐内容需自行确认</text>
+<text x="780" y="273" font-size="17" fill="#536471" font-weight="400" text-anchor="middle">已点过，不重复点</text>
+<rect x="32" y="314" width="272" height="77" rx="16" fill="#e8f3ff" stroke="none"/>
+<text x="168" y="362" font-size="23" fill="#0969da" font-weight="650" text-anchor="middle">① 点赞确认并保存</text>
+<text x="320" y="362" font-size="25" fill="#7891a5" font-weight="400" text-anchor="middle">→</text>
+<rect x="344" y="314" width="272" height="77" rx="16" fill="#e8f3ff" stroke="none"/>
+<text x="480" y="362" font-size="23" fill="#0969da" font-weight="650" text-anchor="middle">② 回复发送并保存</text>
+<text x="632" y="362" font-size="25" fill="#7891a5" font-weight="400" text-anchor="middle">→</text>
+<rect x="656" y="314" width="272" height="77" rx="16" fill="#e5f4ed" stroke="none"/>
+<text x="792" y="362" font-size="23" fill="#147854" font-weight="650" text-anchor="middle">③ 打开下一条</text>
+<text x="480" y="439" font-size="23" fill="#536471" font-weight="400" text-anchor="middle">跳过不发送、不附带点赞；失败或结果不明时暂停。</text>
+</g>
+</svg>
