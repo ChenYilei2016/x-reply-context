@@ -38,7 +38,7 @@ function setup(savedSettings = {}) {
     chrome:{ runtime,storage:{ onChanged:{ addListener:callback => { storageChanged = callback; } },local:{ get:async () => savedSettings } } },
     XReplyHomeFilter:{ create:filter },XReplyNotificationFilter:{ create:options => { state.notificationOptions = options; return filter(); } },
     XReplyContinuous:{ create:options => { state.connected = options.connected; state.message = options.message; return {
-      refresh() { state.uiRenders++; },stop() { state.stopped++; },invalidateContext() {},receiveReply() { state.received = true; },receiveLike(data,saved) { state.likeReceipt=data;state.likeSaved=saved; }
+      refresh() { state.uiRenders++; state.renderedContextVersion=state.contextVersion || 0; },stop() { state.stopped++; },invalidateContext() { state.contextVersion=(state.contextVersion || 0)+1; },receiveReply() { state.received = true; },receiveLike(data,saved) { state.likeReceipt=data;state.likeSaved=saved; }
     }; } },
     MutationObserver:class { constructor(callback) { mutation = callback; } observe() {} disconnect() {} },
     setTimeout:(callback,delay) => { state.delays.push(delay); const id = ++taskId; tasks.set(id,callback); return id; },clearTimeout:id => tasks.delete(id),
@@ -189,4 +189,11 @@ test('组合点赞接收同一成功保存Promise和请求开始时间，不重�
  const previous=env.state.likeReceipt;
  env.message({type:'OBSERVED',interaction:true,account:'other',requestStartedAt:789,batch:{likes:[]}});
  assert.equal(env.state.likeReceipt,previous);
+});
+
+test('首次识别账号使旧资料失效后，主动刷新回复框，不等待用户再次输入',async()=>{
+  const env=setup();await env.flush();
+  assert.ok(env.state.contextVersion>0);
+  env.frame();
+  assert.equal(env.state.renderedContextVersion,env.state.contextVersion);
 });

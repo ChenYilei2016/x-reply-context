@@ -16,6 +16,8 @@
   const classifications = new Map();
   let continuous;
   let aiReplies;
+  let refreshCycle;
+  let interactionAlert;
   let hideCompletedHome = false;
   let homeSettingLoaded = false;
   let notificationHideMode = "off";
@@ -41,7 +43,7 @@
     disconnected = true;
     clearTimeout(timer); timer = undefined; pending.clear(); again = false;
     observer.disconnect();
-    continuous?.stop(); aiReplies?.stop();
+    continuous?.stop(); aiReplies?.stop(); refreshCycle?.cancel();
     if (networkNotice) networkNotice.hidden = true;
     // Pause without resetting filters: restoring hidden rows here would move the reading position.
     void notificationFilter.refresh();
@@ -303,7 +305,27 @@
     renderLabels(bar,result);
   }
 
-  function renderLabels(bar,result) {
+  function personBadges(stats) {
+    return [
+      ["我评他",stats?.myCommentedPosts,"你评论过他的几篇原帖"],
+      ["他评我",stats?.theirCommentedPosts,"他评论过你的几篇原帖"]
+    ].map(([label,count,description]) => {
+      const badge = document.createElement("span");
+      badge.className = "xrc-person";
+      badge.textContent = `${label} ${count ?? "待确认"}`;
+      badge.title = `${description}。同一篇下多次评论（含楼中楼）只算 1 篇；在自己或第三方原帖下回话、点赞均不计。只统计本地保留且已确认原帖作者的记录。`;
+      return badge;
+    });
+  }
+
+  function renderPersonStats(bar,stats) {
+    const signature = JSON.stringify([stats?.myCommentedPosts,stats?.theirCommentedPosts]);
+    if (bar.dataset.signature === signature) return;
+    bar.dataset.signature = signature;
+    bar.replaceChildren(...personBadges(stats));
+  }
+
+  function renderLabels(bar,result,includePersonStats = true) {
     const signature = JSON.stringify(result);
     if (bar.dataset.signature === signature) return;
     bar.dataset.signature = signature;
@@ -333,18 +355,7 @@
         "已给这个人在同一原帖中的另一条帖子点过红心。点击查看依据；若是旧记录，状态以 X 当前显示为准。") :
       "当前记录没有确认你给这个人在同一原帖中点过红心，不代表从未点赞。";
     labels.push(status,heart);
-    if (result.personStats) {
-      for (const [label,count,description] of [
-        ["我评他",result.personStats.myCommentedPosts,"你评论过他的几篇原帖"],
-        ["他评我",result.personStats.theirCommentedPosts,"他评论过你的几篇原帖"]
-      ]) {
-        const badge = document.createElement("span");
-        badge.className = "xrc-person";
-        badge.textContent = `${label} ${count}`;
-        badge.title = `${description}。同一篇下多次评论（含楼中楼）只算 1 篇；在自己或第三方原帖下回话、点赞均不计。只统计本地保留且已确认原帖作者的记录。`;
-        labels.push(badge);
-      }
-    }
+    if (includePersonStats && result.personStats) labels.push(...personBadges(result.personStats));
     labels.push(result.rootId ? link("原帖",result.rootId) : link("查看上下文",result.id));
     const main = document.createElement("div");
     main.className = "xrc-main-labels";
@@ -375,6 +386,8 @@
         document.querySelectorAll('article[data-testid="tweet"] .xrc-labels').forEach(node => node.remove());
         lastAccount = account;
         invalidateAnnotations();
+        // The first composer read may predate account detection; don't wait for another DOM event.
+        scheduleControls();
         homeFilter.reset();
         notificationFilter.reset();
       }
@@ -420,8 +433,14 @@
     }
   }
 
-  aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,requestRefresh:scheduleControls});
-  continuous = globalThis.XReplyContinuous?.create({ accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor),aiPhase:editor => aiReplies?.phase(editor) || "" });
+  interactionAlert = globalThis.XReplyInteractionAlert?.create({accountHandle,
+    onPause:()=>{continuous?.pauseForAlert();refreshCycle?.cancel();},
+    onRelease:()=>continuous?.stop()});
+  aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,requestRefresh:scheduleControls,
+    rootOwnership:editor=>continuous?.rootOwnership(editor) || "unknown"});
+  refreshCycle = globalThis.XReplyRefreshCycle?.create({storage:chrome.storage,message,accountHandle,requestRefresh:scheduleControls,
+    resume:(intent,valid)=>continuous.resumeRecommended(intent,valid),notify:text=>continuous?.notify(text)});
+  continuous = globalThis.XReplyContinuous?.create({refreshCycle,interactionBlocked:()=>interactionAlert?.blocked()===true, accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels:(bar,row) => renderLabels(bar,row,false),renderPersonStats,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor),aiPhase:editor => aiReplies?.phase(editor) || "" });
 
   window.addEventListener("message", event => {
     if (event.source !== window || event.origin !== location.origin ||
@@ -432,6 +451,7 @@
       publishNetworkSettings();
       return;
     }
+    if (event.data.type === "INTERACTION_ALERT") {interactionAlert?.show(event.data);return;}
     if (event.data.type === "NOTIFICATION_FILTER_STATUS") {
       networkStatus = event.data; schedule(); return;
     }
@@ -526,7 +546,7 @@
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
     if (!connected()) return;
-    const owned = ".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice";
+    const owned = ".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice,.xrc-interaction-alert";
     const relevant = '[data-testid="primaryColumn"],[role="dialog"],[aria-modal="true"],a[data-testid="AppTabBar_Profile_Link"]';
     if (records.some(record => !record.target.closest?.(owned) &&
         (record.target.closest?.(relevant) || [...(record.addedNodes || []),...(record.removedNodes || [])]

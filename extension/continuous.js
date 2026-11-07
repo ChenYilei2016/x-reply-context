@@ -36,11 +36,12 @@
     (row.status === "not-reply" ? row.origin !== "mine" :
       !["replied","self","not-reply"].includes(row.status));
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,requestRefresh,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "" }) {
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,renderPersonStats = () => {},requestRefresh,refreshCycle,interactionBlocked = () => false,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "" }) {
     let session;
     let notice;
     let noticeTimer;
     let internalClose = false;
+    let internalHeart = false;
     let openingId = "";
     let rewriteNode;
     let rewriteWatch;
@@ -85,6 +86,36 @@
       const tabs = profileTabs(primary,root);
       const selected = tabs.find(tab => tab.getAttribute("aria-selected") === "true");
       return tabs.length && selected && tabPath(selected) === path ? { root,path } : null;
+    }
+
+    function searchKey(value) {
+      try {
+        const url = new URL(value,location.href);
+        if (url.origin !== location.origin || !["","live"].includes(url.searchParams.get("f") || "")) return "";
+        if (url.pathname !== "/search") {
+          const match = url.pathname.match(/^\/hashtag\/([^/]+)\/?$/);
+          if (!match) return "";
+          const tag = decodeURIComponent(match[1]);
+          if (!tag || /[\s/#?]/u.test(tag)) return "";
+          url.searchParams.set("q","#"+tag);
+        }
+        if (!url.searchParams.get("q")?.trim()) return "";
+        // Search source is tracking; the query, filter and result tab define the list.
+        url.searchParams.delete("src");
+        url.searchParams.sort();
+        return url.searchParams.toString();
+      } catch { return ""; }
+    }
+
+    function searchTabs(primary) {
+      return Array.from(primary?.querySelectorAll('a[role="tab"][href]') || [])
+        .map(tab => ({tab,key:searchKey(tab.getAttribute("href"))}));
+    }
+
+    function searchEntry(primary) {
+      const key = searchKey(location.href);
+      return key && searchTabs(primary).some(item => item.key === key &&
+        item.tab.getAttribute("aria-selected") === "true") ? key : "";
     }
 
     function articles(s) {
@@ -166,13 +197,29 @@
       if (text) showNotice(text,null,true);
     }
 
+    function pauseForAlert() {
+      const s=session;if(!s)return;
+      clearTimeout(s.timeout);s.autoAdvance=false;
+      if(s.afterReply)s.afterReply.cancelled=true;
+      s.phase="alert-paused";s.note="X 返回异常，已暂停；请先查看红色提示。";
+      clearNotice();if(s.current.dialog?.isConnected)render(s);
+    }
+
     function currentSession(s) {
-      if (!connected() || session !== s || accountHandle() !== s.account || !feedColumn(s)) return false;
+      if (interactionBlocked() || !connected() || session !== s || accountHandle() !== s.account || !feedColumn(s)) return false;
       if (s.feed === "home") {
         if (!/^\/(?:home|compose)(?:\/|$)/.test(location.pathname)) return false;
         const tabs = [...feedColumn(s).querySelectorAll('[role="tab"]')];
         const selected = tabs.find(tab => tab.getAttribute("aria-selected") === "true");
         return tabs.length > 0 && (!selected || selected === tabs[s.homeTabIndex]);
+      }
+      if (s.feed === "search") {
+        if (location.pathname === "/search" || location.pathname.startsWith("/hashtag/")) {
+          if (searchKey(location.href) !== s.searchKey) return false;
+        } else if (!/^\/compose(?:\/|$)/.test(location.pathname)) return false;
+        const tabs = searchTabs(feedColumn(s));
+        const selected = tabs.find(item => item.tab.getAttribute("aria-selected") === "true");
+        return tabs.some(item => item.key === s.searchKey) && (!selected || selected.key === s.searchKey);
       }
       if (s.feed === "profile") {
         const path = location.pathname.replace(/\/$/,"").toLowerCase();
@@ -190,24 +237,65 @@
       const primary = document.querySelector(PRIMARY_COLUMN);
       if (!primary?.contains(article)) return "";
       if (/^\/home\/?$/.test(location.pathname) && selectedHomeTab(primary) >= 0) return "home";
+      if (searchEntry(primary)) return "search";
       return profileEntry(primary) ? "profile" : "";
     }
 
     function start(article,feed) {
-      if (!connected()) return;
+      if (!connected() || interactionBlocked()) return;
       const id = tweetId(article);
       const account = accountHandle();
       if (!id || !account) return;
       const profile = feed === "profile" ? profileEntry(document.querySelector(PRIMARY_COLUMN)) : null;
       if (feed === "profile" && !profile) return;
+      const search = feed === "search" ? searchEntry(document.querySelector(PRIMARY_COLUMN)) : "";
+      if (feed === "search" && !search) return;
+      refreshCycle?.cancel();
       finish();
       session = {
-        profile,
+        profile,searchKey:search,
         account,feed,homeTabIndex:feed === "home" ? selectedHomeTab(document.querySelector(PRIMARY_COLUMN)) : -1,
         handled:new Set(),current:{ id,article },phase:"ready",
         note:"从当前页选择，略过已回复。",attempt:null
       };
       refresh();
+    }
+
+    async function resumeRecommended(intent,valid) {
+      if (interactionBlocked() || !valid() || session || location.pathname !== "/home") return "paused";
+      const primary=document.querySelector(PRIMARY_COLUMN);
+      const tabs=Array.from(primary?.querySelectorAll('[role="tab"]') || []);
+      if (!tabs.length) return "waiting";
+      const selected=selectedHomeTab(primary);
+      if (selected!==0) {
+        if (!intent.switched && tabs.some(tab=>tab.getAttribute("aria-selected")==="true")) {intent.switched=true;tabs[0].click();}
+        return "waiting";
+      }
+      const candidates=[...new Map(articles({feed:"home"}).map(article=>[tweetId(article),article]))]
+        .filter(([id,article])=>id&&enabled(article.querySelector('[data-testid="reply"]'))).slice(0,100);
+      if (!candidates.length) return "waiting";
+      const signature=contextRevision+":"+candidates.map(([id])=>id).join(",");
+      if (intent.lastCheck===signature) return "waiting";
+      intent.lastCheck=signature;
+      const result=await message({type:"CLASSIFY",account:intent.account,ids:candidates.map(([id])=>id)});
+      if (!valid() || session || location.pathname!=="/home" || selectedHomeTab(primary)!==0) return "paused";
+      if (result.recognized===false) return "waiting";
+      const rows=new Map(result.rows.map(row=>[row.id,row]));
+      const next=candidates.find(([id,article])=>article.isConnected&&tweetId(article)===id&&
+        rows.get(id)?.authorHandle && rows.get(id).authorHandle!==intent.account && rows.get(id).personStats &&
+        eligible(rows.get(id))&&enabled(article.querySelector('[data-testid="reply"]')));
+      if (!next) return candidates.some(([id])=>!rows.get(id)?.authorHandle ||
+        rows.get(id).authorHandle!==intent.account && !rows.get(id).personStats)?"waiting":"empty";
+      start(next[1],"home");
+      if (!session || session.current.id!==next[0])return "paused";
+      session.phase="opening";openCurrent(session);return "opened";
+    }
+
+    function rootOwnership(editor) {
+      const s=session;
+      if (!s || !currentSession(s) || s.current.dialog?.querySelector(EDITOR)!==editor ||
+          s.current.context?.id!==s.current.id) return "unknown";
+      return s.current.context.origin || "unknown";
     }
 
     function hasDraft(dialog) {
@@ -272,13 +360,24 @@
     }
 
     async function advance(s) {
-      if (!currentSession(s) || s.phase === "advancing") return;
+      if (interactionBlocked() || !currentSession(s) || s.phase === "advancing") return;
+      if (s.phase === "refreshing") return;
       s.handled.add(s.current.id);
+      if (refreshCycle?.due(s)) {
+        s.phase="refreshing";clearNotice();
+        const result=await refreshCycle.refresh(s,()=>currentSession(s)&&s.phase==="refreshing"&&!composer());
+        if (!currentSession(s)) return;
+        if (result==="navigating") return;
+        if (result==="paused") {
+          s.phase="sent";s.autoAdvance=false;s.note="已达到换批次数。"+(refreshCycle.pauseMessage() || "本次刷新已暂停，请核对页面状态后继续。");
+          showNotice(s.note,{label:"继续换一批",run:()=>advance(s)});return;
+        }
+      }
       await selectNext(s);
     }
 
     async function selectNext(s) {
-      if (!currentSession(s) || s.phase === "advancing") return;
+      if (interactionBlocked() || !currentSession(s) || s.phase === "advancing") return;
       s.phase = "advancing";
       clearTimeout(s.timeout);
       s.attempt = null;
@@ -298,7 +397,7 @@
             eligible(byId.get(id)) && enabled(article.querySelector('[data-testid="reply"]')))?.[0] || "";
         }
         if (!nextId) {
-          finish(`当前已加载的${s.feed === "notifications" ? "通知" : "主页帖子"}处理完成。加载更多后，从任一条继续。`);
+          finish(`当前已加载的${s.feed === "notifications" ? "通知" : s.feed === "search" ? "搜索结果" : "主页帖子"}处理完成。加载更多后，从任一条继续。`);
           return;
         }
         s.current = { id:nextId,article:candidates.find(([id]) => id === nextId)?.[1] };
@@ -334,61 +433,77 @@
       },8000);
     }
 
-    const beforeSend = s => s && ["liking","send-delay"].includes(s.phase);
-    function stopLikeSend(s,note,uncertain = false) {
-      if (session!==s || !beforeSend(s)) return;
-      clearTimeout(s.timeout);s.likeSend=null;
-      s.phase=uncertain?"uncertain":"failed";s.note=note;render(s);
+    const postReplyPhase = s => s && ["like-delay","liking"].includes(s.phase);
+
+    function stopAfterReply(s,note) {
+      if (!s || session !== s || !s.afterReply) return;
+      s.afterReply.cancelled = true;
+      if (!postReplyPhase(s)) return; // Keep waiting for an in-flight reply receipt; never enable a resend.
+      clearTimeout(s.timeout);
+      s.phase = "sent"; s.autoAdvance = false; s.note = note;
+      clearNotice(); refresh();
     }
 
-    function validLikeSend(s,operation) {
-      return currentSession(s) && s.likeSend===operation && s.current===operation.current &&
-        !document.hidden && operation.editor?.isConnected && s.current.dialog===composer() &&
-        s.current.dialog.querySelector(EDITOR)===operation.editor && operation.editor.innerText===operation.draft &&
-        !s.current.composing && !s.current.quickPending && !draftBusy(s);
+    function validAfterReply(s,operation) {
+      if (!currentSession(s) || s.afterReply !== operation || s.current !== operation.current ||
+          operation.cancelled || document.hidden) return false;
+      const dialog = composer();
+      if (dialog && dialog !== s.current.dialog) return false;
+      if (dialog && (s.current.composing || s.current.quickPending || draftBusy(s))) return false;
+      const text = dialog?.querySelector(EDITOR)?.innerText || "";
+      return !text.trim() || text === operation.draft;
     }
 
-    function waitThenSend(s,operation) {
-      if (!validLikeSend(s,operation)) {stopLikeSend(s,"编辑状态已变化，未发送；请再次确认。");return;}
-      clearTimeout(s.timeout);s.phase="send-delay";
-      s.note="已点赞，稍候发送…";render(s);
-      s.timeout=setTimeout(()=>{
-        if (!validLikeSend(s,operation)) {stopLikeSend(s,"编辑状态已变化，未发送；请再次确认。");return;}
-        const heart=nativeHeart(s),submit=s.current.dialog.querySelector(SEND);
-        if (heart?.getAttribute("data-testid")!=="unlike" || !enabled(submit) || !singleReply(s.current.dialog)) {
-          stopLikeSend(s,"点赞或回复状态已变化，未发送；请核对后重试。");return;
-        }
-        s.likeSend=null;s.phase="ready";sendNext(s);
-      },200+Math.floor(Math.random()*301));
-    }
-
-    function likeSendNext(s) {
-      if (!currentSession(s) || draftBusy(s) || s.current.quickPending) return;
-      if (s.phase==="sent") {closeForNext(s);return;}
-      const dialog=s.current.dialog,submit=dialog?.querySelector(SEND),heart=nativeHeart(s);
-      if (!["ready","failed"].includes(s.phase) || !enabled(submit) || !singleReply(dialog) || s.current.composing) return;
-      if (!enabled(heart)) {s.note="找不到本帖可用的点赞按钮，未发送。";render(s);return;}
-      if (heart.getAttribute("data-testid")==="unlike" && s.current.heartPending) {
-        s.note="上一笔点赞尚未确认，未发送；请稍候或重新打开核对。";render(s);return;
+    function completeAfterReply(s,operation) {
+      if (!validAfterReply(s,operation)) {
+        stopAfterReply(s,"评论已发送，后续操作已停止；核对后可继续下一条。");return;
       }
-      const editor=dialog.querySelector(EDITOR);
-      const operation=s.likeSend={current:s.current,editor,draft:editor.innerText,clickedAt:Date.now(),settled:false};
-      s.phase="liking";s.note="正在点赞，确认成功后再发送…";render(s);
-      if (heart.getAttribute("data-testid")==="unlike") {waitThenSend(s,operation);return;}
-      s.timeout=setTimeout(()=>stopLikeSend(s,"点赞结果未确认，未发送。请核对后重新打开回复框。",true),10000);
-      s.current.heartPending={startedAt:operation.clickedAt};
-      heart.click();
+      clearTimeout(s.timeout);s.afterReply=null;
+      s.phase="sent";s.autoAdvance=true;s.note="评论与点赞已确认，正在进入下一条…";
+      clearNotice();refresh();
+    }
+
+    function waitThenLike(s,operation) {
+      s.phase="like-delay";s.autoAdvance=false;
+      if (!validAfterReply(s,operation)) {
+        stopAfterReply(s,"评论已发送，后续点赞已取消；核对后可继续下一条。");return;
+      }
+      s.note="评论已发送，稍候点赞…";clearNotice();refresh();
+      s.timeout=setTimeout(()=>{
+        if (!validAfterReply(s,operation)) {
+          stopAfterReply(s,"评论已发送，页面或编辑状态已变化，未继续点赞。");return;
+        }
+        const heart=nativeHeart(s);
+        if (!enabled(heart)) {
+          stopAfterReply(s,"评论已发送，但原帖已移出列表或点赞按钮不可用；可手动继续下一条。");return;
+        }
+        if (heart.getAttribute("data-testid")==="unlike") {
+          if (s.current.heartPending) {
+            stopAfterReply(s,"评论已发送，已有点赞尚未确认；请核对后继续下一条。");return;
+          }
+          completeAfterReply(s,operation);return;
+        }
+        operation.likeStartedAt=Date.now();operation.settled=false;
+        s.phase="liking";s.note="评论已发送，正在点赞…";
+        s.current.heartPending={startedAt:operation.likeStartedAt};
+        clearNotice();refresh();
+        s.timeout=setTimeout(()=>stopAfterReply(s,"评论已发送，点赞结果未确认；不会重发评论或重试点赞，可核对后继续下一条。"),10000);
+        internalHeart=true;
+        try {heart.click();} finally {internalHeart=false;}
+      },300+Math.floor(Math.random()*451));
     }
 
     async function receiveLike(data,saved) {
+      if(interactionBlocked())return;
       const s=session,current=s?.current;
       if (!s || !currentSession(s) || data.account!==s.account || !Number.isFinite(data.requestStartedAt) || !saved) return;
       const likes=Array.isArray(data.batch?.likes)?data.batch.likes:[];
       const like=likes.slice(0,500).find(row=>row?.id===current.id && typeof row.liked==="boolean" && row.source==="mutation");
       if (!like) return;
-      const pending=current.heartPending,operation=s.likeSend;
+      const pending=current.heartPending,operation=s.afterReply;
       const settlesPending=pending && data.requestStartedAt>=pending.startedAt;
-      const settlesOperation=operation && s.phase==="liking" && !operation.settled && like.liked && data.requestStartedAt>=operation.clickedAt;
+      const settlesOperation=operation && !operation.cancelled && s.phase==="liking" &&
+        !operation.settled && like.liked && data.requestStartedAt>=operation.likeStartedAt;
       if (!settlesPending && !settlesOperation) return;
       if (settlesOperation) operation.settled=true;
       try {
@@ -396,9 +511,11 @@
         if (session===s && s.current===current && settlesPending && current.heartPending===pending) {
           current.heartPending=null;requestRefresh();
         }
-        if (settlesOperation && s.likeSend===operation && s.phase==="liking") waitThenSend(s,operation);
+        if (settlesOperation && s.afterReply===operation && s.phase==="liking") completeAfterReply(s,operation);
       } catch {
-        if (settlesOperation && s.likeSend===operation) stopLikeSend(s,"点赞已成功，但本地记录未保存；未发送，请核对后再操作。",true);
+        if (settlesOperation && s.afterReply===operation) {
+          stopAfterReply(s,"评论已发送，点赞成功但记录未保存；请核对后继续，不要重发评论。");
+        }
       }
     }
 
@@ -410,9 +527,10 @@
       const submit = dialog?.querySelector(SEND);
       if (!["ready","failed"].includes(s.phase) || !enabled(submit) || !singleReply(dialog)) return;
       s.saveClicked = false;
+      s.afterReply = {current:s.current,draft:dialog.querySelector(EDITOR).innerText,cancelled:false};
       s.attempt = { parentId:s.current.id,clickedAt:Date.now(),requestId:"" };
       s.phase = "sending";
-      s.note = "发送中，确认成功后进入下一条…";
+      s.note = "发送中，确认并保存后再点赞…";
       render(s);
       s.timeout = setTimeout(() => {
         if (session !== s || s.phase !== "sending") return;
@@ -430,6 +548,7 @@
     }
 
     function updateContext(context,row) {
+      renderPersonStats(context.parentElement.querySelector(".xrc-flow-people"),row.personStats);
       const labels = context.querySelector(".xrc-labels");
       if (labels) renderLabels(labels,row);
       const preview = context.parentElement.querySelector(".xrc-flow-root");
@@ -496,12 +615,21 @@
         preview.textContent = "原帖：读取本地缓存…";
         context.after(preview);
       }
+      let people = bar.querySelector(".xrc-flow-people");
+      if (!people) {
+        people = document.createElement("div");
+        people.className = "xrc-flow-people";
+        people.setAttribute("aria-label","当前回复对象 · 本地互动原帖数");
+        renderPersonStats(people,null);
+        bar.append(people);
+      }
       const current = s.current;
       if (current.context && (current.renderedContext !== context || current.renderedRow !== current.context)) {
         updateContext(context,current.context);
         current.renderedContext = context; current.renderedRow = current.context;
       }
       const revision = contextRevision;
+      refreshCycle?.render(s,bar);
       if (current.contextRevision === revision) return;
       current.contextRevision = revision;
       // Local classification only; never resolve the profile from the conversation's root author.
@@ -570,7 +698,8 @@
         const send = document.createElement("button");
         send.type = "button";
         send.className = "xrc-flow-send";
-        send.addEventListener("click",() => likeSendNext(s));
+        send.setAttribute("aria-keyshortcuts","Alt+Enter");
+        send.addEventListener("click",() => sendNext(s));
         const tools = document.createElement("div"); tools.className="xrc-reply-tools";
         const quickReplies = document.createElement("div");
         quickReplies.className = "xrc-quick-replies";
@@ -623,7 +752,7 @@
         if (aiButton.getAttribute("aria-busy")!==active) aiButton.setAttribute("aria-busy",active);
       }
       const busy = draftBusy(s) || s.current.quickPending === true;
-      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : s.feed === "profile" ? "个人主页 · " : ""}已处理 ${s.handled.size} 条 · ${phase ? `AI ${aiLabels[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
+      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : s.feed === "profile" ? "个人主页 · " : s.feed === "search" ? "搜索 · " : ""}已处理 ${s.handled.size} 条 · ${phase ? `AI ${aiLabels[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;
       const active=String(Boolean(phase));
@@ -645,7 +774,7 @@
       const skip = bar.querySelector(".xrc-flow-skip"), skipDisabled = !canAct || busy;
       if (skip.disabled !== skipDisabled) skip.disabled = skipDisabled;
       const send = bar.querySelector(".xrc-flow-send");
-      const sendText = s.phase === "sent" ? "下一条" : s.phase === "liking" ? "点赞中…" : s.phase === "send-delay" ? "等待发送…" : s.phase === "sending" ? "发送中…" : "点赞发送下条";
+      const sendText = s.phase === "sent" ? "下一条" : s.phase === "liking" ? "点赞中…" : s.phase === "like-delay" ? "等待点赞…" : s.phase === "sending" ? "发送中…" : "评论点赞下条";
       if (send.textContent !== sendText) send.textContent = sendText;
       const single = singleReply(dialog);
       const editor = dialog.querySelector(EDITOR);
@@ -654,16 +783,17 @@
       for (const button of bar.querySelectorAll(".xrc-quick-reply,.xrc-ai-recommend")) {
         if (button.disabled !== quickDisabled) button.disabled = quickDisabled;
       }
-      const sendDisabled = busy || (s.phase !== "sent" && (!canAct || !enabled(native) || !enabled(dialog.querySelector(SEND)) || !single));
+      const sendDisabled = busy || (s.phase !== "sent" && (!canAct || !enabled(dialog.querySelector(SEND)) || !single));
       if (send.disabled !== sendDisabled) send.disabled = sendDisabled;
-      const sendTitle = single ? "先点赞（已点不重复），成功并保存记录后随机等待200～500ms，再发送；发送成功后进入下一条。" : "请先完成多条帖子编辑，再使用连续回复。";
+      const sendTitle = single ? "先发送评论，确认成功并保存后等待300～750ms，再点赞（已点不重复）；点赞确认保存后进入下一条。快捷键：Option/Alt+Enter（仅回复输入框）。" : "请先完成多条帖子编辑，再使用连续回复。";
       if (send.title !== sendTitle) send.title = sendTitle;
     }
 
     function refresh() {
       if (!connected()) return;
       const s = session;
-      if (!s) return;
+      if (interactionBlocked()) {if(s && s.phase!=="alert-paused")pauseForAlert();return;}
+      if (!s) {void refreshCycle?.tick();return;}
       if (!currentSession(s)) { finish(); return; }
       const dialog = composer();
       if (s.phase === "closing") {
@@ -679,13 +809,13 @@
         }
         return;
       }
-      if (s.phase === "advancing" || s.phase === "paused" || s.phase === "draft-check") return;
+      if (s.phase === "advancing" || s.phase === "paused" || s.phase === "draft-check" || s.phase === "refreshing") return;
       if (dialog && !s.current.dialog) {
         s.current.dialog = dialog;
         if (s.phase === "opening") { clearTimeout(s.timeout); s.phase = "ready"; }
       } else if (!dialog && s.current.dialog) {
         if (s.phase === "sent" && s.autoAdvance) { void advance(s); return; }
-        if (["sending","uncertain","sent"].includes(s.phase)) {
+        if (["sending","uncertain","sent","like-delay","liking"].includes(s.phase)) {
           if (!notice) showNotice(s.note,{ label:s.phase === "sent" ? "下一条" : "结束连续回复",
             run:() => s.phase === "sent" ? advance(s) : finish() });
           return;
@@ -697,6 +827,7 @@
     }
 
     async function receiveReply(data,saved) {
+      if(interactionBlocked())return;
       const s = session;
       const attempt = s?.attempt;
       if (!s || !attempt || !currentSession(s) || data.account !== s.account ||
@@ -728,10 +859,14 @@
       try {
         await saved;
         if (!currentSession(s) || s.attempt !== attempt) return;
-        s.phase = "sent";
-        s.autoAdvance = autoAdvance;
-        s.note = autoAdvance ? "已发送，正在进入下一条…" : "已确认发送成功，点击下一条继续。";
-        refresh();
+        refreshCycle?.record(s,tweet.id);
+        if (autoAdvance && s.afterReply && !s.afterReply.cancelled) {
+          waitThenLike(s,s.afterReply);
+        } else {
+          s.phase = "sent";s.autoAdvance = false;
+          s.note = "已确认发送成功，后续点赞已停止；点击下一条继续。";
+          clearNotice();refresh();
+        }
       } catch {
         if (session !== s) return;
         s.phase = "uncertain";
@@ -748,10 +883,15 @@
         const tabs = Array.from(feedColumn(session)?.querySelectorAll('[role="tab"]') || []);
         if (tabs.includes(tab) && tab !== tabs[session.homeTabIndex]) finish();
       }
+      if (tab && session?.feed === "search" && feedColumn(session)?.contains(tab) &&
+          searchKey(tab.getAttribute("href")) !== session.searchKey) finish();
       if (tab && session?.feed === "profile" && feedColumn(session)?.contains(tab) &&
           tabPath(tab) !== session.profile.path) finish();
-      if (beforeSend(session) && target?.closest(COMPOSER) && session.current.dialog?.contains(target) &&
-          !target.closest(".xrc-flow-send")) stopLikeSend(session,"操作已变化，已取消组合发送；草稿保留。");
+      if (postReplyPhase(session) && !internalHeart &&
+          (target?.closest('[data-testid="like"],[data-testid="unlike"]') ||
+           target?.closest(COMPOSER) && session.current.dialog?.contains(target) && !target.closest(".xrc-flow-send"))) {
+        stopAfterReply(session,"评论已发送，你已进行其他操作；后续点赞和跳转停止。");
+      }
       const close = target?.closest(CLOSE);
       if (close && session && !internalClose && close.closest(COMPOSER) === composer()) { finish(); return; }
       const reply = target?.closest('[data-testid="reply"]');
@@ -763,36 +903,42 @@
       start(article,feed);
     },true);
     document.addEventListener("visibilitychange",()=>{
-      if (document.hidden && beforeSend(session)) stopLikeSend(session,"页面已切到后台，未发送；请回来后再次确认。");
+      if (document.hidden) stopAfterReply(session,"评论已发送，页面已切到后台；后续操作停止。");
     });
-    window.addEventListener("pagehide",()=>{if(beforeSend(session))finish();});
+    window.addEventListener("pagehide",()=>{if(session?.afterReply)finish();});
     document.addEventListener("input",event => {
       if (session?.current.dialog?.contains(event.target)) {
-        stopLikeSend(session,"草稿已变化，未发送；请再次确认。");requestRefresh();
+        // X clears its editor after success; a new nonempty draft cancels the remaining steps.
+        if (event.isTrusted || session.current.dialog.querySelector(EDITOR)?.innerText.trim()) {
+          stopAfterReply(session,"评论已发送，编辑内容已变化；后续操作停止。");
+        }
+        requestRefresh();
       }
     });
     for (const name of ["compositionstart","compositionend"]) {
       document.addEventListener(name,event => {
         if (session?.current.dialog?.contains(event.target)) {
           session.current.composing = name === "compositionstart";
-          if (session.current.composing) stopLikeSend(session,"正在编辑草稿，已取消组合发送。");
+          if (session.current.composing) stopAfterReply(session,"评论已发送，正在编辑新内容；后续操作停止。");
           requestRefresh();
         }
       });
     }
     document.addEventListener("keydown",event => {
       const shortcutModifier = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+      const sendKey = shortcutModifier && event.key === "Enter";
       const recommendKey = shortcutModifier && (event.code === "KeyQ" || event.key.toLowerCase() === "q");
       const digit = shortcutModifier ? event.code.match(/^Digit([1-6])$/)?.[1] || event.key.match(/^[1-6]$/)?.[0] : "";
-      const nativeSend = event.key==="Enter" && (event.ctrlKey || event.metaKey) && beforeSend(session);
-      if (!recommendKey && !digit && !nativeSend && event.key !== "Tab" && event.key !== "Escape") return;
+      const nativeSend = event.key==="Enter" && (event.ctrlKey || event.metaKey) && postReplyPhase(session);
+      if (!sendKey && !recommendKey && !digit && !nativeSend && event.key !== "Tab" && event.key !== "Escape") return;
       const editor = event.target instanceof Element ? event.target.closest(EDITOR) : null;
       if (nativeSend && editor && session.current.dialog?.contains(editor)) {
-        stopLikeSend(session,"已转为原生发送，停止组合操作。");return;
+        stopAfterReply(session,"已转为原生操作，停止后续点赞与跳转。");return;
       }
-      if ((recommendKey || digit) && session && editor && session.current.dialog?.contains(editor) && currentSession(session)) {
+      if ((sendKey || recommendKey || digit) && session && editor && session.current.dialog?.contains(editor) && currentSession(session)) {
         if (event.isComposing || event.keyCode === 229 || session.current.composing) return;
-        const button = recommendKey ? session.current.dialog.querySelector(".xrc-ai-recommend") :
+        const button = sendKey ? session.current.dialog.querySelector(".xrc-flow-send") :
+          recommendKey ? session.current.dialog.querySelector(".xrc-ai-recommend") :
           session.current.dialog.querySelectorAll(".xrc-quick-reply")[Number(digit)-1];
         if (!button) return;
         event.preventDefault();event.stopImmediatePropagation();
@@ -812,7 +958,7 @@
         requestAnimationFrame(() => { if (session === s && !composer()) finish(); });
       }
     },true);
-    return { refresh,receiveReply,receiveLike,stop:finish,invalidateContext:() => { contextRevision++; } };
+    return { refresh,pauseForAlert,receiveReply,receiveLike,resumeRecommended,rootOwnership,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
   }
 
   globalThis.XReplyContinuous = { create };

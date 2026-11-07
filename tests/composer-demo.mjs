@@ -99,7 +99,7 @@ export function installComposerDemo({ state,core,addNotification }) {
   function open(targetId) {
     const target = state.tweets[targetId];
     if (!target || dialog) return;
-    returnPath = location.pathname;
+    returnPath = location.pathname+location.search;
     sourceTab = document.querySelector('[data-testid="primaryColumn"] [role="tab"][aria-selected="true"]');
     dialog = document.createElement("div");
     dialog.className = "demo-composer";

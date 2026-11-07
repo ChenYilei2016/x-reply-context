@@ -1,6 +1,9 @@
-importScripts("core.js","storage.js","ai-config.js","ai-service.js","companion.js");
+importScripts("core.js","storage.js","ai-config.js","ai-service.js","companion.js","refresh-cycle.js");
 let aiService;
 let companion;
+let refreshCycle;
+function refreshCycles() {return refreshCycle ||= globalThis.XReplyRefreshCycle.createBackground(chrome);}
+chrome.tabs?.onRemoved?.addListener(id=>{void refreshCycles().removed(id).catch(()=>{});});
 function companionWindow() {
   return companion ||= globalThis.XReplyCompanion.create(chrome);
 }
@@ -76,6 +79,10 @@ async function handleMessage(message) {
 
 chrome.runtime.onMessage.addListener((message,sender,sendResponse) => {
   if (!allowedSender(sender) || !message || typeof message !== "object") return false;
+  if (["REFRESH_ARM","REFRESH_TAKE","REFRESH_CANCEL"].includes(message.type)) {
+    void refreshCycles().handle(message,sender).then(sendResponse,()=>sendResponse({ok:false,error:"自动换批状态暂不可用。"}));
+    return true;
+  }
   if (message.type === "COMPANION_OPEN") {
     void companionWindow().open(message,sender).then(sendResponse);
     return true;

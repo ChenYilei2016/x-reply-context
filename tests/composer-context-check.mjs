@@ -59,7 +59,7 @@ export async function checkComposerContext() {
     mode.value = 'missing-author'; mode.dispatchEvent(new Event('change',{bubbles:true}));
     carol.querySelector('[data-testid="reply"]').click();
     await wait(() => profile()?.title.includes('尚未读取'));
-    check("缺少作者时保留统计，主页入口不可用",context().querySelector('.xrc-person') && !profile().hasAttribute('href'));
+    check("缺少作者时保留统计，主页入口不可用",document.querySelector('.xrc-flow-people .xrc-person') && !profile().hasAttribute('href'));
     document.querySelector('[data-testid="app-bar-close"]').click();
     mode.value = 'delayed'; mode.dispatchEvent(new Event('change',{bubbles:true}));
     card("2112500000000000004").querySelector('[data-testid="reply"]').click();

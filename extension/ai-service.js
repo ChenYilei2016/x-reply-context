@@ -75,8 +75,10 @@
         if (!await chrome.permissions.contains({origins:[config.originPattern(url)]})) throw new Error("模型域名尚未授权，请在 AI 设置中保存配置。");
         if (job.cancelled) return {ok:false,cancelled:true};
         const template = job.message.kind === "rewrite" ? saved.rewritePrompt : saved.generatePrompt;
-        const values = {post:job.message.post,draft:job.message.kind === "rewrite" ? job.message.draft : ""};
-        const prompt = template.replace(/\$\{(post|draft)\}/g,(_,key) => values[key]);
+        const rootOwnership = job.message.rootOwnership === "mine" ? "我的原帖" :
+          job.message.rootOwnership === "others" ? "别人的原帖" : "待确认";
+        const values = {post:job.message.post,draft:job.message.kind === "rewrite" ? job.message.draft : "",rootOwnership};
+        const prompt = template.replace(/\$\{(post|draft|rootOwnership)\}/g,(_,key) => values[key]);
         const response = await fetch(url.href,{
           method:"POST",redirect:"error",credentials:"omit",signal:job.controller.signal,
           headers:{"Content-Type":"application/json",Authorization:`Bearer ${saved.apiKey}`},

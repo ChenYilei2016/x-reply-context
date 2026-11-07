@@ -87,13 +87,14 @@
     const parentId = await context.replyParent;
     if (!parentId || !context.account || context.account !== currentAccount()) return;
     let batch;
+    const warning=responseWarning(payload,context);
     if (payload) {
       const result = payload.data?.[REPLY_RESULTS[context.operation]]?.tweet_results?.result;
       const parsed = core.extract(payload);
       const createdId = core.id(result?.rest_id || result?.tweet?.rest_id || result?.legacy?.id_str);
       const tweet = parsed.tweets.find(item => item.id === createdId && item.parentId === parentId);
       const user = tweet && parsed.users.find(item => item.id === tweet.authorId && item.handle === context.account);
-      if (!payload.errors?.length && tweet && user) {
+      if (!warning.hasErrors && tweet && user) {
         status = "sent";
         batch = {
           users:[user,...parsed.users.filter(item => item.id !== user.id)],
@@ -101,12 +102,38 @@
           likes:parsed.likes.map(like => ({ ...like,account:context.account,
             observedAt:context.observedAt,source:"snapshot" }))
         };
-      } else status = payload.errors?.length && !createdId ? "failed" : "unknown";
+      } else status = warning.hasErrors && !createdId ? "failed" : "unknown";
+    }
+    if (status!=="sent" || warning.present) {
+      await interactionAlert(context,{payload,reason:status==="sent"?"warning":status});
     }
     window.postMessage({ channel:CHANNEL,type:"REPLY_RESULT",parentId,
       account:context.account,requestId:context.requestId,startedAt:context.observedAt,status,
       batch:batch && Object.fromEntries(Object.entries(batch).map(([name,items]) => [name,items.slice(0,500)])) },location.origin);
     return status === "sent" ? batch : null;
+  }
+
+  function responseWarning(payload,context) {
+    const result=payload?.data?.[REPLY_RESULTS[context.operation]]?.tweet_results?.result;
+    const operationResult=payload?.data?.[REPLY_RESULTS[context.operation]];
+    const errors=[payload?.errors,operationResult?.errors,result?.errors].flatMap(items=>Array.isArray(items)?items.slice(0,3):[]);
+    const entries=[...errors,...[payload?.warnings,operationResult?.warnings,result?.warnings]
+      .flatMap(items=>Array.isArray(items)?items.slice(0,3):[])];
+    const messages=entries.map(item=>typeof item === "string" ? item : item?.message)
+      .filter(text=>typeof text === "string").map(text=>text.slice(0,240));
+    const code=entries.find(item=>typeof item?.code === "number" || typeof item?.code === "string")?.code;
+    return {present:entries.length>0,hasErrors:errors.length>0,message:messages.join("；").slice(0,600),code:code===undefined?"":String(code).slice(0,40)};
+  }
+
+  async function interactionAlert(context,{status=context.httpStatus || 0,payload,reason="unknown",retryAfter=""}={}) {
+    if ((!context.reaction && !REPLY_RESULTS[context.operation]) || context.alerted) return;
+    const targetId=await (context.reaction?context.tweetId:context.replyParent);
+    if (!targetId || !context.account || context.account!==currentAccount() || context.alerted) return;
+    context.alerted=true;
+    const warning=responseWarning(payload,context);
+    window.postMessage({channel:CHANNEL,type:"INTERACTION_ALERT",account:context.account,
+      operation:context.operation,targetId,httpStatus:status,reason,code:warning.code,
+      message:warning.message,retryAfter:String(retryAfter || "").slice(0,100)},location.origin);
   }
 
   function flush() {
@@ -132,7 +159,7 @@
         const saved = await replyResult(context,"unknown",payload);
         // The created reply stays in the immediate batch; extra context uses normal bounded batches.
         if (saved) batch = Object.fromEntries(Object.entries(saved).map(([name,items]) => [name,items.slice(500)]));
-        else if (payload.errors?.length) return;
+        else if (payload?.errors?.length || await context.replyParent) return;
       }
       batch ||= core.extract(payload);
       let likes = batch.likes;
@@ -142,6 +169,10 @@
         const key = context.operation === "FavoriteTweet" ? "favorite_tweet" : "unfavorite_tweet";
         likes = !payload.errors?.length && payload.data?.[key] === "Done" && tweetId ?
           [{ id:tweetId,liked:context.operation === "FavoriteTweet",observedAt:responseAt }] : [];
+        if (!likes.length || responseWarning(payload,context).present) {
+          await interactionAlert(context,{payload,reason:likes.length?"warning":payload?.errors?.length?"failed":"unknown"});
+        }
+        if (!likes.length) return;
         if (ready) {
           if (likes.length && context.account && context.account === currentAccount()) {
             window.postMessage({ channel:CHANNEL,type:"OBSERVED",interaction:true,account:context.account,requestStartedAt:context.observedAt,
@@ -180,6 +211,7 @@
       if (!timer && (pendingUsers.size || pendingTweets.size || pendingLikes.size)) timer = setTimeout(flush,200);
     } catch {
       // A changed X response must not interfere with the original request.
+      void interactionAlert(context);
       void replyResult(context,"unknown");
     }
   }
@@ -193,11 +225,11 @@
   });
   window.postMessage({ channel:CHANNEL,type:"OBSERVER_READY" },location.origin);
 
-  async function responsePayload(response) {
-    if (!response.ok) return null;
+  async function responsePayload(response,limit=MAX_BYTES,allowError=false) {
+    if (!response.ok && !allowError) return null;
     if (!response.body ||
         !response.headers.get("content-type")?.includes("json") ||
-        Number(response.headers.get("content-length")) > MAX_BYTES) {
+        Number(response.headers.get("content-length")) > limit) {
       return null;
     }
     const reader = response.clone().body.getReader();
@@ -209,7 +241,7 @@
         const { value, done } = await reader.read();
         if (done) break;
         bytes += value.byteLength;
-        if (bytes > MAX_BYTES) {
+        if (bytes > limit) {
           void reader.cancel().catch(() => {});
           return null;
         }
@@ -222,10 +254,18 @@
   }
 
   async function readResponse(response,context) {
-    if (!response.ok) { void replyResult(context,failureStatus(response.status)); return; }
+    context.httpStatus=response.status;
+    if (!response.ok) {
+      // Read only a bounded JSON error body; the native response stays untouched.
+      const payload=(context.reaction || REPLY_RESULTS[context.operation])?
+        await responsePayload(response,64*1024,true):null;
+      await interactionAlert(context,{status:response.status,payload,reason:failureStatus(response.status),
+        retryAfter:response.headers.get("retry-after")});
+      void replyResult(context,failureStatus(response.status));return;
+    }
     const payload = await responsePayload(response);
     if (payload) await accept(payload,context);
-    else void replyResult(context,"unknown");
+    else {await interactionAlert(context);void replyResult(context,"unknown");}
   }
 
   const notificationNetwork = globalThis.XReplyNotificationNetwork?.create({
@@ -255,7 +295,7 @@
     if (method === "GET" && notificationNetwork?.handles(context)) return notificationNetwork.fetch(args,context,send);
     const responsePromise = send();
     if (context) void responsePromise.then(response => readResponse(response,context))
-      .catch(() => replyResult(context,"unknown"));
+      .catch(() => {void interactionAlert(context,{reason:"network"});return replyResult(context,"unknown");});
     return responsePromise;
   };
 
@@ -278,17 +318,26 @@
       if (context.reaction) context.tweetId = reactionId(args[0]);
       watchReply(context,args[0]);
       const active = () => requestContexts.get(this) === context;
-      const failed = () => { if (active()) void replyResult(context,"unknown"); cleanup(); };
+      const failed = () => { if (active()) {void interactionAlert(context,{reason:"network"});void replyResult(context,"unknown");} cleanup(); };
       const loaded = () => {
         if (!active()) return;
-        if (this.status < 200 || this.status >= 300) { void replyResult(context,failureStatus(this.status)); return; }
+        context.httpStatus=this.status;
+        if (this.status < 200 || this.status >= 300) {
+          let payload;
+          try {
+            if (this.responseType==="json") payload=this.response;
+            else if ((!this.responseType || this.responseType==="text") && this.responseText.length<=64*1024) payload=JSON.parse(this.responseText);
+          } catch { /* HTTP status still identifies a failed or uncertain operation. */ }
+          void interactionAlert(context,{status:this.status,payload,reason:failureStatus(this.status),retryAfter:this.getResponseHeader?.("retry-after")});
+          void replyResult(context,failureStatus(this.status));return;
+        }
         try {
           const value = key => notificationNetwork ? notificationNetwork.originalXHR(this,key) : this[key];
           if (this.responseType === "json") void accept(value("response"),context);
           else if ((!this.responseType || this.responseType === "text") &&
                    value("responseText").length <= MAX_BYTES) void accept(JSON.parse(value("responseText")),context);
-          else void replyResult(context,"unknown");
-        } catch { void replyResult(context,"unknown"); }
+          else {void interactionAlert(context);void replyResult(context,"unknown");}
+        } catch {void interactionAlert(context);void replyResult(context,"unknown");}
       };
       const cleanup = () => {
         for (const event of ["error","abort","timeout"]) this.removeEventListener(event,failed);

@@ -81,3 +81,16 @@ test('自动补全默认关闭，独立开关不改接口配置或阻止手动�
   assert.equal((await service.handle({type:'AI_STATUS'},sender)).autoComplete,false);
   assert.equal((await request('manual-again')).ok,true);assert.equal(calls.length,2);
 });
+
+
+test('原帖归属变量在生成与改写中替换，未知值不猜测，不递归展开正文',async()=>{
+ const {request,calls,chrome}=setup();
+ const template='${rootOwnership}|${post}|${draft}';
+ await chrome.storage.local.set({aiConfig:{...config,generatePrompt:template,rewritePrompt:template}});
+ for(const [origin,label] of [['mine','我的原帖'],['others','别人的原帖'],['unknown','待确认'],[undefined,'待确认'],['constructor','待确认']]) {
+  for(const kind of ['generate','rewrite']) {
+   await request('case-'+calls.length,{kind,rootOwnership:origin,post:'正文${rootOwnership}',draft:'草稿'});
+   assert.equal(JSON.parse(calls.at(-1)[1].body).messages[0].content,label+'|正文${rootOwnership}|'+(kind==='rewrite'?'草稿':''));
+  }
+ }
+});

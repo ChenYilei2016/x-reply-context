@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
 <title id="title">回过了 · 少点几次，把时间留给聊天</title>
-<desc id="desc">X 通知助手。查看互动记录，手动点赞发送下条，或打开单个伴随主页窗口。功能示意。</desc>
+<desc id="desc">X 通知助手。查看互动记录，手动评论点赞下条，或打开单个伴随主页窗口。功能示意。</desc>
 <g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif">
 <rect x="0" y="0" width="1200" height="360" rx="24" fill="#f3f7fc" stroke="none"/>
 <rect x="36" y="36" width="68" height="68" rx="18" fill="#0f172a" stroke="none"/>
@@ -11,7 +11,7 @@
 <text x="40" y="252" font-size="58" fill="#0f172a" font-weight="750" text-anchor="start">把时间留给聊天。</text>
 <text x="43" y="315" font-size="25" fill="#536471" font-weight="400" text-anchor="start">互动记录 · 逐条确认 · 草稿保留</text>
 <rect x="668" y="40" width="492" height="123" rx="16" fill="#fff" stroke="#dbe4ee"/>
-<text x="696" y="78" font-size="29" fill="#0f172a" font-weight="700" text-anchor="start">01 / 点赞发送下条</text>
+<text x="696" y="78" font-size="29" fill="#0f172a" font-weight="700" text-anchor="start">01 / 评论点赞下条</text>
 <text x="696" y="119" font-size="22" fill="#536471" font-weight="400" text-anchor="start">你确认这一条，成功后再到下一条。</text>
 <rect x="668" y="185" width="492" height="123" rx="16" fill="#fff" stroke="#dbe4ee"/>
 <text x="696" y="223" font-size="29" fill="#0f172a" font-weight="700" text-anchor="start">02 / 伴随主页</text>

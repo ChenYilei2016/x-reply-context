@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const EDITOR = '[role="dialog"] [contenteditable="true"][data-testid="tweetTextarea_0"]';
-  function create({accountHandle,connected,message,requestRefresh}) {
+  function create({accountHandle,connected,message,requestRefresh,rootOwnership=()=>"unknown"}) {
     const edit = globalThis.XReplyEditor;
     let enabled = false, autoComplete = false, current, target, notice, configEpoch = 0;
     let previews = new WeakMap(), conflicts = new WeakSet();
@@ -64,7 +64,7 @@
     }
     async function request(s,kind,draft = "") {
       const id = crypto.randomUUID();s.pending.add(id);requestRefresh();
-      try {return await message({type:"AI_REQUEST",id,kind,post:s.post,draft});}
+      try {return await message({type:"AI_REQUEST",id,kind,post:s.post,draft,rootOwnership:rootOwnership(s.editor)});}
       catch(error) {return {ok:false,error:error.message};}
       finally {s.pending.delete(id);requestRefresh();}
     }
@@ -150,7 +150,7 @@
           const ok=await edit.write(s.editor,char,{expected,valid:()=>valid(s)&&!s.composing});
           if (!ok) {if(valid(s))toast("AI 填入已停止，请核对草稿；不会重复填入。");break;}
           expected+=char;
-          await new Promise(resolve=>{s.wake=resolve;s.timer=setTimeout(resolve,35+Math.random()*95);});s.wake=null;
+          await new Promise(resolve=>{s.wake=resolve;s.timer=setTimeout(resolve,15+Math.random()*60);});s.wake=null;
         }
       } catch {if(valid(s))toast("AI 填入已停止，请检查草稿后手动继续。");}
       finally {s.writing=false;requestRefresh();}
@@ -195,17 +195,22 @@
       const s=current;if(s && event.target===s.editor){s.composing=name==="compositionstart";if(s.composing)hidePreview(s);else draw(s);}
     },true);
     document.addEventListener("keydown",event=>{
+      const plainTab = event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+      const replyEditor = event.target instanceof Element ? event.target.closest(EDITOR) : null;
+      const composing = event.isComposing || event.keyCode === 229 || (current?.editor === replyEditor && current.composing);
+      // Reserve plain Tab before AI readiness checks; pending/absent suggestions must not move focus.
+      if (plainTab && replyEditor && !composing) event.preventDefault();
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && current &&
           event.target === current.editor && (current.writing || current.rewriting || current.recommending)) {
         event.preventDefault();event.stopImmediatePropagation();toast("请等待生成、填入或改写完成，再确认发送。");return;
       }
       if (!["Tab","ArrowUp","ArrowDown"].includes(event.key)) return;
-      const s=current;if(!s || event.target!==s.editor || !valid(s) || s.composing || event.isComposing || conflict())return;
+      const s=current;if(!s || event.target!==s.editor || !valid(s) || composing || conflict())return;
       if(s.writing || s.rewriting || s.recommending || edit.busy(s.editor))return;
       if(event.key==="Tab" && event.altKey && edit.read(s.editor).trim()) {
         event.preventDefault();event.stopImmediatePropagation();void rewrite(s);return;
       }
-      if(event.key==="Tab" && !event.altKey && !event.shiftKey && s.ghost?.isConnected && s.candidates[s.index]?.startsWith(edit.read(s.editor))) {
+      if(plainTab && s.ghost?.isConnected && s.candidates[s.index]?.startsWith(edit.read(s.editor))) {
         event.preventDefault();event.stopImmediatePropagation();void adopt(s);return;
       }
       if(["ArrowUp","ArrowDown"].includes(event.key) && !edit.read(s.editor) && s.candidates.length) {

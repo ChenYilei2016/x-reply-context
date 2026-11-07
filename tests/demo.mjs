@@ -8,6 +8,9 @@ import { checkComposerContext } from "./composer-context-check.mjs";
 import { checkEmptyRecovery } from "./notification-empty-check.mjs";
 import { checkQuickReplies } from "./quick-replies-check.mjs";
 import { checkCompanion } from "./companion-check.mjs";
+import { installRefreshCycleCheck } from "./refresh-cycle-check.mjs";
+import { checkPeopleFooter } from "./people-footer-check.mjs";
+import { checkSearch } from "./search-check.mjs";
 import { checkProfile } from "./profile-check.mjs";
 import { checkFollowing } from "./following-check.mjs";
 import { checkAutomaticFilter } from "./automatic-filter-check.mjs";
@@ -15,17 +18,20 @@ import { installComposerDemo } from "./composer-demo.mjs";
 const core = globalThis.XReplyContext;
 const state = core.createState();
 const home = location.pathname === "/home";
+const hashtag = location.pathname.startsWith("/hashtag/");
+const search = location.pathname === "/search" || hashtag;
 const profile = /^\/carol(?:\/with_replies)?$/.test(location.pathname);
 core.ingest(state,{ users,tweets:demoTweets },"my_account");
-if (home || profile) core.ingest(state,{ users,tweets:homeTweets,likes:[{
+if (home || profile || search) core.ingest(state,{ users,tweets:homeTweets,likes:[{
   id:homeTweets[3].id,liked:true,account:"my_account",observedAt:Date.now()
 }] },"my_account");
 core.ingest(state,{ likes:[demoTweets[1].id,demoTweets[8].id].map(id => ({
   id,liked:true,account:"my_account",observedAt:Date.now()
 })) },"my_account");
+let refreshBackend;
 const storageListeners = [];
 const replyWrites = new Map();
-const settings = { hideCompletedHome:false,hideCompletedNotifications:false,autoOrganizeNotifications:false,autoHideLikeNotifications:false,autoHideFollowNotifications:false };
+const settings = { replyRefreshCycle:JSON.parse(sessionStorage.getItem("demoRefreshSettings") || "null"),hideCompletedHome:false,hideCompletedNotifications:false,autoOrganizeNotifications:false,autoHideLikeNotifications:false,autoHideFollowNotifications:false };
 let pauseClassification = false;
 let releaseClassification;
 globalThis.chrome = {
@@ -33,6 +39,13 @@ globalThis.chrome = {
     id:"local-demo-extension",
     onMessage:{ addListener() {} },
     async sendMessage(message) {
+      if (["REFRESH_ARM","REFRESH_TAKE","REFRESH_CANCEL"].includes(message.type)) {
+        refreshBackend ||= globalThis.XReplyRefreshCycle.createBackground(chrome);
+        // Deliberately retain an old document path while the current SPA route is /home.
+        const result=await refreshBackend.handle(message,{frameId:0,tab:{id:1},url:'https://x.com/compose/post'});
+        if(message.type==='REFRESH_TAKE')document.querySelector('#refresh-cycle-status').dataset.taken='true';
+        return result;
+      }
       if (message.type === "COMPANION_OPEN") {
         const evidence=document.querySelector('#companion-evidence');
         evidence.dataset.calls=String(Number(evidence.dataset.calls || 0)+1);
@@ -66,6 +79,7 @@ globalThis.chrome = {
           const mode = document.querySelector('#context-result-mode').value;
           if (mode === 'delayed') await new Promise(resolve => setTimeout(resolve,1600));
           if (mode === 'failed') throw new Error('模拟本地读取失败');
+          if (mode === 'missing-person') snapshot.rows = snapshot.rows.map(row => ({ ...row,personStats:null }));
           if (mode === 'missing-author') snapshot.rows = snapshot.rows.map(row => ({ ...row,authorHandle:'' }));
         }
         if (pauseClassification) {
@@ -78,12 +92,18 @@ globalThis.chrome = {
     }
   },
   storage:{
+    session:{
+      get:async key=>({[key]:JSON.parse(sessionStorage.getItem('demoSession:'+key) || 'null')}),
+      set:async values=>{for(const [key,value] of Object.entries(values))sessionStorage.setItem('demoSession:'+key,JSON.stringify(value));},
+      remove:async key=>{sessionStorage.removeItem('demoSession:'+key);}
+    },
     local:{
       async get(keys) {
         return Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map(key => [key,settings[key]]));
       },
       async set(values) {
         if (document.querySelector("#demo-settings-fail")?.checked) throw new Error("模拟设置保存失败");
+        if (values.replyRefreshCycle) sessionStorage.setItem('demoRefreshSettings',JSON.stringify(values.replyRefreshCycle));
         const changes = {};
         for (const [key,newValue] of Object.entries(values)) {
           changes[key] = { oldValue:settings[key],newValue };
@@ -156,6 +176,22 @@ if (home) {
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
   document.querySelector(".aside").append(button);
+} else if (search) {
+  document.querySelector('h1').textContent='搜索结果';
+  const tabs=document.querySelector('.tabs');
+  tabs.innerHTML='<a role="tab" href="/search?q=test&src=typed_query">热门</a><a role="tab" href="/search?q=test&src=typed_query&f=live">最新</a><a role="tab" href="/search?q=test&f=user">用户</a>';
+  if (hashtag) for (const tab of tabs.children) {
+    const url=new URL(tab.href);url.pathname='/hashtag/浇朋友';url.searchParams.delete('q');url.searchParams.set('src','hashtag_click');tab.href=url.pathname+url.search;
+  }
+  for(const tab of tabs.children) {
+    tab.setAttribute('aria-selected',String(new URL(tab.href).searchParams.get('f')===new URL(location.href).searchParams.get('f')));
+    tab.addEventListener('click',event=>{
+      event.preventDefault();history.replaceState(null,'',tab.getAttribute('href'));
+      for(const item of tabs.children)item.setAttribute('aria-selected',String(item===tab));
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+  }
+  [homeTweets[2],homeTweets[3],homeTweets[0],homeTweets[1],homeTweets[4]].forEach(tweet=>addNotification(tweet));
 } else if (profile) {
   document.querySelector("h1").textContent = "Carol 的个人主页";
   const tabs = document.querySelector(".tabs");
@@ -181,6 +217,7 @@ await import("/extension/home-filter.js");
 await import("/extension/notification-filter.js");
 await import("/extension/editor.js");
 await import("/extension/ai-replies.js");
+await import("/extension/refresh-cycle.js");
 await import("/extension/continuous.js");
 const script = document.createElement("script");
 script.src = "/extension/content.js";
@@ -360,3 +397,13 @@ document.querySelector('#check-companion').addEventListener('click',async event=
   await checkCompanion();
   event.target.disabled=false;
 });
+
+document.querySelector('#check-search').addEventListener('click',async event=>{
+  event.target.disabled=true;await checkSearch();event.target.disabled=false;
+});
+
+document.querySelector('#check-people-footer').addEventListener('click',async event=>{
+ event.target.disabled=true;await checkPeopleFooter();event.target.disabled=false;
+});
+
+installRefreshCycleCheck();
