@@ -55,7 +55,7 @@
     const waiting = [], jobs = new Map();
     const owner = sender => `${sender.tab?.id ?? "settings"}:${sender.frameId || 0}:${sender.documentId || sender.url}`;
     const settingsPage = sender => sender.url === chrome.runtime.getURL("ai-settings.html");
-    const load = () => cached ||= chrome.storage.local.get("aiConfig").then(saved => config.normalize(saved.aiConfig)).catch(error => {cached=undefined;throw error;});
+    const load = () => cached ||= chrome.storage.local.get("aiConfig").then(saved => config.normalizeProfiles(saved.aiConfig)).catch(error => {cached=undefined;throw error;});
     function cancel(job) {
       job.cancelled = true; clearTimeout(job.timer); job.controller.abort();
       const index = waiting.indexOf(job);
@@ -69,7 +69,7 @@
     async function execute(job) {
       try {
         if (job.cancelled) return {ok:false,cancelled:true};
-        const saved = await load();
+        const saved = config.activeConfig(await load());
         if (!saved.enabled) throw new Error("AI 回复未开启，请先打开 AI 设置。");
         const url = config.endpoint(saved.baseUrl);
         if (!await chrome.permissions.contains({origins:[config.originPattern(url)]})) throw new Error("模型域名尚未授权，请在 AI 设置中保存配置。");
@@ -79,10 +79,12 @@
           job.message.rootOwnership === "others" ? "别人的原帖" : "待确认";
         const values = {post:job.message.post,draft:job.message.kind === "rewrite" ? job.message.draft : "",rootOwnership};
         const prompt = template.replace(/\$\{(post|draft|rootOwnership)\}/g,(_,key) => values[key]);
+        const processing=config.isOpenAI(saved.baseUrl) ?
+          (saved.serviceTier==="auto"?{}:{service_tier:saved.serviceTier}) : {temperature:1.2};
         const response = await fetch(url.href,{
           method:"POST",redirect:"error",credentials:"omit",signal:job.controller.signal,
           headers:{"Content-Type":"application/json",Authorization:`Bearer ${saved.apiKey}`},
-          body:JSON.stringify({model:saved.model,messages:[{role:"system",content:prompt},{role:"user",content:"开始。"}],temperature:1.2,stream:true})
+          body:JSON.stringify({model:saved.model,messages:[{role:"system",content:prompt},{role:"user",content:"开始。"}],...processing,stream:true})
         });
         const text = await readResponse(response,job.controller.signal);
         return job.cancelled ? {ok:false,cancelled:true} : {ok:true,text};
@@ -101,16 +103,17 @@
     async function handle(message,sender) {
       if (message.type === "AI_OPEN_SETTINGS") { await chrome.runtime.openOptionsPage(); return {ok:true}; }
       if (message.type === "AI_STATUS") {
-        const saved = await load();
+        const saved = config.activeConfig(await load());
         const {aiAutoComplete} = await chrome.storage.local.get("aiAutoComplete");
         return {ok:true,enabled:saved.enabled,autoComplete:aiAutoComplete === true,configured:Boolean(saved.baseUrl && saved.apiKey && saved.model)};
       }
       if (message.type === "AI_CONFIG_GET" || message.type === "AI_CONFIG_SAVE") {
         if (!settingsPage(sender)) return {ok:false,error:"仅设置页可以操作 AI 配置。"};
         if (message.type === "AI_CONFIG_GET") return {ok:true,config:await load()};
-        const saved = config.normalize(message.config);
+        const profiles = config.normalizeProfiles(message.config);
+        const saved = config.activeConfig(profiles);
         if (saved.enabled && !await chrome.permissions.contains({origins:[config.originPattern(config.endpoint(saved.baseUrl))]})) throw new Error("请先授权模型域名。");
-        await chrome.storage.local.set({aiConfig:saved});
+        await chrome.storage.local.set({aiConfig:profiles});
         return {ok:true};
       }
       if (message.type === "AI_CANCEL") {

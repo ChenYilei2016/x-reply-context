@@ -8,9 +8,9 @@
 
 一个 Chrome 扩展，帮你看清互动记录、逐条处理回复。写好后可以「评论点赞下条」，也可以打开「伴随主页」看看对方的帖子，原来的通知和草稿留在原处。
 
-**当前版本 0.18.3** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
+**当前版本 0.19.3** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
 
-[**下载安装包**](dist/x-reply-context-0.18.3.zip) · [快速安装](#快速安装) · [新功能预览](#两个常用动作) · [通知标签](#界面预览) · [筛选开关](#通知筛选) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
+[**下载安装包**](dist/x-reply-context-0.19.3.zip) · [快速安装](#快速安装) · [新功能预览](#两个常用动作) · [通知标签](#界面预览) · [筛选开关](#通知筛选) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
 
 *A Chrome extension for X interaction context, user-confirmed reply-then-like, and a reusable native profile window.*
 
@@ -104,7 +104,7 @@
 
 ## 快速安装
 
-1. 下载并解压 [0.18.3 安装包](dist/x-reply-context-0.18.3.zip)。也可用 **Code → Download ZIP** 下载源码。
+1. 下载并解压 [0.19.3 安装包](dist/x-reply-context-0.19.3.zip)。也可用 **Code → Download ZIP** 下载源码。
 2. 在 Chrome 打开 `chrome://extensions`，开启右上角「开发者模式」。
 3. 点击「加载已解压的扩展程序」：安装包选择包含 `manifest.json` 的文件夹；源码选择 **`extension/`**。
 4. 完整刷新已打开的 X 页面。建议将「回过了」固定到工具栏，方便调整筛选开关。
@@ -222,6 +222,17 @@
 
 ## 内置 AI 回复
 
+支持保存 **最多10组 API 配置**，每组独立保存名称、Base URL、API Key 和模型，两套 Prompt 共用。在「AI 回复设置」中选择配置，点击「保存并使用此配置」切换；只有保存成功才生效，切换时取消旧配置的在途生成和候选，已写入的草稿保留。不自动轮换 Key、不失败转用其他 API。
+
+- 旧单组配置读取时显示为「原有配置」，启用状态、Key、模型与 Prompt 保留；第一次保存后转换为多组结构。未保存前不改写原存储。
+- 内置「OpenAI / ChatGPT」预设：`https://api.openai.com/v1` + `gpt-6-luna`，Key 留空，需填入自己的 OpenAI API Key；不读取 ChatGPT 网页登录状态。[官方模型说明](https://developers.openai.com/api/docs/models/gpt-6-luna) · [官方接口说明](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
+- OpenAI 官方地址可按组选择「跟随项目默认／标准／快速（费用更高）」。默认跟随项目，省略 `service_tier`；标准发送 `default`，快速发送 `fast`。第三方地址不显示此选项，也不发送该参数。保存后生效，实际处理等级由 OpenAI 决定；不自动回退或重试。[快速模式官方说明](https://developers.openai.com/api/docs/guides/fast-mode)
+- `gpt-6-luna` 只作为新建预设默认值，已有组的模型、Key 和 Prompt 不覆盖；已有 OpenAI 组如需改用 Luna，可把模型字段改为 `gpt-6-luna` 后保存。处理模式不改变模型的默认思考强度或插件的逐字填入间隔。
+- 可新增、重命名、删除配置。列表来回切换保留本页未保存的编辑；删除和切换均在保存后生效，关闭有修改的设置页会提示。保存失败保留原生效配置。
+- 只为启用的当前配置申请模型域名授权；其他组只保存在本机。网页内容脚本拿不到整组配置或 Key。
+- 官方 OpenAI 请求使用模型默认温度，不强制传入可能不兼容的 `temperature`；其他兼容接口保留现有参数。没有增加 X 请求、轮询或自动重试。
+
+
 **AI API 和自动补全是独立设置。** 自动补全默认关闭；已配置并开启 API 的用户，升级后可直接点击「推荐评论」。 停用原 XReply 后，在扩展弹窗打开「AI 回复设置 · 自带 API」，填写 Base URL、API Key、模型和两套 Prompt，开启并保存。只申请所填模型域名的访问权限，不读取或迁移其他插件保存的 Key。
 
 | 操作 | 行为 |
@@ -229,7 +240,7 @@
 | 推荐评论 / Option+Q（Mac） / Alt+Q（Windows） | 手动请求一条，完成后一次追加到草稿末尾；不自动发送。等待期间继续编辑则不填入。 |
 | 打开空回复弹窗 | 默认不请求模型。扩展弹窗中开启「自动 AI 补全」后，才自动生成三条灰字候选；预览不是草稿。 |
 | ↑ / ↓ | 空草稿时切换候选；到候选末尾再补一条。 |
-| Tab | 采用当前建议的剩余文字，加速逐字填入（每字额外等待 15～75ms，另有编辑器同步时间）。手输前缀与建议一致时仍可采用后半句。尚无建议、生成或填入中按 Tab 保持焦点，不跳到其他控件。 |
+| Tab | 采用当前建议的剩余文字，加速逐字填入（每字额外等待 35～135ms，另有编辑器同步时间）。手输前缀与建议一致时仍可采用后半句。尚无建议、生成或填入中按 Tab 保持焦点，不跳到其他控件。 |
 | Option+Tab | 改写当前草稿；等待期间若继续编辑，保留新草稿，不应用旧结果。 |
 | 跳过、关闭或切换对象 | 取消旧候选请求，停止旧编辑器填入，不把迟到结果写入下一条。 |
 

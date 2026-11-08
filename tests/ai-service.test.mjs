@@ -94,3 +94,41 @@ test('原帖归属变量在生成与改写中替换，未知值不猜测，不�
   }
  }
 });
+
+test('保存多组配置切换后取消旧任务，只向新接口发送新Key；配置不暴露给网页',async()=>{
+ let first=true;
+ const {service,sender,request,calls,scope}=setup((_url,options)=>{
+  if(first){first=false;return new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('cancelled','AbortError')),{once:true}));}
+  return Promise.resolve(new Response(JSON.stringify({choices:[{message:{content:'<reply>新配置回复</reply>'}}]}),{headers:{'content-type':'application/json'}}));
+ });
+ const settingsSender={url:'chrome-extension://test/ai-settings.html'};
+ const old=request('old-config');await new Promise(resolve=>setImmediate(resolve));
+ const saved=(await service.handle({type:'AI_CONFIG_GET'},settingsSender)).config;
+ saved.profiles.find(p=>p.id==='openai').apiKey='fixture-openai-key';saved.activeProfileId='openai';
+ assert.equal((await service.handle({type:'AI_CONFIG_SAVE',config:saved},settingsSender)).ok,true);
+ assert.equal((await old).cancelled,true);assert.equal(calls[0][1].signal.aborted,true);
+ assert.equal((await request('new-config')).text,'新配置回复');
+ assert.equal(calls[1][0],'https://api.openai.com/v1/chat/completions');
+ assert.equal(calls[1][1].headers.Authorization,'Bearer fixture-openai-key');
+ assert.equal(JSON.parse(calls[1][1].body).model,'gpt-6-luna');assert.equal('temperature' in JSON.parse(calls[1][1].body),false);
+ assert.equal((await service.handle({type:'AI_CONFIG_GET'},sender)).ok,false);
+ const status=await service.handle({type:'AI_STATUS'},sender);assert.equal(status.profiles,undefined);assert.equal(status.apiKey,undefined);
+ assert.equal((await service.handle({type:'AI_CONFIG_GET'},settingsSender)).config.profiles[0].apiKey,config.apiKey);
+});
+
+test('OpenAI按配置传快速或标准模式，默认省略；第三方不携带service_tier',async()=>{
+ const {request,calls,chrome,scope}=setup();
+ const base=scope.XReplyAIConfig.normalizeProfiles(config);
+ for(const [baseUrl,tier,expected] of [
+  ['https://api.openai.com/v1','fast','fast'],['https://api.openai.com/v1','default','default'],
+  ['https://api.openai.com/v1','auto',undefined],['https://other.example/v1','fast',undefined],
+  ['https://api.openai.com.evil.example/v1','fast',undefined]]) {
+  await chrome.storage.local.set({aiConfig:{...base,profiles:base.profiles.map(p=>p.id===base.activeProfileId?{...p,baseUrl,serviceTier:tier}:p)}});
+  await request('tier-'+calls.length);
+  const body=JSON.parse(calls.at(-1)[1].body);
+  assert.equal(body.service_tier,expected);
+  if(expected===undefined)assert.equal(Object.hasOwn(body,'service_tier'),false);
+  assert.equal(body.temperature,baseUrl==='https://api.openai.com/v1'?undefined:1.2);
+ }
+ assert.equal(calls.length,5,'每次手动请求只有一次，不重试或探测接口');
+});

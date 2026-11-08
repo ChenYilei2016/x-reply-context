@@ -27,5 +27,40 @@
     }
     return value;
   }
-  globalThis.XReplyAIConfig = { defaults,endpoint,normalize,originPattern:url => `${url.protocol}//${url.hostname}/*` };
+  const openAIPreset = {id:"openai",name:"OpenAI / ChatGPT",baseUrl:"https://api.openai.com/v1",apiKey:"",model:"gpt-6-luna",serviceTier:"auto"};
+  const profileFields=["baseUrl","apiKey","model"];
+  function normalizeProfiles(raw) {
+    if (raw?.profiles !== undefined && !Array.isArray(raw.profiles)) throw new Error("API 配置列表无效。");
+    let profiles=raw?.profiles,activeProfileId=raw?.activeProfileId;
+    if (!profiles) {
+      const old=normalize(raw);
+      const hasExisting=profileFields.some(key=>old[key]);
+      profiles=hasExisting?[{id:"current",name:"原有配置",...Object.fromEntries(profileFields.map(key=>[key,old[key]]))},{...openAIPreset}]:[{...openAIPreset}];
+      activeProfileId=profiles[0].id;
+    }
+    if (!profiles.length || profiles.length>10) throw new Error("请保留1～10组 API 配置。");
+    const ids=new Set();
+    profiles=profiles.map(profile=>{
+      if (typeof profile?.id!=="string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(profile.id) || ids.has(profile.id)) throw new Error("API 配置编号无效或重复。");
+      ids.add(profile.id);
+      const name=typeof profile.name==="string"?profile.name.trim():"";
+      if(!name || name.length>60)throw new Error("配置名称需为1～60个字符。");
+      const value=normalize({...profile,enabled:false});
+      const serviceTier=profile.serviceTier ?? "auto";
+      if(!["auto","default","fast"].includes(serviceTier))throw new Error("OpenAI 处理模式无效。");
+      return {id:profile.id,name,...Object.fromEntries(profileFields.map(key=>[key,value[key]])),serviceTier};
+    });
+    const selected=profiles.find(profile=>profile.id===activeProfileId);
+    if(!selected)throw new Error("请选择有效的 API 配置。");
+    const shared=normalize({...raw,...selected});
+    return {enabled:shared.enabled,generatePrompt:shared.generatePrompt,rewritePrompt:shared.rewritePrompt,activeProfileId,profiles};
+  }
+  function activeConfig(value) {
+    return {...value.profiles.find(profile=>profile.id===value.activeProfileId),enabled:value.enabled,
+      generatePrompt:value.generatePrompt,rewritePrompt:value.rewritePrompt};
+  }
+  function isOpenAI(value) {
+    try {return new URL(value).origin==="https://api.openai.com";} catch {return false;}
+  }
+  globalThis.XReplyAIConfig = { isOpenAI,defaults,endpoint,normalize,normalizeProfiles,activeConfig,openAIPreset,originPattern:url => `${url.protocol}//${url.hostname}/*` };
 })();

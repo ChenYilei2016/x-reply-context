@@ -150,7 +150,7 @@
           const ok=await edit.write(s.editor,char,{expected,valid:()=>valid(s)&&!s.composing});
           if (!ok) {if(valid(s))toast("AI 填入已停止，请核对草稿；不会重复填入。");break;}
           expected+=char;
-          await new Promise(resolve=>{s.wake=resolve;s.timer=setTimeout(resolve,15+Math.random()*60);});s.wake=null;
+          await new Promise(resolve=>{s.wake=resolve;s.timer=setTimeout(resolve,35+Math.random()*100);});s.wake=null;
         }
       } catch {if(valid(s))toast("AI 填入已停止，请检查草稿后手动继续。");}
       finally {s.writing=false;requestRefresh();}
