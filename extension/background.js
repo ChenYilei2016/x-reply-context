@@ -9,7 +9,7 @@ let awakeTimer;
 let awakeTabs;
 function refreshCycles() {return refreshCycle ||= globalThis.XReplyRefreshCycle.createBackground(chrome);}
 chrome.tabs?.onRemoved?.addListener(id=>{
-  if (chrome.power && chrome.alarms) void updateAwake(tabs=>{delete tabs[id];}).catch(()=>{});
+  if (chrome.power && chrome.alarms) void updateAwake(tabs=>{for(const [key,lease] of Object.entries(tabs))if(lease.tabId===id)delete tabs[key];}).catch(()=>{});
   void refreshCycles().removed(id).catch(()=>{});
 });
 chrome.alarms?.onAlarm.addListener(alarm=>{
@@ -53,7 +53,14 @@ function allowedSender(sender) {
 
 function updateAwake(change=()=>{}) {
   const result=awakeQueue.then(async()=>{
-    if (!awakeTabs) awakeTabs=(await chrome.storage.session.get(AWAKE_KEY))[AWAKE_KEY] || {};
+    if (!awakeTabs) {
+      const saved=(await chrome.storage.session.get(AWAKE_KEY))[AWAKE_KEY] || {};
+      // Migrate the previous per-tab leases once; a late old document owns only its own lease.
+      awakeTabs=Object.fromEntries(Object.entries(saved).map(([key,lease])=>{
+        const tabId=lease.tabId ?? Number(key);
+        return [`${tabId}:${lease.documentId}`,{...lease,tabId}];
+      }));
+    }
     const next={...awakeTabs};
     change(next);
     const now=Date.now();
@@ -83,14 +90,15 @@ function updateAwake(change=()=>{}) {
 
 async function keepAwake(until,sender) {
   const tabId=sender.tab?.id,documentId=sender.documentId;
-  if (!chrome.power || !chrome.alarms || !Number.isInteger(tabId) || sender.frameId!==0 || !documentId ||
+  if (!chrome.power || !chrome.alarms || !Number.isInteger(tabId) || sender.frameId!==0 || (typeof documentId!=="string" || !documentId || documentId.length>128) ||
       !["https://x.com","https://twitter.com"].includes(new URL(sender.url).origin)) return false;
   if (!Number.isFinite(until) || until<0) return false;
+  const key=`${tabId}:${documentId}`;
   await updateAwake(tabs=>{
     if (until===0) {
-      if (tabs[tabId]?.documentId===documentId) delete tabs[tabId];
+      delete tabs[key];
     } else if (until>Date.now()) {
-      tabs[tabId]={documentId,expiresAt:Math.min(until,Date.now()+20000)};
+      tabs[key]={tabId,documentId,expiresAt:Math.min(until,Date.now()+20000)};
     }
   });
   return true;

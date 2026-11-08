@@ -2,9 +2,9 @@
 (() => {
   "use strict";
   const KEY="timedReplies";
-  const defaults={enabled:false,minSeconds:3,maxSeconds:10,maxAttempts:500,maxMinutes:60};
+  const defaults={enabled:false,allowVisibleUnfocused:false,minSeconds:3,maxSeconds:10,maxAttempts:500,maxMinutes:60};
   function normalize(raw) {
-    const value={enabled:raw?.enabled===true};
+    const value={enabled:raw?.enabled===true,allowVisibleUnfocused:raw?.allowVisibleUnfocused===true};
     for(const [key,min,max] of [["minSeconds",3,3600],["maxSeconds",3,3600],["maxAttempts",1,500],["maxMinutes",1,240]]) {
       value[key]=raw?.[key] ?? defaults[key];
       if(!Number.isInteger(value[key]) || value[key]<min || value[key]>max)throw new Error("间隔需3～3600秒，次数1～500，时长1～240分钟，均为整数。");
@@ -12,6 +12,7 @@
     if(value.minSeconds>value.maxSeconds)throw new Error("最短间隔不能大于最长间隔。");
     return value;
   }
+  const pageAllowed=settings=>!document.hidden && (settings?.allowVisibleUnfocused===true || !document.hasFocus || document.hasFocus());
   const validId=value=>typeof value==="string"&&/^[a-zA-Z0-9-]{1,80}$/.test(value);
   const remaining=record=>Math.min(record.remainingMs-(Date.now()-record.capturedAt),record.expiresAt-Date.now());
   function normalizeResume(raw,current) {
@@ -31,7 +32,8 @@
     let config={...defaults},loaded=false,run=null,paused=null,armed=null,timer=null,scheduledAt=0;
     let row=null,badge=null,caption="尚未开始",attempts=0,firing=false,stopped=false;
     let handoff=null,restoring=null,restoreRequested=false,shownExpiry=0,shownEnd="";
-    let restoreDenied=document.hidden || Boolean(document.hasFocus && !document.hasFocus());
+    let restoreDenied=document.hidden,blurredBeforeLoad=false;
+    const allowed=()=>pageAllowed(config);
     const manualNavigation=()=>{const entry=performance.getEntriesByType?.('navigation')?.[0];return !entry||entry.type!=="navigate";};
     function setText(node,text){if(node.textContent!==text)node.textContent=text;}
     function paint() {
@@ -50,15 +52,20 @@
       if(!badge){
         const host=document.body||document.documentElement;if(!host)return;
         badge=document.createElement('aside');badge.className='xrc-timed-badge';badge.setAttribute('role','status');badge.setAttribute('aria-live','polite');
-        const title=document.createElement('strong'),status=document.createElement('span'),detail=document.createElement('small'),button=document.createElement('button');
+        const title=document.createElement('strong'),status=document.createElement('span'),detail=document.createElement('small'),button=document.createElement('button'),visibility=document.createElement('div');
         status.className='xrc-timed-badge-status';detail.className='xrc-timed-badge-detail';button.type='button';button.textContent='暂停本轮';
         button.addEventListener('mousedown',event=>event.preventDefault());button.addEventListener('click',toggleRun);
-        badge.append(title,button,status,detail);host.append(badge);
+        visibility.className='xrc-timed-badge-visibility';visibility.setAttribute('aria-label','浏览器报告的页面状态');
+        visibility.title='按浏览器报告显示；完全遮挡可能被判定隐藏。隐藏始终暂停，允许可见失焦需在扩展弹窗开启。';
+        badge.append(title,button,status,detail,visibility);host.append(badge);
       }
       const phase=handoff||restoring?'restoring':run?'running':paused?'paused':stopped?'stopped':'idle';
       if(badge.dataset.state!==phase)badge.dataset.state=phase;
       setText(badge.querySelector('strong'),phase==='restoring'?'自动化 · 刷新衔接中':run?'自动化运行中':paused?'自动化已暂停':stopped?'自动化已停止':'自动化未开始');
       setText(badge.querySelector('span'),caption);
+      const visibility=badge.querySelector('.xrc-timed-badge-visibility');
+      setText(visibility,`${document.hidden?'页面隐藏':'页面可见'} · ${!document.hasFocus||document.hasFocus()?'有焦点':'已失焦'}`);
+      const hidden=String(document.hidden);if(visibility.dataset.hidden!==hidden)visibility.dataset.hidden=hidden;
       const expiresAt=run?.expiresAt||paused?.expiresAt||restoring?.ticket.expiresAt;
       if(expiresAt && expiresAt!==shownExpiry){shownExpiry=expiresAt;shownEnd=new Date(expiresAt).toLocaleTimeString([], {hour12:false});}
       const end=expiresAt?` · 截止 ${shownEnd}`:` · 上限${config.maxMinutes}分钟`;
@@ -108,7 +115,7 @@
     function continueRun() {
       checkPaused();if(!paused)return;
       const state=readState();
-      if(document.hidden || document.hasFocus&&!document.hasFocus() || state.reason || !state.resumeReady){
+      if(!allowed() || state.reason || !state.resumeReady){
         caption=state.reason||"请等待本条结果，核对后进入下一条再继续";paint();return;
       }
       run=paused;paused=null;stopped=false;caption="继续本轮，等待草稿就绪";
@@ -152,7 +159,7 @@
     function previewResume(ticket,refreshId) {
       if(restoreDenied||manualNavigation()||run||paused||handoff||restoring&&restoring.refreshId!==refreshId)return false;
       const value=normalizeResume(ticket,loaded?config:undefined);
-      if(!value||!validId(refreshId))return false;
+      if(!value||!validId(refreshId)||!pageAllowed(value.settings)||blurredBeforeLoad&&!value.settings.allowVisibleUnfocused)return false;
       restoring={ticket:value,refreshId};attempts=value.attempts;stopped=false;caption="核对账号、页面及剩余预算…";
       keepAwake(Math.min(value.expiresAt,Date.now()+15000));paint();return true;
     }
@@ -231,7 +238,7 @@
     function start() {
       if(run || paused || restoring || handoff || !loaded || !config.enabled)return;
       const state=readState();
-      if(document.hidden || document.hasFocus&&!document.hasFocus() || !state?.supported || state.reason){caption=state?.reason || "请从为你推荐打开回复框";paint();return;}
+      if(!allowed() || !state?.supported || state.reason){caption=state?.reason || "请从为你推荐打开回复框";paint();return;}
       attempts=0;stopped=false;restoreDenied=true;run={id:crypto.randomUUID(),session:state.session,account:state.account,lastId:"",
         endAt:performance.now()+config.maxMinutes*60000,expiresAt:Date.now()+config.maxMinutes*60000,refreshId:""};
       refresh();requestRefresh();
@@ -247,9 +254,13 @@
     }
     storage.onChanged.addListener((changes,area)=>{if(area==="local"&&changes[KEY])apply(changes[KEY].newValue);});
     void storage.local.get(KEY).then(saved=>{if(!loaded)apply(saved[KEY]);},()=>{loaded=true;caption="设置读取失败";paint();});
-    document.addEventListener("visibilitychange",()=>{if(document.hidden&&!handoff?.committed)pause("页面切到后台，返回后点击继续本轮");else if(!document.hidden){refresh();requestRefresh();}});
+    document.addEventListener("visibilitychange",()=>{if(document.hidden&&!handoff?.committed)pause("页面切到后台，返回后点击继续本轮");else if(!document.hidden){refresh();requestRefresh();}paint();});
     window.addEventListener("focus",()=>{refresh();requestRefresh();});
-    window.addEventListener("blur",()=>{if(!handoff?.committed)pause("页面失去焦点，返回后点击继续本轮");});
+    window.addEventListener("blur",()=>{
+      if(!loaded){blurredBeforeLoad=true;return;}
+      if(!handoff?.committed&&!allowed())pause("页面失去焦点，返回后点击继续本轮");
+      paint();
+    });
     window.addEventListener("pagehide",()=>{
       if(handoff?.committed){clearTimer();keepAwake(0,true);}
       else stop("页面已离开");
@@ -273,28 +284,28 @@
       }
       paint();
     }
-    return {start,stop,pause,continueRun,isPaused:()=>Boolean(paused),isFinishing:()=>Boolean(run?.finishReason),
+    return {start,stop,pause,continueRun,pageAllowed:allowed,allowsUnfocused:()=>config.allowVisibleUnfocused&&Boolean(run||restoring),isPaused:()=>Boolean(paused),isFinishing:()=>Boolean(run?.finishReason),
       refresh,render,prepareRefresh,validRefresh,commitRefresh,previewResume,canResume,restore,cancelFromRefresh};
   }
   async function installSettings(storage) {
     const form=document.querySelector('#timed-reply-settings');if(!form)return;
     const status=form.querySelector('[role="status"]');
-    const fields=['enabled','minSeconds','maxSeconds','maxAttempts','maxMinutes'];
+    const fields=['enabled','allowVisibleUnfocused','minSeconds','maxSeconds','maxAttempts','maxMinutes'];
     const input=key=>form.querySelector(`[name="${key}"]`);
     try {
       const saved=normalize((await storage.local.get(KEY))[KEY]);
-      for(const key of fields){if(key==='enabled')input(key).checked=saved[key];else input(key).value=saved[key];}
+      for(const key of fields){if(key==='enabled'||key==='allowVisibleUnfocused')input(key).checked=saved[key];else input(key).value=saved[key];}
       form.querySelectorAll('input,button').forEach(node=>{node.disabled=false;});
     }catch {status.textContent='设置读取失败，请重新打开扩展。';return;}
     form.addEventListener('input',()=>{status.textContent='修改尚未保存。';});
     form.addEventListener('submit',async event=>{
       event.preventDefault();const controls=[...form.querySelectorAll('input,button')];controls.forEach(node=>{node.disabled=true;});
       try {
-        const value=normalize(Object.fromEntries(fields.map(key=>[key,key==='enabled'?input(key).checked:input(key).valueAsNumber])));
+        const value=normalize(Object.fromEntries(fields.map(key=>[key,key==='enabled'||key==='allowVisibleUnfocused'?input(key).checked:input(key).valueAsNumber])));
         await storage.local.set({[KEY]:value});status.textContent=value.enabled?'已保存；在为你推荐回复框点击“开始本轮”。':'已保存并关闭定时触发。';
       }catch(error){status.textContent=error.message || '设置未保存，请重试。';}
       finally{controls.forEach(node=>{node.disabled=false;});}
     });
   }
-  globalThis.XReplyTimedReplies={defaults,normalize,normalizeResume,create,installSettings};
+  globalThis.XReplyTimedReplies={defaults,normalize,normalizeResume,pageAllowed,create,installSettings};
 })();

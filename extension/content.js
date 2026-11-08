@@ -453,7 +453,9 @@
     onRelease:()=>continuous?.stop()});
   aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,requestRefresh:scheduleControls,interactionBlocked:()=>interactionAlert?.blocked()===true,
     rootOwnership:editor=>continuous?.rootOwnership(editor) || "unknown",
-    recommendedReply:editor=>continuous?.recommendedReply(editor)});
+    recommendedReply:editor=>continuous?.recommendedReply(editor),
+    canAutoFillUnfocused:editor=>continuous?.canAutoFillUnfocused(editor)===true,
+    onAutoFillBlocked:(editor,reason)=>{if(continuous?.recommendedReply(editor))timedReplies?.stop(reason);}});
   refreshCycle = globalThis.XReplyRefreshCycle?.create({storage:chrome.storage,message,accountHandle,requestRefresh:scheduleControls,getTimed:()=>timedReplies,
     resume:(intent,valid)=>continuous.resumeRecommended(intent,valid),notify:text=>continuous?.notify(text)});
   timedReplies = globalThis.XReplyTimedReplies?.create({storage:chrome.storage,readState:()=>continuous?.timedState(),

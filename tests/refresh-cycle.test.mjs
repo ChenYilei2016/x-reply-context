@@ -200,3 +200,23 @@ test('保存已写入后收到更新的跨窗口关闭事件，旧保存回调�
  assert.equal(toggle.checked,false);assert.match(status.textContent,/关闭/);
  env.cycle.record(home,'sent');assert.equal(env.cycle.due(home),false);
 });
+
+
+test('可见失焦时定时换批前后统一放行；未开启、手动换批、隐藏与草稿仍拦截',async()=>{
+ for(const allow of [false,true]){
+  const timed={allowsUnfocused:()=>allow,prepareRefresh:()=>null};
+  const env=setup({enabled:true,min:1,max:1},null,{timed});await flush();env.dom.hasFocus=()=>false;
+  env.dom.editors=[{innerText:'',contains:()=>true}]; // Old DOM focus is not active typing in another app.
+  env.cycle.record(home,'1');assert.equal(await env.cycle.refresh(home,()=>true),allow?'navigating':'paused');
+  const previews=[];const next=setup({enabled:true,min:1,max:1},{account:'me',min:1,max:1,timed:{settings:{allowVisibleUnfocused:allow}}},
+   {timed:{previewResume:()=>{previews.push(true);return true;},canResume:()=>true,restore(){}}});
+  next.dom.hasFocus=()=>false;await flush();await next.cycle.tick();
+  assert.equal(next.resumeCalls.length,allow?1:0);assert.equal(previews.length,allow?1:0);
+ }
+ for(const cause of ['hidden','draft','manual']){
+  const env=setup({enabled:true,min:1,max:1},null,{timed:cause==='manual'?undefined:{allowsUnfocused:()=>true}});await flush();env.dom.hasFocus=()=>false;
+  if(cause==='hidden')env.dom.hidden=true;
+  if(cause==='draft')env.dom.editors=[{innerText:'尚未发送',contains:()=>false}];
+  env.cycle.record(home,'1');assert.equal(await env.cycle.refresh(home,()=>true),'paused');assert.equal(env.navigations.length,0);
+ }
+});

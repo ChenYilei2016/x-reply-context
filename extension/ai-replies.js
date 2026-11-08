@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const EDITOR = '[role="dialog"] [contenteditable="true"][data-testid="tweetTextarea_0"]';
-  function create({accountHandle,connected,message,requestRefresh,rootOwnership=()=>"unknown",recommendedReply=()=>null,interactionBlocked=()=>false}) {
+  function create({accountHandle,connected,message,requestRefresh,rootOwnership=()=>"unknown",recommendedReply=()=>null,canAutoFillUnfocused=()=>false,onAutoFillBlocked=()=>{},interactionBlocked=()=>false}) {
     const edit = globalThis.XReplyEditor;
     let enabled = false, autoComplete = false, current, target, notice, configEpoch = 0;
     let fillRecommended = false;
@@ -132,8 +132,14 @@
       } else if (autoComplete && !edit.read(editor) && (!reuse || cached.retry)) for(let index=0;index<3;index++) generate(s);
       else {draw(s);if(reuse && cached.error && !s.candidates.length)toast(`AI：${cached.error}`);}
     }
+    function autoFillBlocked(s,text) {
+      toast(text);
+      onAutoFillBlocked(s.editor,text);
+    }
     function canAutoFill(s) {
-      return !document.hidden && document.activeElement === s.editor &&
+      const focusAllowed=document.activeElement===s.editor ||
+        document.hasFocus && !document.hasFocus() && canAutoFillUnfocused(s.editor);
+      return !document.hidden && focusAllowed &&
         recommendedReply(s.editor) === s.autoReply &&
         !s.dialog.querySelector(attachment);
     }
@@ -154,19 +160,30 @@
       s.recommending=true;cancelRequests(s);hidePreview(s);requestRefresh();
       try {
         const result=await request(s,"generate");
-        if (!valid(s) || automatic && !canAutoFill(s)) return;
-        if (s.version!==version || edit.read(editor)!==before) {toast("草稿已变化，保留你的新内容；本次推荐未填入。");return;}
-        if (!result.ok) {if(!result.cancelled)toast(`AI：${result.error}`);return;}
+        if (!valid(s)) return;
+        if(automatic && !canAutoFill(s)){
+          autoFillBlocked(s,"AI 已返回，但当前焦点或回复条件不允许填入；请核对后手动继续。");return;
+        }
+        if (s.version!==version || edit.read(editor)!==before) {
+          const text="草稿已变化，保留你的新内容；本次推荐未填入。";
+          if(automatic)autoFillBlocked(s,text);else toast(text);
+          return;
+        }
+        if (!result.ok) {
+          if(!result.cancelled){const text=`AI：${result.error}`;if(automatic)autoFillBlocked(s,text);else toast(text);}
+          return;
+        }
         s.writing=true;
         requestRefresh();
         if (automatic) {
-          await typeDraft(s,result.text,before,()=>canAutoFill(s));
+          const complete=await typeDraft(s,result.text,before,{automatic:true});
+          if(!complete && valid(s))autoFillBlocked(s,"AI 填入未完成，已保留当前文字；请检查后手动继续，不会自动重试。");
           return;
         }
         const value=(before && !/\s$/.test(before)?" ":"")+result.text;
         const ok=await edit.write(editor,value,{expected:before,valid:()=>valid(s)&&s.version===version&&!s.composing});
         if (!ok && valid(s)) toast("推荐未完整填入，请核对草稿；不会自动重试。");
-      } catch {if(valid(s))toast("推荐未填入，请检查草稿后重试。");}
+      } catch {if(valid(s)){const text="推荐未填入，请检查草稿后重试。";if(automatic)autoFillBlocked(s,text);else toast(text);}}
       finally {s.writing=false;s.recommending=false;requestRefresh();}
     }
     async function adopt(s) {
@@ -179,20 +196,21 @@
       catch {if(valid(s))toast("AI 填入已停止，请检查草稿后手动继续。");}
       finally {s.writing=false;requestRefresh();}
     }
-    async function typeDraft(s,suffix,before,stillCurrent=()=>true) {
-      const canType=()=>valid(s) && !s.composing && document.activeElement===s.editor && stillCurrent();
+    async function typeDraft(s,suffix,before,{automatic=false}={}) {
+      const canType=()=>valid(s) && !s.composing && (automatic?canAutoFill(s):document.activeElement===s.editor);
       const characters=Array.from(suffix);
       let expected=before;
       for (let index=0;index<characters.length;index++) {
         let char=characters[index];
         while (char.endsWith("\n") && index+1<characters.length) char+=characters[++index];
-        if (!canType() || edit.read(s.editor)!==expected) return;
+        if (!canType() || edit.read(s.editor)!==expected) return false;
         const ok=await edit.write(s.editor,char,{expected,valid:canType});
-        if (!ok) {if(canType())toast("AI 填入已停止，请核对草稿；不会重复填入。");return;}
+        if (!ok) {if(canType()&&!automatic)toast("AI 填入已停止，请核对草稿；不会重复填入。");return false;}
         expected+=char;
-        if (current !== s) return;
+        if (current !== s) return false;
         await new Promise(resolve=>{s.wake=resolve;s.timer=setTimeout(resolve,typingDelayMin+Math.random()*(typingDelayMax-typingDelayMin));});s.wake=null;
       }
+      return true;
     }
     async function rewrite(s) {
       const before = edit.read(s.editor), version=s.version;

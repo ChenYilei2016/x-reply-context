@@ -2,7 +2,8 @@ history.replaceState(null,'','/notifications');
 const output=document.querySelector('#result');
 const listeners=[],calls=[],pending=new Map(),generations=new Map();
 let enabled=true,autoComplete=false,modelError=false,totalRequests=0,ai,flow,frame,delay=1500,rewritten='改写后的短句',sent=0,likes=0;
-let fillRecommended=false, simulateSend=false, feedPath='/notifications';
+let fillRecommended=false, simulateSend=false, feedPath='/notifications',focusNewEditor=true,allowUnfocusedFill=false;
+const automaticFailures=[];
 const requestRefresh=()=>{if(frame)return;frame=requestAnimationFrame(()=>{frame=0;flow?.refresh();ai?.refresh();});};
 globalThis.chrome={storage:{onChanged:{addListener:fn=>listeners.push(fn)}}};
 const accountHandle=()=> 'me';
@@ -27,7 +28,8 @@ const message=async message=>{
 };
 const guard=XReplyInteractionAlert.create({accountHandle,onPause:()=>{ai?.pause();flow?.pauseForAlert();},onRelease:()=>flow?.stop()});
 ai=XReplyAIReplies.create({interactionBlocked:()=>guard.blocked(),accountHandle,connected:()=>true,message,requestRefresh,rootOwnership:editor=>flow?.rootOwnership(editor)||"unknown",
-  recommendedReply:editor=>flow?.recommendedReply(editor)});
+  recommendedReply:editor=>flow?.recommendedReply(editor),canAutoFillUnfocused:()=>allowUnfocusedFill,
+  onAutoFillBlocked:(_editor,reason)=>automaticFailures.push(reason)});
 flow=XReplyContinuous.create({interactionBlocked:()=>guard.blocked(),accountHandle,tweetId,columnSelector:'[data-testid="primaryColumn"]',message,requestRefresh,aiBusy:editor=>ai.busy(editor),aiRecommend:editor=>ai.recommend(editor),aiPhase:editor=>ai.phase(editor),
   aiFillRecommendedEnabled:()=>ai.fillRecommendedEnabled(),renderLabels:(node,row)=>{node.textContent=row.origin;}});
 function DraftEditor(){
@@ -68,7 +70,7 @@ for(const article of document.querySelectorAll('article')){
     });
     document.body.append(dialog);history.replaceState(null,'','/compose/post');
     ReactDOM.render(React.createElement(DraftEditor),document.querySelector('#editor-mount'));
-    const editor=document.querySelector('.public-DraftEditor-content');editor.dataset.testid='tweetTextarea_0';editor.focus();requestRefresh();
+    const editor=document.querySelector('.public-DraftEditor-content');editor.dataset.testid='tweetTextarea_0';if(focusNewEditor)editor.focus();requestRefresh();
   });
 }
 const wait=async predicate=>{const end=Date.now()+5000;while(!predicate()){if(Date.now()>end)throw new Error('AI 检查等待超时');await new Promise(resolve=>setTimeout(resolve,20));}};
@@ -312,4 +314,52 @@ document.querySelector('#run-pause').onclick=async event=>{
  }catch(error){checks.push({name:error.message,ok:false});}
  finally{ack();closeUI();flow.stop();event.target.disabled=false;}
  result.dataset.result=checks.every(c=>c.ok)?'passed':'failed';result.textContent=JSON.stringify({fixture:true,checks},null,2);
+};
+
+
+document.querySelector('#run-unfocused').onclick=async event=>{
+ event.target.disabled=true;const result=document.querySelector('#unfocused-result'),checks=[];
+ const check=(name,ok)=>{checks.push({name,ok:Boolean(ok)});if(!ok)throw Error(name);};
+ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+ const focusDescriptor=Object.getOwnPropertyDescriptor(document,'hasFocus');
+ const hiddenDescriptor=Object.getOwnPropertyDescriptor(document,'hidden');
+ let focused=false,hidden=false;
+ const update=()=>listeners.forEach(fn=>fn({aiFillRecommended:{newValue:fillRecommended}},'local'));
+ const initialSent=sent,initialLikes=likes;
+ result.dataset.result='running';
+ try{
+  closeUI();flow.stop();feedPath='/home';history.replaceState(null,'',feedPath);
+  Object.defineProperty(document,'hasFocus',{configurable:true,value:()=>focused});
+  Object.defineProperty(document,'hidden',{configurable:true,get:()=>hidden});
+  focusNewEditor=false;allowUnfocusedFill=true;enabled=fillRecommended=true;autoComplete=simulateSend=false;delay=180;update();await sleep(40);
+  const count=calls.length;open(0);await wait(()=>ai.busy(editor()));
+  check('失焦打开的新回复框没有输入焦点',document.activeElement!==editor());
+  await wait(()=>!ai.busy(editor()));
+  check('可见失焦仍完整填入草稿，只请求一次',text()==='第一条候选甲'&&calls.length===count+1);
+  closeUI();open(1);await wait(()=>ai.busy(editor()));await wait(()=>!ai.busy(editor()));
+  check('下一对象沿用同一能力，内容与目标不串',text()==='第二条候选甲'&&calls.length===count+2);
+  closeUI();allowUnfocusedFill=false;const blockedBefore=automaticFailures.length;open(0);await wait(()=>ai.busy(editor()));await wait(()=>!ai.busy(editor()));
+  check('没有本轮失焦授权时仍拒绝自动填入',text()===''&&automaticFailures.length===blockedBefore+1);
+  const noRetry=calls.length;for(let i=0;i<30;i++)ai.refresh();await sleep(100);
+  check('受阻后页面刷新调度不重复请求模型',calls.length===noRetry&&!ai.busy(editor()));
+  closeUI();allowUnfocusedFill=true;open(0);await wait(()=>ai.busy(editor()));focused=true;
+  const button=document.querySelector('[data-testid=app-bar-close]');button.focus();
+  const failed=automaticFailures.length;await wait(()=>!ai.busy(editor()));
+  check('页面重新获焦但用户在其他控件，不抢输入焦点且提示阻塞',text()===''&&document.activeElement===button&&automaticFailures.length===failed+1);
+  closeUI();focused=false;open(0);await wait(()=>ai.busy(editor()));await input('保留我的手写内容');
+  await wait(()=>!ai.busy(editor()));check('模型返回不覆盖已变化的草稿',text()==='保留我的手写内容');
+  closeUI();open(0);await wait(()=>text().length>0);const partial=text();hidden=true;document.dispatchEvent(new Event('visibilitychange'));await sleep(220);
+  check('隐藏中断填入，保留已有文字且不追加',text()===partial&&!ai.busy(editor()));hidden=false;
+  closeUI();modelError=true;open(0);await wait(()=>ai.busy(editor()));const failedBefore=automaticFailures.length;await wait(()=>!ai.busy(editor()));
+  check('模型失败明确报告自动填入阻塞，不无限等待或重试',automaticFailures.length===failedBefore+1&&text()==='');
+  check('检查没有发送评论或点赞',sent===initialSent&&likes===initialLikes);
+ }catch(error){checks.push({name:error.message,ok:false});}
+ finally{
+  closeUI();flow.stop();modelError=false;focusNewEditor=true;allowUnfocusedFill=false;fillRecommended=autoComplete=simulateSend=false;update();
+  feedPath='/notifications';history.replaceState(null,'',feedPath);
+  if(focusDescriptor)Object.defineProperty(document,'hasFocus',focusDescriptor);else delete document.hasFocus;
+  if(hiddenDescriptor)Object.defineProperty(document,'hidden',hiddenDescriptor);else delete document.hidden;
+  event.target.disabled=false;
+ }
+ result.dataset.result=checks.every(item=>item.ok)?'passed':'failed';result.textContent=JSON.stringify({fixture:true,checks},null,2);
 };

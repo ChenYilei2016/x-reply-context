@@ -74,6 +74,9 @@
     let records=new Set(),pending,deadline,resuming=false,navigating=false,pauseReason="",activeRefreshId="";
     let settingsRevision=0,currentRow=null;
     const cancelledIds=new Set();let cancelEpoch=0;
+    const pageAllowed=(timed=pending?.timed)=>globalThis.XReplyTimedReplies.pageAllowed(timed?.settings || {
+      allowVisibleUnfocused:getTimed()?.allowsUnfocused?.()===true
+    });
     function reset(nextAccount=account) {
       account=nextAccount;count=0;records.clear();generation++;
       target=config.enabled?config.min+Math.floor(Math.random()*(config.max-config.min+1)):0;
@@ -114,7 +117,7 @@
         if(result.resume&&cancelledIds.has(result.resume.refreshId))return;
         if(result.resume && validRefreshId(result.resume.refreshId) && config.enabled && config.min===result.resume.min && config.max===result.resume.max && location.pathname==="/home") {
           if(cancelledIds.has(result.resume.refreshId))return;
-          if(document.hidden || document.hasFocus && !document.hasFocus()){notify("换批后页面不在前台，未继续运行。");return;}
+          if(!pageAllowed(result.resume.timed)){notify("换批后页面不在前台，未继续运行。");return;}
           activeRefreshId=result.resume.refreshId;
           if(result.resume.timed && !getTimed()?.previewResume(result.resume.timed,result.resume.refreshId)){notify("定时运行已过期或设置变化，未恢复。");return;}
           pending={...result.resume,switched:false,lastCheck:""};
@@ -139,13 +142,13 @@
     }
     function due(s) {return ready&&config.enabled&&supported(s)&&account===s.account&&target>0&&count>=target;}
     function unsafeReason() {
-      if(document.hidden || document.hasFocus && !document.hasFocus())return "页面不在前台；返回后点击继续。";
+      if(!pageAllowed())return "页面已隐藏或当前设置要求前台；返回后点击继续。";
       for(const dialog of document.querySelectorAll('[role="dialog"],[aria-modal="true"]')) {
         const box=dialog.getBoundingClientRect();if(box.width&&box.height)return "页面仍有打开的弹窗；关闭后点击继续。";
       }
       for(const editor of document.querySelectorAll('[contenteditable="true"][data-testid^="tweetTextarea_"]')) {
         if(editor.innerText.trim())return "检测到未发送文字；请先保存或处理草稿。";
-        if(editor.contains(document.activeElement))return "输入框仍有焦点；离开输入框后点击继续。";
+        if(editor.contains(document.activeElement) && (!document.hasFocus || document.hasFocus()))return "输入框仍有焦点；离开输入框后点击继续。";
       }
       if(document.querySelector('[data-testid="attachments"],[data-testid="mediaPreview"],[data-testid="pollOption_0"]'))return "检测到附件或投票编辑内容；请先保存或处理。";
       return "";

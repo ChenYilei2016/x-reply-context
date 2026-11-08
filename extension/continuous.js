@@ -303,6 +303,8 @@
       return s.current.context.origin || "unknown";
     }
 
+    const timedPageAllowed = () => timedReplies?.pageAllowed?.() ?? (!document.hidden && (!document.hasFocus || document.hasFocus()));
+
     const isRecommended = s => s?.feed === "home" && s.homeTabIndex === 0;
 
     function recommendedReply(editor) {
@@ -310,6 +312,10 @@
       if (!isRecommended(s) || s.phase !== "ready" || !dialog?.contains(editor) ||
           s.current.composing || s.current.quickPending || !currentSession(s) || !singleReply(dialog)) return null;
       return s.current;
+    }
+
+    function canAutoFillUnfocused(editor) {
+      return timedReplies?.allowsUnfocused?.()===true && timedPageAllowed() && Boolean(recommendedReply(editor));
     }
 
     const hasAttachments = dialog => Boolean(dialog.querySelector(
@@ -413,7 +419,7 @@
           const batch = candidates.slice(offset,offset+100);
           const result = await message({ type:"CLASSIFY",account:s.account,ids:batch.map(([id]) => id) });
           if (!valid()) return;
-          if (s.afterReply?.timed && !s.afterReply.cancelled && (document.hidden || document.hasFocus && !document.hasFocus())) {
+          if (s.afterReply?.timed && !s.afterReply.cancelled && !timedPageAllowed()) {
             timedReplies?.pause("页面不在前台，返回后点击继续本轮");
             return;
           }
@@ -473,7 +479,7 @@
 
     function validAfterReply(s,operation) {
       if (!currentSession(s) || s.afterReply !== operation || s.current !== operation.current ||
-          operation.cancelled || document.hidden || operation.timed && document.hasFocus && !document.hasFocus()) return false;
+          operation.cancelled || document.hidden || operation.timed && !timedPageAllowed()) return false;
       const dialog = composer();
       if (dialog && dialog !== s.current.dialog) return false;
       if (dialog && (s.current.composing || s.current.quickPending || draftBusy(s))) return false;
@@ -569,7 +575,7 @@
       if(["failed","uncertain","paused","draft-check","alert-paused"].includes(s.phase))
         return {...state,reason:"当前操作需要核对，已停止定时触发"};
       if(s.phase==="sent"&&!s.autoAdvance)return {...state,awaitingReview:true,reason:"本条已发送，请核对后进入下一条再继续"};
-      if(document.hidden || document.hasFocus && !document.hasFocus())return {...state,pauseable:true,reason:"页面不在前台，返回后点击继续本轮"};
+      if(!timedPageAllowed())return {...state,pauseable:true,reason:"页面不在前台，返回后点击继续本轮"};
       if(s.phase!=="ready")return {...state,waiting:"等待本条处理完成"};
       const dialog=s.current.dialog,editor=dialog?.querySelector(EDITOR);
       if(!dialog?.isConnected || composer()!==dialog || !editor)return {...state,reason:"回复框已变化，已停止"};
@@ -986,7 +992,7 @@
     });
     window.addEventListener("pagehide",()=>{if(session?.afterReply && session.phase!=="refreshing")finish();});
     window.addEventListener("blur",()=>{
-      if(session?.afterReply?.timed && session.phase!=="refreshing")stopAfterReply(session,"页面失去焦点，定时触发的后续操作已停止。");
+      if(session?.afterReply?.timed && session.phase!=="refreshing" && !timedPageAllowed())stopAfterReply(session,"页面失去焦点，定时触发的后续操作已停止。");
     });
     document.addEventListener("input",event => {
       if (session?.current.dialog?.contains(event.target)) {
@@ -1064,7 +1070,7 @@
         requestAnimationFrame(() => { if (session === s && !composer()) finish(); });
       }
     },true);
-    return { refresh,timedState,timedSend,cancelTimedFollowup,pauseForAlert,receiveReply,receiveLike,resumeRecommended,rootOwnership,recommendedReply,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
+    return { refresh,canAutoFillUnfocused,timedState,timedSend,cancelTimedFollowup,pauseForAlert,receiveReply,receiveLike,resumeRecommended,rootOwnership,recommendedReply,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
   }
 
   globalThis.XReplyContinuous = { create };

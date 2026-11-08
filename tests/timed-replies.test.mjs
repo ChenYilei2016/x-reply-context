@@ -10,7 +10,7 @@ function setup(config={enabled:true,minSeconds:10,maxSeconds:20,maxAttempts:2,ma
   constructor(tag="div"){this.tag=tag;this.children=[];this.dataset={};this.isConnected=true;}
   closest(){return this;}setAttribute(){}addEventListener(){}
   append(...nodes){this.children.push(...nodes);}remove(){this.isConnected=false;}
-  querySelector(selector){return this.children.find(n=>n.tag===selector);}
+  querySelector(selector){return this.children.find(n=>selector.startsWith('.')?n.className===selector.slice(1):n.tag===selector);}
  }
  const state={supported:true,session:{},account:'me',id:'1',draft:'ready draft',ready:true,resumeReady:true};
  const document={hidden:false,body:new Element(),createElement:tag=>new Element(tag),addEventListener:(n,f)=>events.set(n,f)};
@@ -75,12 +75,12 @@ test('防休眠按标签页释放，旧文档不能释放新文档，失联在�
  const events=[],session={},alarms=new Map();let now=Date.now();
  const background=await readFile(new URL('../extension/background.js',import.meta.url),'utf8');
  function boot() {
-  let receive,onAlarm,id=0;
+  let receive,onAlarm,onRemoved,id=0;
   const timers=new Map();
-  const context=vm.createContext({URL,importScripts(){},XReplyContext:{},XReplyStorage:{create:()=>({})},
+  const context=vm.createContext({URL,importScripts(){},XReplyContext:{},XReplyStorage:{create:()=>({})},XReplyRefreshCycle:{createBackground:()=>({removed:async()=>{}})},
    Date:class extends Date{static now(){return now;}},
    setTimeout:(fn,ms)=>{timers.set(++id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id),
-   chrome:{runtime:{id:'ext',getURL:()=> 'chrome-extension://ext/',onMessage:{addListener:fn=>{receive=fn;}}},
+   chrome:{tabs:{onRemoved:{addListener:fn=>{onRemoved=fn;}}},runtime:{id:'ext',getURL:()=> 'chrome-extension://ext/',onMessage:{addListener:fn=>{receive=fn;}}},
     storage:{session:{get:async()=>structuredClone(session),set:async data=>Object.assign(session,structuredClone(data)),
      remove:async key=>{delete session[key];}}},
     alarms:{get:async name=>alarms.get(name),create:async(name,options)=>alarms.set(name,options),
@@ -90,13 +90,16 @@ test('防休眠按标签页释放，旧文档不能释放新文档，失联在�
   const send=(tab,documentId,until,frameId=0)=>new Promise(resolve=>{
    receive({type:'TIMED_KEEP_AWAKE',until},{id:'ext',tab:{id:tab},documentId,frameId,url:'https://x.com/home'},r=>resolve(r.ok));
   });
-  return {send,timers,onAlarm:()=>onAlarm({name:[...alarms.keys()][0]})};
+  return {send,timers,onRemoved,onAlarm:()=>onAlarm({name:[...alarms.keys()][0]})};
  }
  const until=now+60000,first=boot();
  assert.equal(await first.send(1,'nested',until,1),false);
  assert.equal(await first.send(1,'old',until),true);
  await first.send(2,'other',until);
  await first.send(1,'next',until);
+ await first.send(1,'old',now+1000);
+ const leases=Object.values(session.timedAwakeTabs);
+ assert.ok(leases.some(lease=>lease.documentId==='next'&&lease.expiresAt===now+20000),'旧页迟到续期不能覆盖新页期限');
  await first.send(1,'old',0);
  assert.deepEqual(events,['system']);assert.equal(first.timers.size,1);
  assert.equal([...first.timers.values()][0].ms,20000);
@@ -105,6 +108,13 @@ test('防休眠按标签页释放，旧文档不能释放新文档，失联在�
  assert.deepEqual(events,['system']);
  now+=61000;boot().onAlarm();await flush();
  assert.deepEqual(events,['system','release']);assert.equal(alarms.size,0);
+ await restarted.send(3,'one',now+60000);await restarted.send(3,'two',now+60000);
+ restarted.onRemoved(3);await flush();assert.equal(Object.keys(session).length,0,'关闭标签删除全部文档租约');
+ session.timedAwakeTabs={'4':{documentId:'legacy',expiresAt:now+20000}};
+ const migrated=boot();await migrated.send(4,'new',now+60000);
+ assert.equal(Object.values(session.timedAwakeTabs).filter(lease=>lease.tabId===4).length,2,'旧版本租约兼容迁移且不覆盖');
+ await migrated.send(4,'legacy',0);assert.equal(Object.values(session.timedAwakeTabs)[0].documentId,'new');
+ migrated.onRemoved(4);await flush();assert.equal(Object.keys(session).length,0);
 });
 test('最后一次发送收尾期间保留防休眠，完成后释放，不再触发下一次',async()=>{
  const env=setup({enabled:true,minSeconds:3,maxSeconds:3,maxAttempts:1,maxMinutes:1});
@@ -244,4 +254,52 @@ test('点赞请求已经发出尚未确认时终止本轮，不保留可继续�
  const env=setup();await flush();env.controller.start();env.state.likePending=true;env.controller.pause();
  assert.equal(env.controller.isPaused(),false);assert.equal(env.timers.size,0);
  env.state.likePending=false;env.controller.continueRun();env.advance(20000);assert.equal(env.calls.length,0);
+});
+
+
+test('可见失焦开关默认关闭；开启只忽略失焦，隐藏仍暂停释放且不自动恢复',async()=>{
+ for(const allow of [false,true]){
+  const env=setup({enabled:true,allowVisibleUnfocused:allow,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:1});
+  let focused=true;env.document.hasFocus=()=>focused;await flush();
+  assert.equal(env.scope.XReplyTimedReplies.normalize({}).allowVisibleUnfocused,false);
+  env.controller.start();focused=false;env.events.get('blur')();
+  assert.equal(env.controller.isPaused(),!allow);assert.equal(env.controller.pageAllowed(),allow);
+  env.advance(3000);assert.equal(env.calls.length,allow?1:0);
+  if(allow){
+   assert.ok(env.wake.at(-1).until>=1800000060000);
+   env.document.hidden=true;env.events.get('visibilitychange')();assert.equal(env.controller.isPaused(),true);assert.equal(env.wake.at(-1).until,0);
+   env.controller.continueRun();assert.equal(env.timers.size,0);
+   env.document.hidden=false;env.events.get('visibilitychange')();assert.equal(env.controller.isPaused(),true);assert.equal(env.timers.size,0);
+  }
+ }
+});
+test('自动换批在可见但失焦的新文档沿用开关；默认策略和隐藏页仍拒绝',async()=>{
+ for(const allow of [false,true]){
+  const config={enabled:true,allowVisibleUnfocused:allow,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:1};
+  const old=setup(config);await flush();old.controller.start();old.advance(3000);const ticket=old.controller.prepareRefresh('unfocused-handoff');
+  const next=setup(config,ticket.capturedAt+100);next.document.hasFocus=()=>false;next.events.get('blur')();await flush();next.state.id='2';
+  assert.equal(next.controller.previewResume(ticket,'unfocused-handoff'),allow);
+  if(allow){next.controller.restore(ticket,'unfocused-handoff');next.advance(3000);assert.equal(next.calls.length,1);}
+  const hidden=setup(config,ticket.capturedAt+100);hidden.document.hidden=true;await flush();
+  assert.equal(hidden.controller.previewResume(ticket,'hidden-handoff'),false);
+ }
+});
+test('失焦允许不绕过异常，开关变更终止本轮；暂停本身不因回到可见而启动',async()=>{
+ const config={enabled:true,allowVisibleUnfocused:true,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:1};
+ const env=setup(config);await flush();env.controller.start();env.document.hasFocus=()=>false;env.events.get('blur')();
+ env.state.reason='rate limited';env.controller.refresh();env.advance(3000);assert.equal(env.calls.length,0);assert.equal(env.controller.isPaused(),false);
+ const changed=setup(config);await flush();changed.controller.start();changed.change({...config,allowVisibleUnfocused:false});changed.advance(3000);assert.equal(changed.calls.length,0);
+});
+
+
+test('浮窗按焦点和可见性事件更新，已暂停时仍更新，不新增计时器',async()=>{
+ const env=setup({enabled:true,allowVisibleUnfocused:true,minSeconds:3,maxSeconds:10,maxAttempts:3,maxMinutes:1});
+ let focused=true;env.document.hasFocus=()=>focused;await flush();
+ const row=()=>env.document.body.children.at(-1).querySelector('.xrc-timed-badge-visibility');
+ assert.equal(row().textContent,'页面可见 · 有焦点');assert.equal(env.timers.size,0);
+ focused=false;env.events.get('blur')();assert.equal(row().textContent,'页面可见 · 已失焦');assert.equal(env.timers.size,0);
+ env.controller.start();env.controller.pause();env.document.hidden=true;env.events.get('visibilitychange')();
+ assert.equal(row().textContent,'页面隐藏 · 已失焦');assert.equal(env.timers.size,0);
+ env.document.hidden=false;env.events.get('visibilitychange')();assert.equal(row().textContent,'页面可见 · 已失焦');assert.equal(env.controller.isPaused(),true);
+ focused=true;env.events.get('focus')();assert.equal(row().textContent,'页面可见 · 有焦点');assert.equal(env.timers.size,0);
 });

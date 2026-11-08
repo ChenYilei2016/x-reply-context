@@ -313,3 +313,38 @@ document.querySelector('#timed-stop-run').onclick=async event=>{
  finally{holdNext=null;timed.stop();flow.stop();event.target.disabled=false;}
  result.dataset.result=checks.every(item=>item.ok)?'passed':'failed';result.textContent=JSON.stringify({fixture:true,checks},null,2);
 };
+
+
+// Controlled local visibility inputs; no real account requests or window activation.
+document.querySelector('#visible-run').onclick=async event=>{
+ const output=document.querySelector('#visible-result'),checks=[];
+ const check=(name,ok)=>{checks.push({name,ok:Boolean(ok)});if(!ok)throw Error(name);};
+ const focusDescriptor=Object.getOwnPropertyDescriptor(document,'hasFocus');
+ const hiddenDescriptor=Object.getOwnPropertyDescriptor(document,'hidden');
+ let hidden=false;event.target.disabled=true;output.dataset.result='running';
+ try{
+  const current=await reset();
+  Object.defineProperty(document,'hasFocus',{configurable:true,value:()=>false});
+  Object.defineProperty(document,'hidden',{configurable:true,get:()=>hidden});
+  timedSettingChanged({timedReplies:{newValue:{enabled:true,allowVisibleUnfocused:true,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:1}}},'local');
+  await wait(()=>!document.querySelector('.xrc-timed-replies button').disabled);
+  document.querySelector('.xrc-timed-replies button').click();window.dispatchEvent(new Event('blur'));
+  check('开启后可见失焦仍保持运行',!timed.isPaused()&&document.querySelector('.xrc-timed-badge').dataset.state==='running');
+  await wait(()=>dialog()?.dataset.target==='200',7000);
+  check('失焦下评论、点赞和下一条按原回执保存，不多发',current.replied.has('100')&&current.liked.has('100')&&current.events.filter(item=>item.kind==='send').length===1);
+  hidden=true;document.dispatchEvent(new Event('visibilitychange'));
+  check('隐藏立即暂停，不能因开关开启而继续',timed.isPaused()&&!timed.pageAllowed());
+  hidden=false;document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('focus'));await sleep(100);
+  check('重新可见不自动恢复',timed.isPaused()&&current.events.filter(item=>item.kind==='send').length===1);
+  guard.show({account:'me',operation:'CreateTweet',httpStatus:429});
+  check('限流仍终止本轮并禁用继续',guard.blocked()&&!timed.isPaused());
+ }catch(error){checks.push({name:error.message,ok:false});}
+ finally{
+  timed.stop();flow.stop();dialog()?.remove();
+  if(focusDescriptor)Object.defineProperty(document,'hasFocus',focusDescriptor);else delete document.hasFocus;
+  if(hiddenDescriptor)Object.defineProperty(document,'hidden',hiddenDescriptor);else delete document.hidden;
+  document.querySelector('.xrc-interaction-alert button')?.click();
+  timedSettingChanged({timedReplies:{newValue:{enabled:false}}},'local');event.target.disabled=false;
+ }
+ output.dataset.result=checks.every(item=>item.ok)?'passed':'failed';output.textContent=JSON.stringify({fixture:true,checks},null,2);
+};

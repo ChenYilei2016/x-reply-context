@@ -13,11 +13,13 @@
   <form id="timed-reply-settings" class="home-filter-setting">
     <label><input name="enabled" type="checkbox" disabled>为你推荐 · 定时评论点赞下条</label>
     <p class="setting-hint">默认关闭。会发送已填好的草稿；每轮需在回复框手动开始，页面固定显示运行标记。</p>
+    <label><input name="allowVisibleUnfocused" type="checkbox" disabled>页面可见时，失焦仍继续</label>
+    <p class="setting-hint">默认关闭，仅定时本轮生效。隐藏、最小化或切换标签仍暂停；不激活窗口、不抢焦点。修改后需保存。</p>
     <details><summary>配置</summary>
       <label class="timed-number">随机间隔（秒）<input name="minSeconds" aria-label="最短间隔（秒）" type="number" min="3" max="3600" required disabled>～<input name="maxSeconds" aria-label="最长间隔（秒）" type="number" min="3" max="3600" required disabled></label>
       <label class="timed-number">最多触发次数<input name="maxAttempts" type="number" min="1" max="500" required disabled></label>
       <label class="timed-number">最长运行分钟<input name="maxMinutes" type="number" min="1" max="240" required disabled></label>
-      <p>默认3～10秒（按毫秒随机，如3.864秒）、最多500次或60分钟，任一先到即不再触发新发送。草稿就绪后才开始本次随机等待；没有草稿不发送，不自行请求AI。仅前台生效；手动暂停、后台或失焦保留次数与原截止时间，需手动继续，暂停不延长时长。红字、失败、运行中编辑、关闭、切页或配置变化仍结束本轮，不补发、不重试；手动刷新不恢复，插件自动换批延续剩余预算。</p>
+      <p>默认3～10秒（按毫秒随机，如3.864秒）、最多500次或60分钟，任一先到即不再触发新发送。草稿就绪后才开始本次随机等待；没有草稿不发送，不自行请求AI。默认要求前台；开启失焦继续后只要求页面可见。手动暂停、隐藏，或未开启选项时失焦，保留次数与原截止时间，需手动继续，暂停不延长时长。红字、失败、运行中编辑、关闭、切页或配置变化仍结束本轮，不补发、不重试；手动刷新不恢复，插件自动换批延续剩余预算。</p>
       <p>手动停止会取消本条尚未执行的后续点赞与跳转；达到次数上限则允许已触发本条正常收尾。设置修改会结束正在运行的一轮。</p>
     </details>
     <button type="submit" disabled>保存定时设置</button><p role="status"></p>
