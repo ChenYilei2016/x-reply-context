@@ -1,5 +1,6 @@
 (() => {
-  const profileFields=["baseUrl","apiKey","model","serviceTier"];
+  const profileFields=["baseUrl","apiKey","model","serviceTier","reasoningEffort"];
+  const timingFields=["typingDelayMin","typingDelayMax"];
   const promptFields=["generatePrompt","rewritePrompt"];
   const get=id=>document.getElementById(id);
   const status=get("status");
@@ -17,7 +18,7 @@
   }
   function renderProcessing() {
     const supported=XReplyAIConfig.isOpenAI(get("baseUrl").value);
-    get("openaiMode").hidden=!supported;get("serviceTier").disabled=!supported||saving;
+    get("openaiMode").hidden=!supported;get("serviceTier").disabled=!supported||saving;get("reasoningEffort").disabled=!supported||saving;
   }
   function renderProfiles() {
     get("profile").replaceChildren(...config.profiles.map(profile=>{
@@ -27,7 +28,7 @@
     get("profile").value=selectedId;
     const profile=config.profiles.find(item=>item.id===selectedId);
     get("profileName").value=profile.name;
-    for(const field of profileFields)get(field).value=profile[field] ?? (field==="serviceTier"?"auto":"");
+    for(const field of profileFields)get(field).value=profile[field] ?? (["serviceTier","reasoningEffort"].includes(field)?"auto":"");
     renderProcessing();
     get("removeProfile").disabled=config.profiles.length<=1;
     get("addProfile").disabled=config.profiles.length>=10;
@@ -40,18 +41,19 @@
   void send({type:"AI_CONFIG_GET"}).then(({config:value})=>{
     config=value;selectedId=value.activeProfileId;
     for(const field of promptFields)get(field).value=config[field];
+    for(const field of timingFields)get(field).value=config[field];
     get("enabled").checked=config.enabled;
     for(const id of ["save","profile","addProfile","openaiProfile","removeProfile"])get(id).disabled=false;
     renderProfiles();applied(config);status.textContent="";
   }).catch(error=>{status.textContent=error.message;});
   get("settings").addEventListener("input",()=>{if(config){changed();renderProcessing();}});
-  get("serviceTier").addEventListener("change",()=>{if(config)changed();});
+  for(const field of ["serviceTier","reasoningEffort"])get(field).addEventListener("change",()=>{if(config)changed();});
   get("profile").addEventListener("change",()=>{
     remember();selectedId=get("profile").value;renderProfiles();changed("已选择配置，点击保存后切换生效。尚未保存的编辑保留在本页。");
   });
   get("addProfile").addEventListener("click",()=>{
     if(!config || saving || config.profiles.length>=10)return;
-    remember();selectedId=crypto.randomUUID();config.profiles.push({id:selectedId,name:"新配置",baseUrl:"",apiKey:"",model:"",serviceTier:"auto"});
+    remember();selectedId=crypto.randomUUID();config.profiles.push({id:selectedId,name:"新配置",baseUrl:"",apiKey:"",model:"",serviceTier:"auto",reasoningEffort:"auto"});
     renderProfiles();changed();get("profileName").focus();
   });
   get("openaiProfile").addEventListener("click",()=>{
@@ -79,7 +81,8 @@
     controls.forEach(control=>{control.disabled=true;});
     try {
       const next=XReplyAIConfig.normalizeProfiles({...config,enabled:get("enabled").checked,activeProfileId:selectedId,
-        ...Object.fromEntries(promptFields.map(field=>[field,get(field).value]))});
+        ...Object.fromEntries(promptFields.map(field=>[field,get(field).value])),
+        ...Object.fromEntries(timingFields.map(field=>[field,get(field).valueAsNumber]))});
       const active=XReplyAIConfig.activeConfig(next);
       if(active.enabled && !await chrome.permissions.request({origins:[XReplyAIConfig.originPattern(XReplyAIConfig.endpoint(active.baseUrl))]}))throw new Error("域名未授权，设置未保存；原配置仍然生效。");
       await send({type:"AI_CONFIG_SAVE",config:next});

@@ -17,7 +17,11 @@
   let continuous;
   let aiReplies;
   let refreshCycle;
+  let timedReplies;
+  let awakeTimer, awakeUntil=0;
   let interactionAlert;
+  let randomSkipReplyLike = false;
+  let randomSkipLikeSettingLoaded = false;
   let hideCompletedHome = false;
   let homeSettingLoaded = false;
   let notificationHideMode = "off";
@@ -43,7 +47,7 @@
     disconnected = true;
     clearTimeout(timer); timer = undefined; pending.clear(); again = false;
     observer.disconnect();
-    continuous?.stop(); aiReplies?.stop(); refreshCycle?.cancel();
+    continuous?.stop(); aiReplies?.stop(); refreshCycle?.cancel();timedReplies?.stop("扩展连接已失效");
     if (networkNotice) networkNotice.hidden = true;
     // Pause without resetting filters: restoring hidden rows here would move the reading position.
     void notificationFilter.refresh();
@@ -208,6 +212,17 @@
     invalidateAnnotations(); homeFilter.invalidate(); notificationFilter.invalidate();
   }
 
+  function keepAwake(until,leaving=false) {
+    clearTimeout(awakeTimer);
+    if (leaving) {awakeUntil=0;return;}
+    const remaining=until-Date.now();
+    if (remaining<=0) until=0;
+    if (until===0 && awakeUntil===0) return;
+    awakeUntil=until;
+    void message({type:"TIMED_KEEP_AWAKE",until}).catch(()=>{});
+    if (until) awakeTimer=setTimeout(()=>keepAwake(until),Math.min(8000,remaining));
+  }
+
   function enqueueObserved(batch) {
     const account = accountHandle();
     let group = pending.get(account);
@@ -261,7 +276,7 @@
       uiFrame = undefined;
       if (connected()) {
         homeFilter.syncKnown(); notificationFilter.syncKnown();
-        continuous?.refresh(); aiReplies?.refresh();
+        continuous?.refresh(); aiReplies?.refresh();timedReplies?.refresh();
       }
     });
   }
@@ -372,7 +387,7 @@
 
   async function refresh() {
     if (!connected() || document.hidden) return;
-    continuous?.refresh(); aiReplies?.refresh();
+    continuous?.refresh(); aiReplies?.refresh();timedReplies?.refresh();
     renderNetworkNotice();
     window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_CONTEXT" },location.origin);
     if (running) { again = true; return; }
@@ -434,13 +449,18 @@
   }
 
   interactionAlert = globalThis.XReplyInteractionAlert?.create({accountHandle,
-    onPause:()=>{continuous?.pauseForAlert();refreshCycle?.cancel();},
+    onPause:()=>{timedReplies?.stop("收到异常提醒，已停止");aiReplies?.pause();continuous?.pauseForAlert();refreshCycle?.cancel();},
     onRelease:()=>continuous?.stop()});
-  aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,requestRefresh:scheduleControls,
-    rootOwnership:editor=>continuous?.rootOwnership(editor) || "unknown"});
-  refreshCycle = globalThis.XReplyRefreshCycle?.create({storage:chrome.storage,message,accountHandle,requestRefresh:scheduleControls,
+  aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,requestRefresh:scheduleControls,interactionBlocked:()=>interactionAlert?.blocked()===true,
+    rootOwnership:editor=>continuous?.rootOwnership(editor) || "unknown",
+    recommendedReply:editor=>continuous?.recommendedReply(editor)});
+  refreshCycle = globalThis.XReplyRefreshCycle?.create({storage:chrome.storage,message,accountHandle,requestRefresh:scheduleControls,getTimed:()=>timedReplies,
     resume:(intent,valid)=>continuous.resumeRecommended(intent,valid),notify:text=>continuous?.notify(text)});
-  continuous = globalThis.XReplyContinuous?.create({refreshCycle,interactionBlocked:()=>interactionAlert?.blocked()===true, accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels:(bar,row) => renderLabels(bar,row,false),renderPersonStats,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor),aiPhase:editor => aiReplies?.phase(editor) || "" });
+  timedReplies = globalThis.XReplyTimedReplies?.create({storage:chrome.storage,readState:()=>continuous?.timedState(),
+    trigger:state=>continuous?.timedSend(state),requestRefresh:scheduleControls,keepAwake,
+    onInterrupt:reason=>{aiReplies?.pause();continuous?.cancelTimedFollowup(reason);},cancelRefresh:id=>refreshCycle?.cancel(id)});
+  continuous = globalThis.XReplyContinuous?.create({refreshCycle,timedReplies,randomSkipLikeEnabled:()=>randomSkipReplyLike,interactionBlocked:()=>interactionAlert?.blocked()===true, accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels:(bar,row) => renderLabels(bar,row,false),renderPersonStats,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor),aiPhase:editor => aiReplies?.phase(editor) || "",
+    aiFillRecommendedEnabled:()=>aiReplies?.fillRecommendedEnabled() === true});
 
   window.addEventListener("message", event => {
     if (event.source !== window || event.origin !== location.origin ||
@@ -475,6 +495,7 @@
     if (!document.hidden) schedule();
   });
   chrome.runtime.onMessage.addListener((request,_sender,respond) => {
+    if(request?.type==="REFRESH_CANCELLED"){refreshCycle?.cancelled(request.refreshId);respond({ok:true});return;}
     if (request?.type === "GET_ACCOUNT") respond({ account:accountHandle() });
   });
   chrome.storage.onChanged.addListener((changes,area) => {
@@ -482,6 +503,10 @@
     if (changes.replyContext || changes.replyContextRevision) {
       applyRevision(changes.replyContextRevision?.newValue);
       if (!document.hidden) { scheduleControls(); schedule(); }
+    }
+    if (changes.randomSkipReplyLike) {
+      randomSkipReplyLike=changes.randomSkipReplyLike.newValue===true;
+      randomSkipLikeSettingLoaded=true;
     }
     if (changes.hideCompletedHome) {
       hideCompletedHome = changes.hideCompletedHome.newValue === true;
@@ -522,8 +547,10 @@
       schedule();
     }
   });
-  void chrome.storage.local.get(["hideCompletedHome","hideCompletedNotifications","notificationHideMode","autoOrganizeNotifications","autoHideLikeNotifications","autoHideFollowNotifications","autoHideRepostNotifications"]).then(saved => {
+  void chrome.storage.local.get(["randomSkipReplyLike","hideCompletedHome","hideCompletedNotifications","notificationHideMode","autoOrganizeNotifications","autoHideLikeNotifications","autoHideFollowNotifications","autoHideRepostNotifications"]).then(saved => {
     if (!connected()) return;
+    if (!randomSkipLikeSettingLoaded) randomSkipReplyLike=saved.randomSkipReplyLike===true;
+    randomSkipLikeSettingLoaded=true;
     if (!homeSettingLoaded) hideCompletedHome = saved.hideCompletedHome === true;
     homeSettingLoaded = true;
     if (!notificationSettingLoaded) {

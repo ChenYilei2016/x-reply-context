@@ -37,7 +37,7 @@ function setup(savedSettings = {}) {
   const scope = vm.createContext({ document,window,location:{ pathname:'/notifications',origin:'https://x.com',reload:() => state.reloads++ },
     chrome:{ runtime,storage:{ onChanged:{ addListener:callback => { storageChanged = callback; } },local:{ get:async () => savedSettings } } },
     XReplyHomeFilter:{ create:filter },XReplyNotificationFilter:{ create:options => { state.notificationOptions = options; return filter(); } },
-    XReplyContinuous:{ create:options => { state.connected = options.connected; state.message = options.message; return {
+    XReplyContinuous:{ create:options => { state.randomSkipLikeEnabled=options.randomSkipLikeEnabled; state.connected = options.connected; state.message = options.message; return {
       refresh() { state.uiRenders++; state.renderedContextVersion=state.contextVersion || 0; },stop() { state.stopped++; },invalidateContext() { state.contextVersion=(state.contextVersion || 0)+1; },receiveReply() { state.received = true; },receiveLike(data,saved) { state.likeReceipt=data;state.likeSaved=saved; }
     }; } },
     MutationObserver:class { constructor(callback) { mutation = callback; } observe() {} disconnect() {} },
@@ -52,6 +52,7 @@ function setup(savedSettings = {}) {
   };
   const message = data => events.get('message')({ source:window,origin:'https://x.com',data:{ channel:'x-reply-context-v1',...data } });
   return { state,runtime,body,controls,flush,message,
+    settingChanged:changes=>storageChanged(changes,"local"),
     changed:revision => storageChanged({ replyContextRevision:{ newValue:revision } },"local"),
     frame:() => { for (const [id,fn] of frames) { frames.delete(id); fn(); } },
     mutation:() => mutation([{ target:{ closest:selector => selector.includes("primaryColumn") ? {} : null } }]) };
@@ -196,4 +197,16 @@ test('首次识别账号使旧资料失效后，主动刷新回复框，不等�
   assert.ok(env.state.contextVersion>0);
   env.frame();
   assert.equal(env.state.renderedContextVersion,env.state.contextVersion);
+});
+
+
+test('随机跳过点赞默认关闭，读取与设置变更更新内存，不额外请求后台',async()=>{
+ const env=setup();await env.flush();assert.equal(env.state.randomSkipLikeEnabled(),false);
+ const calls=env.state.calls;
+ env.settingChanged({randomSkipReplyLike:{newValue:true}});assert.equal(env.state.randomSkipLikeEnabled(),true);
+ env.settingChanged({randomSkipReplyLike:{newValue:false}});assert.equal(env.state.randomSkipLikeEnabled(),false);
+ assert.equal(env.state.calls,calls);
+ const enabled=setup({randomSkipReplyLike:true});
+ enabled.settingChanged({randomSkipReplyLike:{newValue:false}});await enabled.flush();
+ assert.equal(enabled.state.randomSkipLikeEnabled(),false,'较晚返回的初始读取不能覆盖最新开关');
 });

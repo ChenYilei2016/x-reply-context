@@ -18,6 +18,13 @@ http.createServer(async (request,response) => {
         .replace('<script src="ai-settings.js"></script>','<script src="/tests/ai-settings-fixture.js"></script><script src="/extension/ai-settings.js"></script>'));
       return;
     }
+    if (pathname === "/tests/popup-preview.html") {
+      const template=await readFile(path.join(root,"extension/popup.html"),"utf8");
+      response.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});
+      response.end(template.replace('href="popup.css"','href="/extension/popup.css"').replace('src="timed-replies.js"','src="/extension/timed-replies.js"')
+        .replace('<script src="popup.js"></script>','<script src="/tests/popup-fixture.js"></script><script src="/extension/popup.js"></script>'));
+      return;
+    }
     const relative = ["/notifications","/home","/carol","/carol/with_replies","/search","/hashtag/%E6%B5%87%E6%9C%8B%E5%8F%8B"].includes(pathname) ? "tests/demo.html" : "." + decodeURIComponent(pathname);
     const filename = path.resolve(root,relative);
     if (!filename.startsWith(root) || !types[path.extname(filename)]) throw new Error("Not found");

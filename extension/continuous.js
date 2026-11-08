@@ -4,6 +4,7 @@
   const EDITOR = '[contenteditable="true"][data-testid="tweetTextarea_0"]';
   const SEND = '[data-testid="tweetButton"]';
   const CLOSE = '[data-testid="app-bar-close"]';
+  const SEND_KEY_GAP_MS = 500;
   const QUICK_REPLIES = [
     { label:"一起加油",phrases:[
       "一起加油好兄弟","一起加油鸭","一起加油🦆","一起加油",
@@ -36,16 +37,18 @@
     (row.status === "not-reply" ? row.origin !== "mine" :
       !["replied","self","not-reply"].includes(row.status));
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,renderPersonStats = () => {},requestRefresh,refreshCycle,interactionBlocked = () => false,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "" }) {
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,renderPersonStats = () => {},requestRefresh,refreshCycle,timedReplies,randomSkipLikeEnabled = () => false,interactionBlocked = () => false,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "",aiFillRecommendedEnabled = () => false }) {
     let session;
     let notice;
     let noticeTimer;
     let internalClose = false;
     let internalHeart = false;
+    let internalTimedSend = false;
     let openingId = "";
     let rewriteNode;
     let rewriteWatch;
     let contextRevision = 0;
+    let lastSendKeyAt = -Infinity;
 
     function composer() {
       return Array.from(document.querySelectorAll(COMPOSER))
@@ -184,7 +187,8 @@
       if (temporary) noticeTimer = setTimeout(clearNotice,8000);
     }
 
-    function finish(text = "") {
+    function finish(text = "",{preserveTimed=false}={}) {
+      if(!preserveTimed)timedReplies?.stop("连续回复已结束");
       const previous = session;
       session = undefined;
       openingId = "";
@@ -198,6 +202,7 @@
     }
 
     function pauseForAlert() {
+      timedReplies?.stop("收到异常提醒，已停止");
       const s=session;if(!s)return;
       clearTimeout(s.timeout);s.autoAdvance=false;
       if(s.afterReply)s.afterReply.cancelled=true;
@@ -241,7 +246,7 @@
       return profileEntry(primary) ? "profile" : "";
     }
 
-    function start(article,feed) {
+    function start(article,feed,{restoring=false}={}) {
       if (!connected() || interactionBlocked()) return;
       const id = tweetId(article);
       const account = accountHandle();
@@ -250,8 +255,8 @@
       if (feed === "profile" && !profile) return;
       const search = feed === "search" ? searchEntry(document.querySelector(PRIMARY_COLUMN)) : "";
       if (feed === "search" && !search) return;
-      refreshCycle?.cancel();
-      finish();
+      if(!restoring)refreshCycle?.cancel();
+      finish("",{preserveTimed:restoring});
       session = {
         profile,searchKey:search,
         account,feed,homeTabIndex:feed === "home" ? selectedHomeTab(document.querySelector(PRIMARY_COLUMN)) : -1,
@@ -286,7 +291,7 @@
         eligible(rows.get(id))&&enabled(article.querySelector('[data-testid="reply"]')));
       if (!next) return candidates.some(([id])=>!rows.get(id)?.authorHandle ||
         rows.get(id).authorHandle!==intent.account && !rows.get(id).personStats)?"waiting":"empty";
-      start(next[1],"home");
+      start(next[1],"home",{restoring:true});
       if (!session || session.current.id!==next[0])return "paused";
       session.phase="opening";openCurrent(session);return "opened";
     }
@@ -298,9 +303,20 @@
       return s.current.context.origin || "unknown";
     }
 
+    const isRecommended = s => s?.feed === "home" && s.homeTabIndex === 0;
+
+    function recommendedReply(editor) {
+      const s=session,dialog=s?.current.dialog;
+      if (!isRecommended(s) || s.phase !== "ready" || !dialog?.contains(editor) ||
+          s.current.composing || s.current.quickPending || !currentSession(s) || !singleReply(dialog)) return null;
+      return s.current;
+    }
+
+    const hasAttachments = dialog => Boolean(dialog.querySelector(
+      '[data-testid="attachments"],[data-testid="mediaPreview"],[data-testid^="pollOption_"]'));
+
     function hasDraft(dialog) {
-      return Boolean(dialog.querySelector(EDITOR)?.innerText.trim() ||
-        dialog.querySelector('[data-testid="attachments"],[data-testid="mediaPreview"],[data-testid="pollOption_0"]'));
+      return Boolean(dialog.querySelector(EDITOR)?.innerText.trim()) || hasAttachments(dialog);
     }
 
     function draftBusy(s) {
@@ -363,12 +379,15 @@
       if (interactionBlocked() || !currentSession(s) || s.phase === "advancing") return;
       if (s.phase === "refreshing") return;
       s.handled.add(s.current.id);
-      if (refreshCycle?.due(s)) {
+      if (refreshCycle?.due(s) && !timedReplies?.isPaused() && !timedReplies?.isFinishing?.()) {
+        const refreshToken = s.refreshToken = {};
         s.phase="refreshing";clearNotice();
-        const result=await refreshCycle.refresh(s,()=>currentSession(s)&&s.phase==="refreshing"&&!composer());
-        if (!currentSession(s)) return;
+        const valid=()=>currentSession(s)&&s.phase==="refreshing"&&s.refreshToken===refreshToken;
+        const result=await refreshCycle.refresh(s,()=>valid()&&!composer());
+        if (!valid()) return;
         if (result==="navigating") return;
         if (result==="paused") {
+          s.afterReply=null;
           s.phase="sent";s.autoAdvance=false;s.note="已达到换批次数。"+(refreshCycle.pauseMessage() || "本次刷新已暂停，请核对页面状态后继续。");
           showNotice(s.note,{label:"继续换一批",run:()=>advance(s)});return;
         }
@@ -379,6 +398,8 @@
     async function selectNext(s) {
       if (interactionBlocked() || !currentSession(s) || s.phase === "advancing") return;
       s.phase = "advancing";
+      const selection = s.selection = {};
+      const valid = () => currentSession(s) && s.phase==="advancing" && s.selection===selection;
       clearTimeout(s.timeout);
       s.attempt = null;
       s.current.dialog?.querySelector(".xrc-continuous")?.remove();
@@ -391,7 +412,11 @@
         for (let offset = 0; offset < candidates.length && !nextId; offset += 100) {
           const batch = candidates.slice(offset,offset+100);
           const result = await message({ type:"CLASSIFY",account:s.account,ids:batch.map(([id]) => id) });
-          if (!currentSession(s)) return;
+          if (!valid()) return;
+          if (s.afterReply?.timed && !s.afterReply.cancelled && (document.hidden || document.hasFocus && !document.hasFocus())) {
+            timedReplies?.pause("页面不在前台，返回后点击继续本轮");
+            return;
+          }
           const byId = new Map(result.rows.map(row => [row.id,row]));
           nextId = batch.find(([id,article]) => article.isConnected && tweetId(article) === id &&
             eligible(byId.get(id)) && enabled(article.querySelector('[data-testid="reply"]')))?.[0] || "";
@@ -400,12 +425,13 @@
           finish(`当前已加载的${s.feed === "notifications" ? "通知" : s.feed === "search" ? "搜索结果" : "主页帖子"}处理完成。加载更多后，从任一条继续。`);
           return;
         }
+        s.afterReply=null;
         s.current = { id:nextId,article:candidates.find(([id]) => id === nextId)?.[1] };
         s.phase = "opening";
         s.note = s.saveClicked ? "上一条已保存到 X 草稿。" : "从当前页选择，略过已回复。";
         openCurrent(s);
       } catch (error) {
-        if (session === s) {
+        if (valid()) {
           s.phase = "paused";
           showNotice(error.message,{ label:"结束连续回复",run:() => finish() });
         }
@@ -438,7 +464,8 @@
     function stopAfterReply(s,note) {
       if (!s || session !== s || !s.afterReply) return;
       s.afterReply.cancelled = true;
-      if (!postReplyPhase(s)) return; // Keep waiting for an in-flight reply receipt; never enable a resend.
+      const advancing = s.afterReply.timed && (["advancing","refreshing"].includes(s.phase) || s.phase==="sent" && s.autoAdvance);
+      if (!postReplyPhase(s) && !advancing) return; // Keep waiting for an in-flight reply receipt.
       clearTimeout(s.timeout);
       s.phase = "sent"; s.autoAdvance = false; s.note = note;
       clearNotice(); refresh();
@@ -446,7 +473,7 @@
 
     function validAfterReply(s,operation) {
       if (!currentSession(s) || s.afterReply !== operation || s.current !== operation.current ||
-          operation.cancelled || document.hidden) return false;
+          operation.cancelled || document.hidden || operation.timed && document.hasFocus && !document.hasFocus()) return false;
       const dialog = composer();
       if (dialog && dialog !== s.current.dialog) return false;
       if (dialog && (s.current.composing || s.current.quickPending || draftBusy(s))) return false;
@@ -458,8 +485,11 @@
       if (!validAfterReply(s,operation)) {
         stopAfterReply(s,"评论已发送，后续操作已停止；核对后可继续下一条。");return;
       }
-      clearTimeout(s.timeout);s.afterReply=null;
-      s.phase="sent";s.autoAdvance=true;s.note="评论与点赞已确认，正在进入下一条…";
+      clearTimeout(s.timeout);
+      if (!operation.timed) s.afterReply=null;
+      s.phase="sent";s.autoAdvance=true;
+      s.note=operation.likeUnavailable?"评论已确认，点赞按钮不可用，略过点赞进入下一条…":
+        operation.skipLike?"评论已确认，本次跳过点赞，正在进入下一条…":"评论与点赞已确认，正在进入下一条…";
       clearNotice();refresh();
     }
 
@@ -468,14 +498,19 @@
       if (!validAfterReply(s,operation)) {
         stopAfterReply(s,"评论已发送，后续点赞已取消；核对后可继续下一条。");return;
       }
-      s.note="评论已发送，稍候点赞…";clearNotice();refresh();
+      s.note=operation.skipLike?"评论已发送，本次不点赞，稍候进入下一条…":"评论已发送，稍候点赞…";clearNotice();refresh();
       s.timeout=setTimeout(()=>{
         if (!validAfterReply(s,operation)) {
           stopAfterReply(s,"评论已发送，页面或编辑状态已变化，未继续点赞。");return;
         }
+        if (operation.skipLike) {completeAfterReply(s,operation);return;}
         const heart=nativeHeart(s);
         if (!enabled(heart)) {
-          stopAfterReply(s,"评论已发送，但原帖已移出列表或点赞按钮不可用；可手动继续下一条。");return;
+          if(s.current.heartPending) {
+            stopAfterReply(s,"评论已发送，但已有点赞尚未确认；请核对后继续下一条。");return;
+          }
+          operation.likeUnavailable=true;
+          completeAfterReply(s,operation);return;
         }
         if (heart.getAttribute("data-testid")==="unlike") {
           if (s.current.heartPending) {
@@ -519,22 +554,62 @@
       }
     }
 
+    function cancelTimedFollowup(reason) {
+      if(session?.afterReply?.timed)stopAfterReply(session,reason+"；已发出的评论请核对，不会继续点赞。");
+    }
+
+    function timedState() {
+      const s=session;
+      if(!s || !isRecommended(s))return {supported:false,reason:"仅支持为你推荐"};
+      const state={supported:true,session:s,account:s.account,id:s.current.id,draft:"",ready:false,resumeReady:s.phase==="ready",likePending:s.phase==="liking"||Boolean(s.current.heartPending)};
+      state.settling=Boolean(s.afterReply?.timed && !s.afterReply.cancelled &&
+        (["sending","like-delay","liking","advancing","refreshing"].includes(s.phase) || s.phase==="sent" && s.autoAdvance));
+      if(interactionBlocked())return {...state,reason:"收到异常提醒，已停止"};
+      if(!currentSession(s))return {...state,reason:"页面或账号变化，已停止"};
+      if(["failed","uncertain","paused","draft-check","alert-paused"].includes(s.phase))
+        return {...state,reason:"当前操作需要核对，已停止定时触发"};
+      if(s.phase==="sent"&&!s.autoAdvance)return {...state,awaitingReview:true,reason:"本条已发送，请核对后进入下一条再继续"};
+      if(document.hidden || document.hasFocus && !document.hasFocus())return {...state,pauseable:true,reason:"页面不在前台，返回后点击继续本轮"};
+      if(s.phase!=="ready")return {...state,waiting:"等待本条处理完成"};
+      const dialog=s.current.dialog,editor=dialog?.querySelector(EDITOR);
+      if(!dialog?.isConnected || composer()!==dialog || !editor)return {...state,reason:"回复框已变化，已停止"};
+      if(hasAttachments(dialog))return {...state,reason:"定时发送只支持纯文字，请手动处理附件或投票"};
+      state.draft=editor.innerText;
+      state.ready=Boolean(state.draft.trim() && !s.current.composing && !s.current.quickPending && !draftBusy(s) &&
+        singleReply(dialog) && enabled(dialog.querySelector(SEND)));
+      state.waiting="等待草稿或AI填入完成";
+      return state;
+    }
+
+    function timedSend(expected) {
+      const state=timedState();
+      if(!state.ready || state.reason || state.session!==expected.session || state.id!==expected.id || state.draft!==expected.draft)return false;
+      const button=state.session.current.dialog.querySelector('.xrc-flow-send');if(!enabled(button))return false;
+      internalTimedSend=true;
+      try {button.click();} finally {internalTimedSend=false;}
+      return session===state.session && session.phase==="sending";
+    }
+
     function sendNext(s) {
       if (!currentSession(s)) return;
       if (draftBusy(s) || s.current.quickPending) { render(s); return; }
-      if (s.phase === "sent") { closeForNext(s); return; }
+      if (s.phase === "sent") {timedReplies?.stop("已转为手动操作",{preservePaused:true});closeForNext(s);return;}
       const dialog = s.current.dialog;
       const submit = dialog?.querySelector(SEND);
       if (!["ready","failed"].includes(s.phase) || !enabled(submit) || !singleReply(dialog)) return;
+      if(!internalTimedSend)timedReplies?.stop("已转为手动发送");
       s.saveClicked = false;
-      s.afterReply = {current:s.current,draft:dialog.querySelector(EDITOR).innerText,cancelled:false};
+      // Freeze one decision per send attempt; re-renders and setting changes must not reroll it.
+      s.afterReply = {current:s.current,draft:dialog.querySelector(EDITOR).innerText,cancelled:false,
+        skipLike:randomSkipLikeEnabled() && Math.random()<0.5,timed:internalTimedSend};
       s.attempt = { parentId:s.current.id,clickedAt:Date.now(),requestId:"" };
       s.phase = "sending";
-      s.note = "发送中，确认并保存后再点赞…";
+      s.note = s.afterReply.skipLike?"发送中，确认并保存后停顿并进入下一条…":"发送中，确认并保存后再点赞…";
       render(s);
       s.timeout = setTimeout(() => {
         if (session !== s || s.phase !== "sending") return;
         s.phase = "uncertain";
+        timedReplies?.stop("发送结果未确认，本轮已结束");
         s.note = "暂未确认发送结果，请先核对；不会重复发送。";
         render(s);
         if (!composer()) showNotice(s.note,{ label:"结束连续回复",run:() => finish() });
@@ -774,7 +849,7 @@
       const skip = bar.querySelector(".xrc-flow-skip"), skipDisabled = !canAct || busy;
       if (skip.disabled !== skipDisabled) skip.disabled = skipDisabled;
       const send = bar.querySelector(".xrc-flow-send");
-      const sendText = s.phase === "sent" ? "下一条" : s.phase === "liking" ? "点赞中…" : s.phase === "like-delay" ? "等待点赞…" : s.phase === "sending" ? "发送中…" : "评论点赞下条";
+      const sendText = s.phase === "sent" ? "下一条" : s.phase === "liking" ? "点赞中…" : s.phase === "like-delay" ? (s.afterReply?.skipLike?"等待下一条…":"等待点赞…") : s.phase === "sending" ? "发送中…" : "评论点赞下条";
       if (send.textContent !== sendText) send.textContent = sendText;
       const single = singleReply(dialog);
       const editor = dialog.querySelector(EDITOR);
@@ -785,8 +860,9 @@
       }
       const sendDisabled = busy || (s.phase !== "sent" && (!canAct || !enabled(dialog.querySelector(SEND)) || !single));
       if (send.disabled !== sendDisabled) send.disabled = sendDisabled;
-      const sendTitle = single ? "先发送评论，确认成功并保存后等待300～750ms，再点赞（已点不重复）；点赞确认保存后进入下一条。快捷键：Option/Alt+Enter（仅回复输入框）。" : "请先完成多条帖子编辑，再使用连续回复。";
+      const sendTitle = single ? "先发送评论，确认成功并保存后等待300～750ms，再点赞（已点不重复）；点赞确认保存后进入下一条。开启随机跳过点赞时，每次有50%概率仅停顿后进入下一条，不取消已有点赞。快捷键：Option/Alt+Enter（仅回复输入框）。" : "请先完成多条帖子编辑，再使用连续回复。";
       if (send.title !== sendTitle) send.title = sendTitle;
+      timedReplies?.refresh();timedReplies?.render(s,bar);
     }
 
     function refresh() {
@@ -843,6 +919,7 @@
         clearTimeout(s.timeout);
         attempt.settled = true;
         s.phase = data.status === "failed" ? "failed" : "uncertain";
+        timedReplies?.stop("发送失败或结果不明，本轮已结束");
         s.note = s.phase === "failed" ? "发送失败，内容留在原处；可修改后重试。" : "发送结果未确认，请先核对；不会自动重发。";
         render(s);
         if (!composer()) showNotice(s.note,{ label:"结束连续回复",run:() => finish() });
@@ -870,6 +947,7 @@
       } catch {
         if (session !== s) return;
         s.phase = "uncertain";
+        timedReplies?.stop("回复记录保存失败，本轮已结束");
         s.note = "回复已发送，但本地记录未保存。请勿重复发送，刷新 X 后继续。";
         render(s);
         if (!composer()) showNotice(s.note,{ label:"结束连续回复",run:() => finish() });
@@ -878,6 +956,7 @@
 
     document.addEventListener("click",event => {
       const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+      if(!internalTimedSend && target?.closest('[data-testid="tweetButton"],.xrc-flow-skip'))timedReplies?.stop("已转为手动操作");
       const tab = target?.closest('[role="tab"]');
       if (tab && session?.feed === "home") {
         const tabs = Array.from(feedColumn(session)?.querySelectorAll('[role="tab"]') || []);
@@ -903,9 +982,12 @@
       start(article,feed);
     },true);
     document.addEventListener("visibilitychange",()=>{
-      if (document.hidden) stopAfterReply(session,"评论已发送，页面已切到后台；后续操作停止。");
+      if (document.hidden && session?.phase!=="refreshing") stopAfterReply(session,"评论已发送，页面已切到后台；后续操作停止。");
     });
-    window.addEventListener("pagehide",()=>{if(session?.afterReply)finish();});
+    window.addEventListener("pagehide",()=>{if(session?.afterReply && session.phase!=="refreshing")finish();});
+    window.addEventListener("blur",()=>{
+      if(session?.afterReply?.timed && session.phase!=="refreshing")stopAfterReply(session,"页面失去焦点，定时触发的后续操作已停止。");
+    });
     document.addEventListener("input",event => {
       if (session?.current.dialog?.contains(event.target)) {
         // X clears its editor after success; a new nonempty draft cancels the remaining steps.
@@ -924,21 +1006,45 @@
         }
       });
     }
+    const shortcutModifier = event => event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+    window.addEventListener("keydown",event => {
+      if(event.key==="Enter"&&(event.ctrlKey||event.metaKey))timedReplies?.stop("已转为手动发送");
+      const s=session;
+      if (!s || event.key!=="Enter" || !shortcutModifier(event) || event.isComposing || event.keyCode===229) return;
+      const dialog=s.current.dialog;
+      const transitioning=!["ready","failed","sent"].includes(s.phase) || Boolean(s.attempt && !dialog?.isConnected);
+      let inBurst=false;
+      if (!event.repeat && isRecommended(s) && aiFillRecommendedEnabled()) {
+        const now=performance.now();
+        inBurst=now-lastSendKeyAt<SEND_KEY_GAP_MS;
+        lastSendKeyAt=now;
+      }
+      // The native list regains focus before the next editor opens. Consume the
+      // shortcut at window capture so it cannot reach X's timeline listeners.
+      if (transitioning) {
+        event.preventDefault();event.stopImmediatePropagation();
+        return;
+      }
+      const editor=event.target instanceof Element ? event.target.closest(EDITOR) : null;
+      if (!editor || !dialog?.contains(editor) || !currentSession(s) || s.current.composing) return;
+      const button=dialog.querySelector(".xrc-flow-send");
+      if (!button) return;
+      event.preventDefault();event.stopImmediatePropagation();
+      if (!event.repeat && !inBurst && !button.disabled) button.click();
+    },true);
     document.addEventListener("keydown",event => {
-      const shortcutModifier = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
-      const sendKey = shortcutModifier && event.key === "Enter";
-      const recommendKey = shortcutModifier && (event.code === "KeyQ" || event.key.toLowerCase() === "q");
-      const digit = shortcutModifier ? event.code.match(/^Digit([1-6])$/)?.[1] || event.key.match(/^[1-6]$/)?.[0] : "";
+      const modified=shortcutModifier(event);
+      const recommendKey = modified && (event.code === "KeyQ" || event.key.toLowerCase() === "q");
+      const digit = modified ? event.code.match(/^Digit([1-6])$/)?.[1] || event.key.match(/^[1-6]$/)?.[0] : "";
       const nativeSend = event.key==="Enter" && (event.ctrlKey || event.metaKey) && postReplyPhase(session);
-      if (!sendKey && !recommendKey && !digit && !nativeSend && event.key !== "Tab" && event.key !== "Escape") return;
+      if (!recommendKey && !digit && !nativeSend && event.key !== "Tab" && event.key !== "Escape") return;
       const editor = event.target instanceof Element ? event.target.closest(EDITOR) : null;
       if (nativeSend && editor && session.current.dialog?.contains(editor)) {
         stopAfterReply(session,"已转为原生操作，停止后续点赞与跳转。");return;
       }
-      if ((sendKey || recommendKey || digit) && session && editor && session.current.dialog?.contains(editor) && currentSession(session)) {
+      if ((recommendKey || digit) && session && editor && session.current.dialog?.contains(editor) && currentSession(session)) {
         if (event.isComposing || event.keyCode === 229 || session.current.composing) return;
-        const button = sendKey ? session.current.dialog.querySelector(".xrc-flow-send") :
-          recommendKey ? session.current.dialog.querySelector(".xrc-ai-recommend") :
+        const button = recommendKey ? session.current.dialog.querySelector(".xrc-ai-recommend") :
           session.current.dialog.querySelectorAll(".xrc-quick-reply")[Number(digit)-1];
         if (!button) return;
         event.preventDefault();event.stopImmediatePropagation();
@@ -958,7 +1064,7 @@
         requestAnimationFrame(() => { if (session === s && !composer()) finish(); });
       }
     },true);
-    return { refresh,pauseForAlert,receiveReply,receiveLike,resumeRecommended,rootOwnership,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
+    return { refresh,timedState,timedSend,cancelTimedFollowup,pauseForAlert,receiveReply,receiveLike,resumeRecommended,rootOwnership,recommendedReply,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
   }
 
   globalThis.XReplyContinuous = { create };

@@ -19,7 +19,9 @@ async function installCheckbox(selector,key,statusSelector,enabledText,defaultEn
     });
   } catch { status.textContent = "设置暂时不可用，请重新打开扩展。"; }
 }
-void installCheckbox("#ai-auto-complete","aiAutoComplete","#ai-auto-status","已开启；空回复框自动生成候选。",false,"已关闭；点击推荐评论才生成，已有草稿保留。");
+void installCheckbox("#random-skip-reply-like","randomSkipReplyLike","#random-like-status","已开启；后续组合操作有50%概率不点赞，仍停顿后进入下一条。",false,"已关闭；后续组合操作恢复评论后点赞。");
+void installCheckbox("#ai-auto-complete","aiAutoComplete","#ai-auto-status","已开启；空回复框自动生成候选。",false,"已关闭；手动推荐仍可使用。");
+void installCheckbox("#ai-fill-recommended","aiFillRecommended","#ai-fill-status","已开启；为你推荐的空回复框会自动填入一条草稿。",false,"已关闭；恢复原有 AI 补全设置。");
 void installCheckbox("#hide-completed-home","hideCompletedHome","#home-filter-status","已开启，按本机已确认记录筛选。");
 void installCheckbox("#auto-hide-like-notifications","autoHideLikeNotifications","#like-filter-status","已开启，后续接收时过滤点赞通知；空批暂停翻页。",true);
 void installCheckbox("#auto-hide-follow-notifications","autoHideFollowNotifications","#follow-filter-status","已开启，后续接收时过滤关注通知；空批暂停翻页。",true);
@@ -43,3 +45,5 @@ void installCheckbox("#auto-hide-repost-notifications","autoHideRepostNotificati
     status.textContent = "请打开已登录的 X 页面。刚安装或更新后，请先刷新 X。";
   }
 })();
+
+void globalThis.XReplyTimedReplies?.installSettings(chrome.storage);

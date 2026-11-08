@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const defaults = {
-    enabled:false,baseUrl:"",apiKey:"",model:"",
+    enabled:false,baseUrl:"",apiKey:"",model:"",typingDelayMin:35,typingDelayMax:100,
     generatePrompt:"请为下面的 X 帖子写一句自然、简短的中文回复，尽量不超过12个字。语气轻松，不编造经历，不添加帖子没有表达的事实。只返回 <reply>回复内容</reply>。\n\n帖子：\n${post}",
     rewritePrompt:"请把下面的回复草稿改写成一句简短自然的中文。严格保留原意、立场和情绪强度，不增加评价、经历或额外观点。只返回 <reply>改写后的内容</reply>。\n\n帖子：\n${post}\n\n草稿：\n${draft}"
   };
@@ -19,6 +19,11 @@
       if (typeof raw?.[key] === "string") value[key] = raw[key].trim();
     }
     value.enabled = raw?.enabled === true;
+    for(const key of ["typingDelayMin","typingDelayMax"]) {
+      value[key]=raw?.[key] ?? defaults[key];
+      if(!Number.isInteger(value[key]) || value[key]<0 || value[key]>1000)throw new Error("逐字间隔请输入0～1000毫秒的整数。");
+    }
+    if(value.typingDelayMin>value.typingDelayMax)throw new Error("逐字间隔最小值不能大于最大值。");
     if (value.baseUrl) endpoint(value.baseUrl);
     if (value.apiKey.length > 4096 || value.model.length > 256 || value.baseUrl.length > 2048 ||
         value.generatePrompt.length > 16000 || value.rewritePrompt.length > 16000) throw new Error("配置内容过长。");
@@ -27,7 +32,7 @@
     }
     return value;
   }
-  const openAIPreset = {id:"openai",name:"OpenAI / ChatGPT",baseUrl:"https://api.openai.com/v1",apiKey:"",model:"gpt-6-luna",serviceTier:"auto"};
+  const openAIPreset = {id:"openai",name:"OpenAI / ChatGPT",baseUrl:"https://api.openai.com/v1",apiKey:"",model:"gpt-6-luna",serviceTier:"auto",reasoningEffort:"auto"};
   const profileFields=["baseUrl","apiKey","model"];
   function normalizeProfiles(raw) {
     if (raw?.profiles !== undefined && !Array.isArray(raw.profiles)) throw new Error("API 配置列表无效。");
@@ -48,16 +53,18 @@
       const value=normalize({...profile,enabled:false});
       const serviceTier=profile.serviceTier ?? "auto";
       if(!["auto","default","fast"].includes(serviceTier))throw new Error("OpenAI 处理模式无效。");
-      return {id:profile.id,name,...Object.fromEntries(profileFields.map(key=>[key,value[key]])),serviceTier};
+      const reasoningEffort=profile.reasoningEffort ?? "auto";
+      if(!["auto","none","minimal","low","medium","high","xhigh","max"].includes(reasoningEffort))throw new Error("OpenAI 推理强度无效。");
+      return {id:profile.id,name,...Object.fromEntries(profileFields.map(key=>[key,value[key]])),serviceTier,reasoningEffort};
     });
     const selected=profiles.find(profile=>profile.id===activeProfileId);
     if(!selected)throw new Error("请选择有效的 API 配置。");
     const shared=normalize({...raw,...selected});
-    return {enabled:shared.enabled,generatePrompt:shared.generatePrompt,rewritePrompt:shared.rewritePrompt,activeProfileId,profiles};
+    return {enabled:shared.enabled,typingDelayMin:shared.typingDelayMin,typingDelayMax:shared.typingDelayMax,generatePrompt:shared.generatePrompt,rewritePrompt:shared.rewritePrompt,activeProfileId,profiles};
   }
   function activeConfig(value) {
     return {...value.profiles.find(profile=>profile.id===value.activeProfileId),enabled:value.enabled,
-      generatePrompt:value.generatePrompt,rewritePrompt:value.rewritePrompt};
+      generatePrompt:value.generatePrompt,rewritePrompt:value.rewritePrompt,typingDelayMin:value.typingDelayMin,typingDelayMax:value.typingDelayMax};
   }
   function isOpenAI(value) {
     try {return new URL(value).origin==="https://api.openai.com";} catch {return false;}

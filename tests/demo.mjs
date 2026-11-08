@@ -8,6 +8,7 @@ import { checkComposerContext } from "./composer-context-check.mjs";
 import { checkEmptyRecovery } from "./notification-empty-check.mjs";
 import { checkQuickReplies } from "./quick-replies-check.mjs";
 import { checkCompanion } from "./companion-check.mjs";
+import { installTimedRefreshCheck } from "./timed-refresh-check.mjs";
 import { installRefreshCycleCheck } from "./refresh-cycle-check.mjs";
 import { checkPeopleFooter } from "./people-footer-check.mjs";
 import { checkSearch } from "./search-check.mjs";
@@ -28,21 +29,29 @@ if (home || profile || search) core.ingest(state,{ users,tweets:homeTweets,likes
 core.ingest(state,{ likes:[demoTweets[1].id,demoTweets[8].id].map(id => ({
   id,liked:true,account:"my_account",observedAt:Date.now()
 })) },"my_account");
+if(sessionStorage.getItem('demoTimedRefreshCheck')) {
+  const saved=JSON.parse(sessionStorage.getItem('demoTimedRecords') || '[]');
+  for(const batch of saved)core.ingest(state,batch,'my_account');
+}
 let refreshBackend;
+const runtimeListeners=[];
 const storageListeners = [];
 const replyWrites = new Map();
-const settings = { replyRefreshCycle:JSON.parse(sessionStorage.getItem("demoRefreshSettings") || "null"),hideCompletedHome:false,hideCompletedNotifications:false,autoOrganizeNotifications:false,autoHideLikeNotifications:false,autoHideFollowNotifications:false };
+const settings = { timedReplies:JSON.parse(sessionStorage.getItem("demoTimedSettings") || "null"),replyRefreshCycle:JSON.parse(sessionStorage.getItem("demoRefreshSettings") || "null"),hideCompletedHome:false,hideCompletedNotifications:false,autoOrganizeNotifications:false,autoHideLikeNotifications:false,autoHideFollowNotifications:false };
 let pauseClassification = false;
 let releaseClassification;
 globalThis.chrome = {
   runtime:{
     id:"local-demo-extension",
-    onMessage:{ addListener() {} },
+    onMessage:{ addListener:fn=>runtimeListeners.push(fn) },
     async sendMessage(message) {
       if (["REFRESH_ARM","REFRESH_TAKE","REFRESH_CANCEL"].includes(message.type)) {
         refreshBackend ||= globalThis.XReplyRefreshCycle.createBackground(chrome);
         // Deliberately retain an old document path while the current SPA route is /home.
         const result=await refreshBackend.handle(message,{frameId:0,tab:{id:1},url:'https://x.com/compose/post'});
+        if(message.type==='REFRESH_ARM'&&message.timed&&sessionStorage.getItem('demoTimedRefreshCheck')) {
+          const snapshots=JSON.parse(sessionStorage.getItem('demoTimedSnapshots')||'[]');snapshots.push(message.timed);sessionStorage.setItem('demoTimedSnapshots',JSON.stringify(snapshots));
+        }
         if(message.type==='REFRESH_TAKE')document.querySelector('#refresh-cycle-status').dataset.taken='true';
         return result;
       }
@@ -56,6 +65,9 @@ globalThis.chrome = {
       if (message.type === "AI_REQUEST") throw new Error("AI disabled in this fixture");
       if (message.type === "INGEST") {
         core.ingest(state,message.batch,message.account);
+        if(sessionStorage.getItem('demoTimedRefreshCheck')){
+          const saved=JSON.parse(sessionStorage.getItem('demoTimedRecords')||'[]');saved.push(message.batch);sessionStorage.setItem('demoTimedRecords',JSON.stringify(saved));
+        }
         for (const tweet of message.batch.tweets || []) {
           if (tweet.authorId === "101" && tweet.parentId) replyWrites.set(tweet.id,(replyWrites.get(tweet.id) || 0)+1);
         }
@@ -91,6 +103,7 @@ globalThis.chrome = {
       return { ok:true };
     }
   },
+  tabs:{sendMessage:async(_id,message)=>{for(const fn of runtimeListeners)fn(message,{id:'local-demo-extension'},()=>{});}},
   storage:{
     session:{
       get:async key=>({[key]:JSON.parse(sessionStorage.getItem('demoSession:'+key) || 'null')}),
@@ -103,6 +116,7 @@ globalThis.chrome = {
       },
       async set(values) {
         if (document.querySelector("#demo-settings-fail")?.checked) throw new Error("模拟设置保存失败");
+        if(values.timedReplies)sessionStorage.setItem('demoTimedSettings',JSON.stringify(values.timedReplies));
         if (values.replyRefreshCycle) sessionStorage.setItem('demoRefreshSettings',JSON.stringify(values.replyRefreshCycle));
         const changes = {};
         for (const [key,newValue] of Object.entries(values)) {
@@ -218,6 +232,7 @@ await import("/extension/notification-filter.js");
 await import("/extension/editor.js");
 await import("/extension/ai-replies.js");
 await import("/extension/refresh-cycle.js");
+await import("/extension/timed-replies.js");
 await import("/extension/continuous.js");
 const script = document.createElement("script");
 script.src = "/extension/content.js";
@@ -407,3 +422,5 @@ document.querySelector('#check-people-footer').addEventListener('click',async ev
 });
 
 installRefreshCycleCheck();
+
+installTimedRefreshCheck();

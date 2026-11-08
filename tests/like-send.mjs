@@ -1,14 +1,20 @@
 history.replaceState(null,'','/home');
-let flow,frame,run,sequence=0,account='me';
+let flow,frame,run,sequence=0,account='me',randomSkipLike=false;
 const output=document.querySelector('#result');
-const schedule=()=>{if(frame)return;frame=requestAnimationFrame(()=>{frame=0;flow.refresh();});};
+const schedule=()=>{if(frame)return;frame=requestAnimationFrame(()=>{frame=0;flow.refresh();timed?.refresh();});};
 const dialog=()=>document.querySelector('.dialog');
 const editor=()=>dialog()?.querySelector('[contenteditable]');
 const wait=async(predicate,timeout=4000)=>{const end=Date.now()+timeout;while(!predicate()){if(Date.now()>end)throw new Error('等待组合流程超时');await new Promise(r=>setTimeout(r,20));}};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let timedSettingChanged, holdNext;
+const timed=XReplyTimedReplies.create({storage:{local:{get:async()=>({})},onChanged:{addListener:fn=>{timedSettingChanged=fn;}}},
+ readState:()=>flow?.timedState(),trigger:state=>flow?.timedSend(state),requestRefresh:schedule,onInterrupt:reason=>flow?.cancelTimedFollowup(reason)});
 const guard=XReplyInteractionAlert.create({accountHandle:()=>account,onPause:()=>flow?.pauseForAlert(),onRelease:()=>flow?.stop()});
-flow=XReplyContinuous.create({interactionBlocked:()=>guard.blocked(),accountHandle:()=>account,connected:()=>true,tweetId:a=>a.dataset.id,columnSelector:'main',requestRefresh:schedule,
- message:async m=>({ok:true,rows:m.ids.map(id=>({id,origin:'others',status:'not-reply',authorHandle:'peer',evidenceId:run.replied.has(id)?'saved':'',likeEvidenceId:run.liked.has(id)?id:''}))}),renderLabels:(node)=>{node.textContent='本地数据';}});
+flow=XReplyContinuous.create({timedReplies:timed,randomSkipLikeEnabled:()=>randomSkipLike,interactionBlocked:()=>guard.blocked(),accountHandle:()=>account,connected:()=>true,tweetId:a=>a.dataset.id,columnSelector:'main',requestRefresh:schedule,
+ message:async m=>{
+  if(holdNext && !m.includeRootText && m.ids.includes('200'))await holdNext();
+  return {ok:true,rows:m.ids.map(id=>({id,origin:'others',status:'not-reply',authorHandle:'peer',evidenceId:run.replied.has(id)?'saved':'',likeEvidenceId:run.liked.has(id)?id:''}))};
+ },renderLabels:(node)=>{node.textContent='本地数据';}});
 function open(target,current){
  if(dialog())return;
  const modal=document.createElement('div');modal.className='dialog';modal.role='dialog';modal.dataset.target=target;
@@ -35,7 +41,7 @@ function open(target,current){
  document.body.append(modal);history.replaceState(null,'','/compose/post');editor().focus();schedule();
 }
 async function reset(options={}){
- flow.stop();dialog()?.remove();account='me';history.replaceState(null,'','/home');
+ flow.stop();dialog()?.remove();account='me';randomSkipLike=options.randomSkipLike===true;history.replaceState(null,'','/home');
  const current=run={events:[],liked:new Set(options.liked?['100']:[]),replied:new Set(),mode:options.mode||'success',saveDelay:options.saveDelay||0,replyMode:options.replyMode||'success',replySaveDelay:options.replySaveDelay||0,replyDelay:options.replyDelay||30};
  document.querySelector('#cards').replaceChildren();
  for(const id of ['100','200']){
@@ -88,8 +94,22 @@ document.querySelector('#run').onclick=async event=>{
   current=await reset();send();await wait(()=>notice().includes('稍候点赞'));account='other';schedule();await sleep(800);
   check('发送后换账号不点赞新账号或打开下一条',current.events.filter(e=>e.kind==='send').length===1&&!current.events.some(e=>e.kind==='like')&&!dialog());
   current=await reset();send();await wait(()=>notice().includes('稍候点赞'));
+  document.querySelector('article[data-id="100"]').remove();await wait(()=>dialog()?.dataset.target==='200');
+  check('原卡片移出列表时略过点赞进入下一条，不误点其他帖也不补造红心',current.replied.has('100')&&!current.liked.has('100')&&!current.events.some(e=>e.kind==='like')&&current.events.filter(e=>e.kind==='send').length===1);
+  for(const unavailable of ['disabled','missing']) {
+    current=await reset();send();await wait(()=>notice().includes('稍候点赞'));
+    const heart=document.querySelector('article[data-id="100"] [data-testid=like]');
+    if(unavailable==='disabled')heart.disabled=true;else heart.remove();
+    await wait(()=>dialog()?.dataset.target==='200');
+    check('点赞按钮'+unavailable+'时不重试，只打开下一条',!current.events.some(e=>e.kind==='like')&&current.replied.has('100')&&current.events.filter(e=>e.kind==='send').length===1);
+  }
+  current=await reset({mode:'failed'});document.querySelector('.xrc-flow-heart').click();send();await wait(()=>notice().includes('稍候点赞'));
   document.querySelector('article[data-id="100"]').remove();await sleep(800);
-  check('原卡片移出列表时保留已发状态，不误点其他帖',!current.events.some(e=>e.kind==='like')&&notice().includes('原帖已移出列表'));
+  check('按钮不可用但之前点赞尚未确认时仍暂停',!dialog()&&notice().includes('尚未确认')&&current.events.filter(e=>e.kind==='like').length===1);
+  current=await reset();send();await wait(()=>notice().includes('稍候点赞'));document.querySelector('article[data-id="100"]').remove();
+  guard.show({account:'me',operation:'FavoriteTweet',httpStatus:429});await sleep(800);
+  check('卡片消失同时出现红字，不越过暂停进入下一条',guard.blocked()&&!dialog()&&!current.events.some(e=>e.kind==='like'));
+  document.querySelector('.xrc-interaction-alert button').click();
   current=await reset({saveDelay:700});send();await wait(()=>current.events.some(e=>e.kind==='like'));
   await flow.receiveLike({account:'me',requestStartedAt:0,batch:{likes:[{id:'100',liked:true,source:'mutation'}]}},Promise.resolve());await sleep(120);
   check('旧点赞回执不能跳过本次保存确认',!dialog()&&!current.events.some(e=>e.kind==='like-saved'));
@@ -138,6 +158,18 @@ document.querySelector('#shortcut-run').onclick=async event=>{
   await wait(()=>dialog()?.dataset.target==='200');
   check('Option Enter只触发一次现有先评论后点赞流程并进入下一条',prevented&&current.events[0].kind==='send'&&
     current.events.filter(e=>e.kind==='send').length===1&&current.events.filter(e=>e.kind==='like').length===1);
+  for(const trigger of ['按钮','Option Enter']){
+   const next=await reset({replySaveDelay:160});
+   if(trigger==='按钮')document.querySelector('.xrc-flow-send').click();else key();
+   await wait(()=>!dialog());
+   // Simulate a native timeline listener reopening the last active post.
+   const reopen=event=>{if(!event.defaultPrevented)open('100',next);};
+   document.addEventListener('keydown',reopen,{capture:true,once:true});
+   const blocked=key({},document.body);
+   document.removeEventListener('keydown',reopen,true);
+   check(trigger+'发送后，空档按键被拦截，旧帖回复框不会重开',blocked&&!dialog());
+   await wait(()=>dialog()?.dataset.target==='200');
+  }
  }catch(error){checks.push({name:error.message,ok:false});}
  finally{flow.stop();dialog()?.remove();history.replaceState(null,'','/home');event.target.disabled=false;}
  result.dataset.result=checks.every(c=>c.ok)?'passed':'failed';result.textContent=JSON.stringify({fixture:true,checks},null,2);
@@ -178,4 +210,106 @@ document.querySelector('#alert-run').onclick=async event=>{
  }catch(error){checks.push({name:error.message,ok:false});}
  finally{event.target.disabled=false;}
  result.dataset.result=checks.every(c=>c.ok)?'passed':'failed';result.textContent=JSON.stringify({fixture:true,checks},null,2);
+};
+
+
+// Deterministic choices around the 50% boundary; all actions are local fixture counters.
+document.querySelector('#random-like-run').onclick=async event=>{
+ event.target.disabled=true;const result=document.querySelector('#random-like-result'),checks=[];
+ const check=(name,ok)=>{checks.push({name,ok:Boolean(ok)});if(!ok)throw Error(name);};
+ const choose=value=>{
+  const original=Math.random;let draws=0;Math.random=()=>{draws++;return value;};
+  try {document.querySelector('.xrc-flow-send').click();document.querySelector('.xrc-flow-send')?.click();for(let i=0;i<20;i++)flow.refresh();}
+  finally {Math.random=original;}
+  return draws;
+ };
+ result.dataset.result='running';
+ try {
+  let current=await reset({randomSkipLike:true});
+  check('点击和重复渲染只做一次50%选择',choose(0.49)===1);
+  randomSkipLike=false;await wait(()=>dialog()?.dataset.target==='200');
+  let saved=current.events.find(e=>e.kind==='reply-saved');
+  check('命中不点赞仍停顿后进入下一条，评论记录保留且无红心记录',performance.now()-saved.at>=290&&current.replied.has('100')&&!current.liked.has('100')&&!current.events.some(e=>e.kind==='like'));
+  check('中途关闭开关不改变已选分支，连点不重复发',current.events.filter(e=>e.kind==='send').length===1);
+  current=await reset({randomSkipLike:true});choose(0.5);await wait(()=>dialog()?.dataset.target==='200');
+  saved=current.events.find(e=>e.kind==='reply-saved');const liked=current.events.find(e=>e.kind==='like');
+  check('另一半分支按原流程停顿、点赞并保存后进入下一条',liked.at-saved.at>=290&&current.liked.has('100')&&current.events.filter(e=>e.kind==='like').length===1);
+  current=await reset();check('关闭开关不进行概率选择',choose(0.1)===0);await wait(()=>dialog()?.dataset.target==='200');check('默认关闭仍执行原点赞流程',current.liked.has('100'));
+  current=await reset({randomSkipLike:true,liked:true});choose(0.1);await wait(()=>dialog()?.dataset.target==='200');check('跳过点赞不会取消已有红心',current.liked.has('100')&&!current.events.some(e=>e.kind==='like'));
+  current=await reset({randomSkipLike:true,replyMode:'failed'});choose(0.1);await wait(()=>document.querySelector('.xrc-flow-status')?.textContent.includes('发送失败'));await sleep(800);
+  check('评论失败不点赞、不跳转、不写成功记录',dialog()?.dataset.target==='100'&&!current.replied.has('100')&&!current.events.some(e=>e.kind==='like'));
+  current=await reset({randomSkipLike:true,replyDelay:200});choose(0.1);dialog().querySelector('[data-testid=app-bar-close]').click();await sleep(1000);
+  check('随机不点赞分支也遵守关闭取消，不续开下一条',!dialog()&&!current.events.some(e=>e.kind==='like'));
+ }catch(error){checks.push({name:error.message,ok:false});}
+ finally{flow.stop();dialog()?.remove();randomSkipLike=false;history.replaceState(null,'','/home');event.target.disabled=false;}
+ result.dataset.result=checks.every(c=>c.ok)?'passed':'failed';result.textContent=JSON.stringify({fixture:true,checks},null,2);
+};
+
+
+// Real 10-second browser timer; only native fixture counters are touched.
+document.querySelector('#timed-run').onclick=async event=>{
+ event.target.disabled=true;const result=document.querySelector('#timed-result'),checks=[];
+ const check=(name,ok)=>{checks.push({name,ok:Boolean(ok)});if(!ok)throw Error(name);};
+ result.dataset.result='running';
+ try {
+  const current=await reset();
+  check('配置默认关闭，不会自行开始',document.querySelector('.xrc-timed-replies button').disabled&&current.events.length===0);
+  timedSettingChanged({timedReplies:{newValue:{enabled:true,minSeconds:10,maxSeconds:10,maxAttempts:1,maxMinutes:1}}},'local');
+  await wait(()=>!document.querySelector('.xrc-timed-replies button').disabled);
+  const height=document.querySelector('.xrc-timed-replies').getBoundingClientRect().height;
+  const start=performance.now();document.querySelector('.xrc-timed-replies button').click();
+  await wait(()=>document.querySelector('.xrc-timed-replies span').textContent.includes('等待10秒'));
+  check('手动开始仅计时，控件行高固定',current.events.length===0&&document.querySelector('.xrc-timed-replies').getBoundingClientRect().height===height);
+  await wait(()=>dialog()?.dataset.target==='200',16000);
+  const sends=current.events.filter(e=>e.kind==='send');
+  check('实际等待至少10秒才复用评论点赞流程，并只触发一次',sends.length===1&&sends[0].at-start>=9900&&current.replied.has('100')&&current.liked.has('100'));
+  check('达到次数停止，下一条仍为空，不自动生成草稿',document.querySelector('.xrc-timed-replies span').textContent.includes('次数上限')&&editor().innerText==='');
+  await reset();document.querySelector('.xrc-timed-replies button').click();editor().textContent='手动修改的草稿';editor().dispatchEvent(new InputEvent('input',{bubbles:true}));schedule();
+  await wait(()=>document.querySelector('.xrc-timed-replies span').textContent.includes('草稿或回复状态变化'));
+  check('倒计时中草稿变化停止，不发送新内容',run.events.length===0&&editor().innerText==='手动修改的草稿');
+ }catch(error){checks.push({name:error.message,ok:false});}
+ finally{timed.stop();flow.stop();dialog()?.remove();timedSettingChanged({timedReplies:{newValue:{enabled:false}}},'local');history.replaceState(null,'','/home');event.target.disabled=false;}
+ result.dataset.result=checks.every(c=>c.ok)?'passed':'failed';result.textContent=JSON.stringify({fixture:true,checks},null,2);
+};
+
+
+document.querySelector('#timed-stop-run').onclick=async event=>{
+ const result=document.querySelector('#timed-stop-result'),checks=[];event.target.disabled=true;result.dataset.result='running';
+ const check=(name,ok)=>{checks.push({name,ok:Boolean(ok)});if(!ok)throw Error(name);};
+ try{
+  const current=await reset({replyDelay:400});
+  timedSettingChanged({timedReplies:{newValue:{enabled:true,minSeconds:5,maxSeconds:5,maxAttempts:3,maxMinutes:1}}},'local');
+  await wait(()=>!document.querySelector('.xrc-timed-replies button').disabled);
+  document.querySelector('.xrc-timed-replies button').click();
+  await wait(()=>current.events.some(item=>item.kind==='send'),8000);
+  const stop=document.querySelector('.xrc-timed-badge button');
+  check('发送过程中固定标记仍显示且暂停按钮可用',!stop.disabled&&document.querySelector('.xrc-timed-badge').dataset.state==='running');
+  stop.click();await sleep(1300);
+  check('手动暂停取消本条后续点赞/下一条，已发回复仍保存',current.replied.has('100')&&current.events.filter(item=>item.kind==='send').length===1&&!current.events.some(item=>item.kind==='like')&&!dialog());
+  check('回复框关闭后标明已暂停，当前结果需核对不能直接继续',document.querySelector('.xrc-timed-badge').dataset.state==='paused'&&document.querySelector('.xrc-timed-badge button').disabled);
+  document.querySelector('.xrc-flow-notice button').click();
+  await wait(()=>dialog()?.dataset.target==='200');
+  check('手动进入下一条保留原进度，不自行恢复',timed.isPaused()&&document.querySelector('.xrc-timed-replies span').textContent.includes('1/3')&&document.querySelector('.xrc-timed-replies button').textContent==='继续本轮');
+  editor().textContent='暂停后新草稿';editor().dispatchEvent(new InputEvent('input',{bubbles:true}));await sleep(80);
+  const continuedAt=performance.now();document.querySelector('.xrc-timed-replies button').click();await sleep(250);
+  check('继续后不立即发送，重新等待完整间隔',current.events.filter(item=>item.kind==='send').length===1);
+  await wait(()=>current.events.filter(item=>item.kind==='send').length===2,7000);
+  const sends=current.events.filter(item=>item.kind==='send');
+  check('下一次只发新对象，继续次数为2/3且不补点旧对象',sends[1].id==='200'&&sends[1].at-continuedAt>=4900&&document.querySelector('.xrc-timed-replies span').textContent.includes('2/3')&&!current.events.some(item=>item.kind==='like'&&item.id==='100'));
+  timed.pause();
+  const selecting=await reset({liked:true});
+  timedSettingChanged({timedReplies:{newValue:{enabled:true,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:1}}},'local');
+  let resolveNext;
+  holdNext=()=>new Promise(resolve=>{resolveNext=resolve;});
+  timed.start();await wait(()=>resolveNext,7000);
+  timed.pause();holdNext=null;resolveNext();await sleep(120);
+  check('暂停后迟到的查找结果不滚动或打开下一条',timed.isPaused()&&!dialog()&&selecting.events.filter(item=>item.kind==='send').length===1);
+  const media=await reset();
+  timed.start();
+  const poll=document.createElement('div');poll.dataset.testid='pollOption_1';dialog().append(poll);
+  schedule();await wait(()=>document.querySelector('.xrc-timed-badge').dataset.state==='stopped');
+  check('倒计时中新增投票会取消定时发送',media.events.length===0&&dialog().contains(poll));
+ }catch(error){checks.push({name:error.message,ok:false});}
+ finally{holdNext=null;timed.stop();flow.stop();event.target.disabled=false;}
+ result.dataset.result=checks.every(item=>item.ok)?'passed':'failed';result.textContent=JSON.stringify({fixture:true,checks},null,2);
 };

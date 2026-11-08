@@ -1,9 +1,20 @@
-importScripts("core.js","storage.js","ai-config.js","ai-service.js","companion.js","refresh-cycle.js");
+importScripts("core.js","storage.js","ai-config.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js");
 let aiService;
 let companion;
 let refreshCycle;
+const AWAKE_KEY = "timedAwakeTabs";
+const AWAKE_ALARM = "timedAwakeCleanup";
+let awakeQueue = Promise.resolve();
+let awakeTimer;
+let awakeTabs;
 function refreshCycles() {return refreshCycle ||= globalThis.XReplyRefreshCycle.createBackground(chrome);}
-chrome.tabs?.onRemoved?.addListener(id=>{void refreshCycles().removed(id).catch(()=>{});});
+chrome.tabs?.onRemoved?.addListener(id=>{
+  if (chrome.power && chrome.alarms) void updateAwake(tabs=>{delete tabs[id];}).catch(()=>{});
+  void refreshCycles().removed(id).catch(()=>{});
+});
+chrome.alarms?.onAlarm.addListener(alarm=>{
+  if (alarm.name===AWAKE_ALARM) void updateAwake().catch(()=>{});
+});
 function companionWindow() {
   return companion ||= globalThis.XReplyCompanion.create(chrome);
 }
@@ -38,6 +49,51 @@ function allowedSender(sender) {
       ((url.protocol === "https:" && ["x.com","twitter.com"].includes(url.hostname)) ||
        url.origin === new URL(chrome.runtime.getURL("/")).origin);
   } catch { return false; }
+}
+
+function updateAwake(change=()=>{}) {
+  const result=awakeQueue.then(async()=>{
+    if (!awakeTabs) awakeTabs=(await chrome.storage.session.get(AWAKE_KEY))[AWAKE_KEY] || {};
+    const next={...awakeTabs};
+    change(next);
+    const now=Date.now();
+    for (const [tabId,lease] of Object.entries(next)) {
+      if (lease.expiresAt<=now) delete next[tabId];
+    }
+    const leases=Object.values(next);
+    if (leases.length) {
+      // The browser alarm survives a worker restart. Register it before acquiring the lock.
+      if (!await chrome.alarms.get(AWAKE_ALARM)) await chrome.alarms.create(AWAKE_ALARM,{periodInMinutes:1});
+      await chrome.storage.session.set({[AWAKE_KEY]:next});
+      if (!Object.keys(awakeTabs).length) chrome.power.requestKeepAwake("system");
+      const expiresAt=Math.min(...leases.map(lease=>lease.expiresAt));
+      clearTimeout(awakeTimer);
+      awakeTimer=setTimeout(()=>{void updateAwake().catch(()=>{});},Math.max(0,expiresAt-Date.now()));
+    } else {
+      chrome.power.releaseKeepAwake();
+      clearTimeout(awakeTimer);
+      await chrome.storage.session.remove(AWAKE_KEY);
+      await chrome.alarms.clear(AWAKE_ALARM);
+    }
+    awakeTabs=next;
+  });
+  awakeQueue=result.catch(()=>{});
+  return result;
+}
+
+async function keepAwake(until,sender) {
+  const tabId=sender.tab?.id,documentId=sender.documentId;
+  if (!chrome.power || !chrome.alarms || !Number.isInteger(tabId) || sender.frameId!==0 || !documentId ||
+      !["https://x.com","https://twitter.com"].includes(new URL(sender.url).origin)) return false;
+  if (!Number.isFinite(until) || until<0) return false;
+  await updateAwake(tabs=>{
+    if (until===0) {
+      if (tabs[tabId]?.documentId===documentId) delete tabs[tabId];
+    } else if (until>Date.now()) {
+      tabs[tabId]={documentId,expiresAt:Math.min(until,Date.now()+20000)};
+    }
+  });
+  return true;
 }
 
 async function handleMessage(message) {
@@ -79,6 +135,10 @@ async function handleMessage(message) {
 
 chrome.runtime.onMessage.addListener((message,sender,sendResponse) => {
   if (!allowedSender(sender) || !message || typeof message !== "object") return false;
+  if (message.type === "TIMED_KEEP_AWAKE") {
+    void keepAwake(message.until,sender).then(ok=>sendResponse({ok}),()=>sendResponse({ok:false}));
+    return true;
+  }
   if (["REFRESH_ARM","REFRESH_TAKE","REFRESH_CANCEL"].includes(message.type)) {
     void refreshCycles().handle(message,sender).then(sendResponse,()=>sendResponse({ok:false,error:"自动换批状态暂不可用。"}));
     return true;

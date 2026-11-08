@@ -80,7 +80,8 @@
         const values = {post:job.message.post,draft:job.message.kind === "rewrite" ? job.message.draft : "",rootOwnership};
         const prompt = template.replace(/\$\{(post|draft|rootOwnership)\}/g,(_,key) => values[key]);
         const processing=config.isOpenAI(saved.baseUrl) ?
-          (saved.serviceTier==="auto"?{}:{service_tier:saved.serviceTier}) : {temperature:1.2};
+          {...(saved.serviceTier==="auto"?{}:{service_tier:saved.serviceTier}),
+            ...(saved.reasoningEffort==="auto"?{}:{reasoning_effort:saved.reasoningEffort})} : {temperature:1.2};
         const response = await fetch(url.href,{
           method:"POST",redirect:"error",credentials:"omit",signal:job.controller.signal,
           headers:{"Content-Type":"application/json",Authorization:`Bearer ${saved.apiKey}`},
@@ -104,8 +105,9 @@
       if (message.type === "AI_OPEN_SETTINGS") { await chrome.runtime.openOptionsPage(); return {ok:true}; }
       if (message.type === "AI_STATUS") {
         const saved = config.activeConfig(await load());
-        const {aiAutoComplete} = await chrome.storage.local.get("aiAutoComplete");
-        return {ok:true,enabled:saved.enabled,autoComplete:aiAutoComplete === true,configured:Boolean(saved.baseUrl && saved.apiKey && saved.model)};
+        const {aiAutoComplete,aiFillRecommended} = await chrome.storage.local.get(["aiAutoComplete","aiFillRecommended"]);
+        return {ok:true,enabled:saved.enabled,typingDelayMin:saved.typingDelayMin,typingDelayMax:saved.typingDelayMax,
+          autoComplete:aiAutoComplete === true,fillRecommended:aiFillRecommended === true,configured:Boolean(saved.baseUrl && saved.apiKey && saved.model)};
       }
       if (message.type === "AI_CONFIG_GET" || message.type === "AI_CONFIG_SAVE") {
         if (!settingsPage(sender)) return {ok:false,error:"仅设置页可以操作 AI 配置。"};

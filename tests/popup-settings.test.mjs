@@ -19,6 +19,15 @@ test('弹窗保留已关闭的选择、单独保存，保存失败回滚且不�
   } });
   vm.runInContext(await readFile(new URL('../extension/popup.js',import.meta.url),'utf8'),context);
   await new Promise(resolve => setImmediate(resolve));
+  const randomLike=element('#random-skip-reply-like');
+  assert.equal(randomLike.checked,false);assert.equal(randomLike.disabled,false);
+  randomLike.checked=true;await randomLike.change();assert.equal(settings.randomSkipReplyLike,true);
+  failSave=true;randomLike.checked=false;await randomLike.change();assert.equal(randomLike.checked,true);assert.equal(settings.randomSkipReplyLike,true);
+  failSave=false;
+  const fillRecommended=element('#ai-fill-recommended');
+  assert.equal(fillRecommended.checked,false);assert.equal(fillRecommended.disabled,false);
+  fillRecommended.checked=true;await fillRecommended.change();
+  assert.equal(settings.aiFillRecommended,true);assert.equal(settings.aiAutoComplete,undefined);
   const likes = element('#auto-hide-like-notifications');
   assert.equal(likes.checked,false); assert.equal(likes.disabled,false);
   assert.equal(element('#hide-completed-home').checked,true);

@@ -21,11 +21,20 @@ body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding
 <label for="serviceTier">OpenAI 处理模式</label>
 <select id="serviceTier"><option value="auto">跟随项目默认</option><option value="default">标准模式</option><option value="fast">快速模式（费用更高）</option></select>
 <div class="hint">仅适用 OpenAI 官方地址。快速模式费用高于标准模式，实际可用性及处理等级由 OpenAI 决定；不会自动重试或切换。保存后生效，旧配置默认跟随项目。</div>
+<label for="reasoningEffort">OpenAI 推理强度</label>
+<select id="reasoningEffort"><option value="auto">跟随模型默认（不传参）</option><option value="none">无 · none</option><option value="minimal">极低 · minimal</option><option value="low">低 · low</option><option value="medium">中 · medium</option><option value="high">高 · high</option><option value="xhigh">极高 · xhigh</option><option value="max">最高 · max</option></select>
+<div class="hint">每组 API 独立保存，仅向 OpenAI 官方地址传 reasoning_effort。强度越高通常耗时和推理用量越多；模型支持的档位不同，不支持时显示错误，不自动重试。已有配置默认不传参。</div>
 </div>
+<label>AI 逐字填入间隔（毫秒，所有 API 共用）</label>
+<div style="display:flex;gap:12px;align-items:center">
+<input id="typingDelayMin" type="number" min="0" max="1000" step="1" required aria-label="逐字间隔最小值（毫秒）" style="width:110px"><span>～</span>
+<input id="typingDelayMax" type="number" min="0" max="1000" step="1" required aria-label="逐字间隔最大值（毫秒）" style="width:110px"><span>ms</span>
+</div>
+<div class="hint">默认35～100ms；每字在区间内随机等待，另有编辑器同步时间。可填0～1000的整数，最小值不能大于最大值。用于 Tab 采用建议和「为你推荐」自动填入草稿。保存后生效。</div>
 <label for="generatePrompt">生成回复的 Prompt</label><textarea id="generatePrompt" spellcheck="false"></textarea><div class="hint">支持变量 <code>${post}</code> 和 <code>${rootOwnership}</code>（我的原帖／别人的原帖／待确认）。别人的原帖也可能属于第三人，不等于当前回复对象的原帖。可粘贴你自己的原有 Prompt，输出用 &lt;reply&gt;...&lt;/reply&gt; 包裹。</div>
 <label for="rewritePrompt">改写草稿的 Prompt</label><textarea id="rewritePrompt" spellcheck="false"></textarea><div class="hint">支持 <code>${post}</code>、<code>${draft}</code> 和 <code>${rootOwnership}</code>。默认模板为独立编写，需原样保持写作风格时请填入你自己的 Prompt。</div>
 <button id="save" type="submit" disabled>保存并使用此配置</button><button id="defaults" type="button">填入默认 Prompt</button>
 <p id="status" role="status">读取配置…</p>
 </form>
-<p>Option+Q（Mac）／Alt+Q（Windows）推荐评论 · Option/Alt+1～6 填入快捷词句 · ↑/↓ 切换候选 · Tab 采用并逐字填入 · Option+Tab 改写草稿。发送始终由你确认；关闭、跳过或切换对象会取消旧任务。Windows 的 Alt+Tab 被系统占用，沿用原快捷键时不能用于改写。</p>
+<p>Option+Q（Mac）／Alt+Q（Windows）推荐评论 · Option/Alt+1～6 填入快捷词句 · ↑/↓ 切换候选 · Tab 采用并逐字填入 · Option+Tab 改写草稿。默认由你确认发送；开启并开始定时触发后会按设置发送已填草稿；关闭、跳过或切换对象会取消旧任务。Windows 的 Alt+Tab 被系统占用，沿用原快捷键时不能用于改写。</p>
 <script src="ai-config.js"></script><script src="ai-settings.js"></script></html>

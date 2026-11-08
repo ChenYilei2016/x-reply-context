@@ -2,11 +2,13 @@
 (() => {
   "use strict";
   const ACTIONS={CreateTweet:"评论",CreateNoteTweet:"长评论",FavoriteTweet:"点赞",UnfavoriteTweet:"取消点赞"};
-  const CONTROLS='[data-testid="tweetButton"],[data-testid="tweetButtonInline"],[data-testid="like"],[data-testid="unlike"],.xrc-flow-send,.xrc-flow-heart,.xrc-flow-skip';
+  const CONTROLS='[data-testid="tweetButton"],[data-testid="tweetButtonInline"],[data-testid="like"],[data-testid="unlike"],.xrc-flow-send,.xrc-flow-heart,.xrc-flow-skip,.xrc-ai-recommend,.xrc-quick-reply';
   function create({accountHandle,onPause,onRelease}) {
     let active=null,panel;
     function blocked() {
-      if (active && accountHandle()!==active.account) {active=null;panel?.remove();panel=null;}
+      if (!active)return false;
+      const account=accountHandle();
+      if (account && account!==active.account) {active=null;panel?.remove();panel=null;}
       return Boolean(active);
     }
     function show(data) {
@@ -27,7 +29,7 @@
         panel.setAttribute("aria-live","assertive");panel.setAttribute("aria-atomic","true");
         const heading=document.createElement("strong"),meta=document.createElement("div"),message=document.createElement("p"),wait=document.createElement("div"),help=document.createElement("p"),ack=document.createElement("button");
         heading.className="xrc-alert-title";meta.className="xrc-alert-meta";message.className="xrc-alert-message";wait.className="xrc-alert-wait";
-        help.textContent="本页评论、点赞和自动下一条已暂停。先核对 X 提示与操作结果；草稿保留，不会自动重试。解除后，重新打开回复框可启动连续回复。";
+        help.textContent="本页评论、点赞、AI生成与自动下一条已暂停。先核对 X 提示与操作结果；草稿保留，不会自动重试。解除后，重新打开回复框可启动连续回复。";
         ack.type="button";ack.textContent="我已查看，解除暂停";
         ack.addEventListener("click",()=>{active=null;panel.remove();panel=null;onRelease();});
         panel.append(heading,meta,message,wait,help,ack);(document.body||document.documentElement).append(panel);
@@ -38,17 +40,25 @@
       panel.querySelector(".xrc-alert-wait").textContent=retry?`X 返回的 Retry-After：${retry}；不会计时自动恢复。`:"";
     }
     function prevent(event) {event.preventDefault();event.stopImmediatePropagation();}
-    document.addEventListener("click",event=>{
+    window.addEventListener("click",event=>{
       if (!blocked()) return;
       const node=event.target instanceof Element?event.target:event.target?.parentElement;
       if(node?.closest(CONTROLS))prevent(event);
     },true);
-    document.addEventListener("keydown",event=>{
+    const nativeActions=new Set(["l","r","t","n"]);
+    function guardKey(event) {
       if (!blocked())return;
       const node=event.target instanceof Element?event.target:null;
-      const sendKey=event.key==="Enter"&&(event.altKey||event.ctrlKey||event.metaKey)&&node?.closest('[contenteditable="true"][data-testid^="tweetTextarea_"]');
-      if(sendKey || (event.key==="Enter"||event.key===" ")&&node?.closest(CONTROLS))prevent(event);
-    },true);
+      const editing=node?.closest('input,textarea,[contenteditable="true"],[role="textbox"]');
+      const key=event.key.toLowerCase();
+      const sendKey=event.key==="Enter"&&(event.altKey||event.ctrlKey||event.metaKey);
+      const nativeAction=!editing&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&nativeActions.has(key);
+      const aiKey=editing&&event.altKey&&!event.ctrlKey&&!event.metaKey&&
+        (event.key==="Tab"||event.code==="KeyQ"||key==="q"||/^[1-6]$/.test(key)||/^Digit[1-6]$/.test(event.code || ""));
+      if(sendKey||nativeAction||aiKey||(event.key==="Enter"||event.key===" ")&&node?.closest(CONTROLS))prevent(event);
+    }
+    // Stop shortcuts before they reach the page's document/list handlers, including keyup bindings.
+    for(const type of ["keydown","keypress","keyup"])window.addEventListener(type,guardKey,true);
     return {show,blocked};
   }
   globalThis.XReplyInteractionAlert={create};

@@ -5,9 +5,9 @@ import {readFile} from 'node:fs/promises';
 const sources=await Promise.all(['ai-config.js','ai-service.js'].map(name=>readFile(new URL(`../extension/${name}`,import.meta.url),'utf8')));
 const config={enabled:true,baseUrl:'https://model.example/v1',apiKey:'test-key',model:'test-model',generatePrompt:'post=${post}',rewritePrompt:'post=${post};draft=${draft}'};
 function setup(fetchImpl=async()=>new Response(JSON.stringify({choices:[{message:{content:'<reply>你好。</reply>'}}]}),{headers:{'content-type':'application/json'}})) {
-  let settings=structuredClone(config),autoComplete;const changed=[];const calls=[];
+  let settings=structuredClone(config);const preferences={},changed=[],calls=[];
   const chrome={runtime:{getURL:path=>`chrome-extension://test/${path}`,openOptionsPage:async()=>{}},
-    storage:{local:{get:async()=>({aiConfig:settings,aiAutoComplete:autoComplete}),set:async next=>{const change={};if('aiConfig' in next){settings=next.aiConfig;change.aiConfig={newValue:settings};}if('aiAutoComplete' in next){autoComplete=next.aiAutoComplete;change.aiAutoComplete={newValue:autoComplete};}changed.forEach(fn=>fn(change,'local'));}},onChanged:{addListener:fn=>changed.push(fn)}},
+    storage:{local:{get:async()=>({aiConfig:settings,...preferences}),set:async next=>{const change={};for(const [key,value] of Object.entries(next)){if(key==='aiConfig')settings=value;else preferences[key]=value;change[key]={newValue:value};}changed.forEach(fn=>fn(change,'local'));}},onChanged:{addListener:fn=>changed.push(fn)}},
     permissions:{contains:async()=>true}};
   const scope=vm.createContext({chrome,fetch:(...args)=>{calls.push(args);return fetchImpl(...args);},URL,Headers,Response,TextDecoder,DOMException,AbortController,setTimeout,clearTimeout});
   sources.forEach(source=>vm.runInContext(source,scope));
@@ -82,6 +82,16 @@ test('自动补全默认关闭，独立开关不改接口配置或阻止手动�
   assert.equal((await request('manual-again')).ok,true);assert.equal(calls.length,2);
 });
 
+test('为你推荐自动填入默认关闭，与灰字补全独立',async()=>{
+  const {service,sender,chrome}=setup();
+  const status=()=>service.handle({type:'AI_STATUS'},sender);
+  assert.equal((await status()).fillRecommended,false);
+  await chrome.storage.local.set({aiFillRecommended:true});
+  const enabled=await status();
+  assert.equal(enabled.fillRecommended,true);
+  assert.equal(enabled.autoComplete,false);
+});
+
 
 test('原帖归属变量在生成与改写中替换，未知值不猜测，不递归展开正文',async()=>{
  const {request,calls,chrome}=setup();
@@ -131,4 +141,35 @@ test('OpenAI按配置传快速或标准模式，默认省略；第三方不携�
   assert.equal(body.temperature,baseUrl==='https://api.openai.com/v1'?undefined:1.2);
  }
  assert.equal(calls.length,5,'每次手动请求只有一次，不重试或探测接口');
+});
+
+test('状态读取提供逐字间隔，不将本地填入配置发送给模型',async()=>{
+ const {request,service,sender,chrome,calls}=setup();
+ assert.equal((await service.handle({type:'AI_STATUS'},sender)).typingDelayMax,100);
+ await chrome.storage.local.set({aiConfig:{...config,typingDelayMin:55,typingDelayMax:95}});
+ const status=await service.handle({type:'AI_STATUS'},sender);
+ assert.equal(status.typingDelayMin,55);assert.equal(status.typingDelayMax,95);
+ await request('typing-config');const body=JSON.parse(calls[0][1].body);
+ assert.equal('typingDelayMin' in body,false);assert.equal('typingDelayMax' in body,false);
+});
+
+test('OpenAI生成和改写发送选定reasoning_effort，默认/第三方省略且失败不重试',async()=>{
+ const {request,calls,chrome,scope}=setup();
+ const base=scope.XReplyAIConfig.normalizeProfiles(config);
+ const settings=(baseUrl,effort)=>({...base,profiles:base.profiles.map(p=>p.id===base.activeProfileId?{...p,baseUrl,reasoningEffort:effort}:p)});
+ for(const effort of ['auto','none','minimal','low','medium','high','xhigh','max']){
+  await chrome.storage.local.set({aiConfig:settings('https://api.openai.com/v1',effort)});
+  for(const kind of ['generate','rewrite']){
+   assert.equal((await request('effort-'+calls.length,{kind,draft:'草稿'})).ok,true);
+   const body=JSON.parse(calls.at(-1)[1].body);
+   assert.equal(body.reasoning_effort,effort==='auto'?undefined:effort);
+   assert.equal(Object.hasOwn(body,'reasoning_effort'),effort!=='auto');
+  }
+ }
+ await chrome.storage.local.set({aiConfig:settings('https://other.example/v1','high')});
+ await request('other');assert.equal(Object.hasOwn(JSON.parse(calls.at(-1)[1].body),'reasoning_effort'),false);
+ assert.equal(calls.length,17);
+ const rejected=setup(async()=>new Response('unsupported effort',{status:400}));
+ await rejected.chrome.storage.local.set({aiConfig:settings('https://api.openai.com/v1','max')});
+ assert.equal((await rejected.request('unsupported')).ok,false);assert.equal(rejected.calls.length,1);
 });

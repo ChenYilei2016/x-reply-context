@@ -25,17 +25,17 @@ export function installRefreshCycleCheck() {
     await wait(()=>document.querySelector('.xrc-cycle-enabled') && !document.querySelector('.xrc-cycle-enabled').disabled);
     check('默认关闭，区间为10～20且放在底部固定行',!document.querySelector('.xrc-cycle-enabled').checked &&
      document.querySelector('.xrc-cycle-min').value==='10' && document.querySelector('.xrc-cycle-max').value==='20' &&
-     document.querySelector('.xrc-continuous').lastElementChild.classList.contains('xrc-refresh-cycle'));
+     document.querySelector('.xrc-refresh-cycle').nextElementSibling?.classList.contains('xrc-timed-replies'));
     const height=document.querySelector('.xrc-refresh-cycle').getBoundingClientRect().height;
     document.querySelector('.xrc-cycle-min').value='1';document.querySelector('.xrc-cycle-max').value='1';
     document.querySelector('.xrc-cycle-enabled').click();
-    await wait(()=>document.querySelector('.xrc-cycle-progress')?.textContent==='0/1' && !document.querySelector('.xrc-cycle-enabled').disabled);
+    await wait(()=>document.querySelector('.xrc-cycle-progress')?.textContent==='换批 0/1' && !document.querySelector('.xrc-cycle-enabled').disabled);
     check('修改区间并开启，配置行高度不变',document.querySelector('.xrc-refresh-cycle').getBoundingClientRect().height===height);
     editor().textContent='本地换批测试，未连接X';editor().dispatchEvent(new InputEvent('input',{bubbles:true}));
     await wait(()=>!document.querySelector('.xrc-flow-send').disabled);
     results.stage=1;save();document.querySelector('.xrc-flow-send').click();
    } else if(results.stage===1) {
-    await wait(()=>document.querySelector('.xrc-flow-profile')?.getAttribute('href')==='https://x.com/carol' && document.querySelector('.xrc-cycle-progress')?.textContent==='0/1');
+    await wait(()=>document.querySelector('.xrc-flow-profile')?.getAttribute('href')==='https://x.com/carol' && document.querySelector('.xrc-cycle-progress')?.textContent==='换批 0/1');
     check('消息来源仍是旧评论地址时，为你推荐到数仍刷新并只打开一条',document.querySelector('.demo-composer').dataset.targetId==='2112500000000050001' && document.querySelector('.xrc-flow-status').textContent.includes('为你推荐'));
     check('续接标记一次消费，新回复仍需人工发送',!sessionStorage.getItem('demoSession:replyRefreshResume:1') && document.querySelector('#composer-evidence').dataset.requests==='0' && editor().innerText==='');
     check('来源草稿不会传到刷新后的帖子',document.querySelector('.demo-composer [contenteditable]').innerText==='');

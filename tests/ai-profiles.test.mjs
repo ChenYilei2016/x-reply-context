@@ -48,3 +48,26 @@ test('处理模式按配置保存，旧配置默认跟随项目；已有模型�
  assert.equal(config.isOpenAI('https://api.openai.com.example/v1'),false);
  assert.equal(config.isOpenAI('https://api.openai.com:444/v1'),false);
 });
+
+test('逐字间隔默认35～100，保存后各API共用，非法区间拒绝',()=>{
+ const value=config.normalizeProfiles(legacy);
+ assert.equal(value.typingDelayMin,35);assert.equal(value.typingDelayMax,100);
+ const next=config.normalizeProfiles({...value,typingDelayMin:60,typingDelayMax:80});
+ assert.equal(config.activeConfig(next).typingDelayMin,60);assert.equal(config.activeConfig(next).typingDelayMax,80);
+ assert.equal(config.activeConfig({...next,activeProfileId:'openai'}).typingDelayMax,80);
+ for(const pair of [[-1,100],[0,1001],[80,35],[NaN,100],[1.5,100],['35',100]]) {
+  assert.throws(()=>config.normalizeProfiles({...value,typingDelayMin:pair[0],typingDelayMax:pair[1]}),/逐字间隔/);
+ }
+ assert.equal(config.normalizeProfiles({...value,typingDelayMin:0,typingDelayMax:0}).typingDelayMax,0);
+});
+
+test('推理强度按API组隔离保存，旧配置不传参，非法档位拒绝',()=>{
+ const old=config.normalizeProfiles(legacy);
+ assert.ok(old.profiles.every(p=>p.reasoningEffort==='auto'));
+ old.profiles[0].reasoningEffort='low';old.profiles[1].reasoningEffort='high';
+ const saved=config.normalizeProfiles(old);
+ assert.equal(config.activeConfig(saved).reasoningEffort,'low');
+ assert.equal(config.activeConfig({...saved,activeProfileId:'openai'}).reasoningEffort,'high');
+ assert.equal(JSON.stringify(config.normalizeProfiles(saved)),JSON.stringify(saved));
+ assert.throws(()=>config.normalizeProfiles({...saved,profiles:[{...saved.profiles[0],reasoningEffort:'invalid'}]}),/推理强度/);
+});

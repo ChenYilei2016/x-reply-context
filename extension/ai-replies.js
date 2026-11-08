@@ -1,9 +1,14 @@
 (() => {
   "use strict";
   const EDITOR = '[role="dialog"] [contenteditable="true"][data-testid="tweetTextarea_0"]';
-  function create({accountHandle,connected,message,requestRefresh,rootOwnership=()=>"unknown"}) {
+  function create({accountHandle,connected,message,requestRefresh,rootOwnership=()=>"unknown",recommendedReply=()=>null,interactionBlocked=()=>false}) {
     const edit = globalThis.XReplyEditor;
     let enabled = false, autoComplete = false, current, target, notice, configEpoch = 0;
+    let fillRecommended = false;
+    const autoFilled = new WeakSet();
+    const attachment = '[data-testid="attachments"],[data-testid="mediaPreview"],[data-testid="pollOption_0"]';
+    let typingDelayMin=35,typingDelayMax=100;
+    const pausedEditors=new WeakSet();
     let previews = new WeakMap(), conflicts = new WeakSet();
     const textOf = node => node?.innerText.trim() || "";
     function hidePreview(s) {
@@ -23,7 +28,7 @@
       notice.querySelector("span").textContent = text; notice.hidden = false;
     }
     function valid(s) {
-      return connected() && enabled && current === s && s.epoch === configEpoch && s.editor.isConnected &&
+      return !interactionBlocked() && connected() && enabled && current === s && s.epoch === configEpoch && s.editor.isConnected &&
         accountHandle() === s.account && document.querySelector(EDITOR) === s.editor &&
         (!s.quote || s.quote.isConnected && s.quote.textContent === s.quoteText);
     }
@@ -43,9 +48,15 @@
       if (notice) notice.hidden=true;
       requestRefresh();
     }
+    function pause() {
+      const editor=current?.editor || document.querySelector(EDITOR);
+      if(editor)pausedEditors.add(editor);
+      if(current)stop();
+      if(editor)previews.delete(editor);
+    }
     function conflict() { return Boolean(document.querySelector('#xreply-ghost') || document.querySelector('#xreply-toast:not([style*="display: none"])')); }
     function draw(s) {
-      if (!autoComplete || !valid(s) || s.writing || s.rewriting || s.recommending) {hidePreview(s);return;}
+      if (!autoComplete || s.autoReply || !valid(s) || s.writing || s.rewriting || s.recommending) {hidePreview(s);return;}
       const draft = edit.read(s.editor), candidate = s.candidates[s.index] || "";
       const suggestion = candidate.startsWith(draft) ? candidate.slice(draft.length) : "";
       const label = suggestion || (!draft && s.pending.size ? "生成中…" : "");
@@ -63,13 +74,14 @@
       s.ghost.append(document.createTextNode(label));s.drawn=signature;
     }
     async function request(s,kind,draft = "") {
+      if(!valid(s))return {ok:false,cancelled:true};
       const id = crypto.randomUUID();s.pending.add(id);requestRefresh();
       try {return await message({type:"AI_REQUEST",id,kind,post:s.post,draft,rootOwnership:rootOwnership(s.editor)});}
       catch(error) {return {ok:false,error:error.message};}
       finally {s.pending.delete(id);requestRefresh();}
     }
     function generate(s) {
-      if (!autoComplete || !valid(s) || edit.read(s.editor) || s.pending.size >= 3) return;
+      if (!autoComplete || s.autoReply || !valid(s) || edit.read(s.editor) || s.pending.size >= 3) return;
       void request(s,"generate").then(result => {
         if (!valid(s) || edit.read(s.editor) || s.writing || s.rewriting) return;
         if (result.ok) {
@@ -82,6 +94,7 @@
       draw(s);
     }
     function refresh() {
+      if (interactionBlocked()) {pause();return;}
       if (!enabled || !connected() || document.hidden) return;
       const editor = document.querySelector(EDITOR);
       if (current && (current.editor !== editor || current.account !== accountHandle() ||
@@ -110,27 +123,49 @@
       const s = current = {editor,dialog,root,post,account,targetId:target?.id || "",quote,quoteText:quote?.textContent,epoch:configEpoch,pending:new Set(),
         candidates:reuse?[...cached.candidates]:[],index:reuse?cached.index:0,version:0,writing:false,rewriting:false,composing:false};
       target=undefined;
-      if (autoComplete && !edit.read(editor) && (!reuse || cached.retry)) for(let index=0;index<3;index++) generate(s);
+      if(pausedEditors.has(editor))return; // Acknowledgement alone must not restart generation in the old composer.
+      s.autoReply = fillRecommended ? recommendedReply(editor) : null;
+      if (s.autoReply) {
+        if (autoFilled.has(s.autoReply)) return;
+        autoFilled.add(s.autoReply);
+        if (!edit.read(editor) && !dialog.querySelector(attachment)) void applyRecommendation(s,true);
+      } else if (autoComplete && !edit.read(editor) && (!reuse || cached.retry)) for(let index=0;index<3;index++) generate(s);
       else {draw(s);if(reuse && cached.error && !s.candidates.length)toast(`AI：${cached.error}`);}
     }
+    function canAutoFill(s) {
+      return !document.hidden && document.activeElement === s.editor &&
+        recommendedReply(s.editor) === s.autoReply &&
+        !s.dialog.querySelector(attachment);
+    }
     async function recommend(editor) {
+      if (interactionBlocked())return;
       if (!connected()) return;
       if (!enabled) {toast("请先在 AI 设置中配置并开启 API；自动补全可保持关闭。");return;}
       refresh();
       const s=current;
       if (!s || s.editor!==editor || !valid(s)) {toast("未找到当前回复文字，请从帖子重新打开回复框。");return;}
+      await applyRecommendation(s);
+    }
+    async function applyRecommendation(s,automatic=false) {
+      if(!valid(s))return;
+      const {editor}=s;
       if (s.writing || s.rewriting || s.recommending || s.composing || edit.busy(editor)) return;
       const before=edit.read(editor), version=s.version;
       s.recommending=true;cancelRequests(s);hidePreview(s);requestRefresh();
       try {
         const result=await request(s,"generate");
-        if (!valid(s)) return;
+        if (!valid(s) || automatic && !canAutoFill(s)) return;
         if (s.version!==version || edit.read(editor)!==before) {toast("草稿已变化，保留你的新内容；本次推荐未填入。");return;}
         if (!result.ok) {if(!result.cancelled)toast(`AI：${result.error}`);return;}
         s.writing=true;
+        requestRefresh();
+        if (automatic) {
+          await typeDraft(s,result.text,before,()=>canAutoFill(s));
+          return;
+        }
         const value=(before && !/\s$/.test(before)?" ":"")+result.text;
         const ok=await edit.write(editor,value,{expected:before,valid:()=>valid(s)&&s.version===version&&!s.composing});
-        if (!ok) toast("推荐未完整填入，请核对草稿；不会自动重试。");
+        if (!ok && valid(s)) toast("推荐未完整填入，请核对草稿；不会自动重试。");
       } catch {if(valid(s))toast("推荐未填入，请检查草稿后重试。");}
       finally {s.writing=false;s.recommending=false;requestRefresh();}
     }
@@ -140,20 +175,24 @@
       if (!full?.startsWith(before) || full===before) return;
       const suffix = full.slice(before.length);
       s.writing=true;cancelRequests(s);hidePreview(s);requestRefresh();
-      let expected=before;
-      try {
-        const characters=Array.from(suffix);
-        for (let index=0;index<characters.length;index++) {
-          let char=characters[index];
-          while (char.endsWith("\n") && index+1<characters.length) char+=characters[++index];
-          if (!valid(s) || s.composing || document.activeElement !== s.editor || edit.read(s.editor)!==expected) break;
-          const ok=await edit.write(s.editor,char,{expected,valid:()=>valid(s)&&!s.composing});
-          if (!ok) {if(valid(s))toast("AI 填入已停止，请核对草稿；不会重复填入。");break;}
-          expected+=char;
-          await new Promise(resolve=>{s.wake=resolve;s.timer=setTimeout(resolve,35+Math.random()*100);});s.wake=null;
-        }
-      } catch {if(valid(s))toast("AI 填入已停止，请检查草稿后手动继续。");}
+      try {await typeDraft(s,suffix,before);}
+      catch {if(valid(s))toast("AI 填入已停止，请检查草稿后手动继续。");}
       finally {s.writing=false;requestRefresh();}
+    }
+    async function typeDraft(s,suffix,before,stillCurrent=()=>true) {
+      const canType=()=>valid(s) && !s.composing && document.activeElement===s.editor && stillCurrent();
+      const characters=Array.from(suffix);
+      let expected=before;
+      for (let index=0;index<characters.length;index++) {
+        let char=characters[index];
+        while (char.endsWith("\n") && index+1<characters.length) char+=characters[++index];
+        if (!canType() || edit.read(s.editor)!==expected) return;
+        const ok=await edit.write(s.editor,char,{expected,valid:canType});
+        if (!ok) {if(canType())toast("AI 填入已停止，请核对草稿；不会重复填入。");return;}
+        expected+=char;
+        if (current !== s) return;
+        await new Promise(resolve=>{s.wake=resolve;s.timer=setTimeout(resolve,typingDelayMin+Math.random()*(typingDelayMax-typingDelayMin));});s.wake=null;
+      }
     }
     async function rewrite(s) {
       const before = edit.read(s.editor), version=s.version;
@@ -172,13 +211,14 @@
       finally {s.writing=false;s.rewriting=false;requestRefresh();}
     }
     document.addEventListener("click",event=>{
-      if (!enabled) return;
+      if (!enabled || interactionBlocked()) return;
       const node=event.target instanceof Element?event.target:event.target?.parentElement;
       const article=node?.closest('[data-testid="reply"]')?.closest('article[data-testid="tweet"]');
       if (node?.closest('[data-testid="tweetButton"]') && current && (current.writing || current.rewriting || current.recommending)) {
         event.preventDefault();event.stopImmediatePropagation();toast("请等待生成、填入或改写完成，再确认发送。");return;
       }
       if (article && !article.closest('[role="dialog"]')) {
+        const editor=document.querySelector(EDITOR);if(editor)pausedEditors.delete(editor);
         if (current) stop(); // A new reply action invalidates even a reused editor with identical text.
         target={id:article.querySelector('time')?.closest('a')?.getAttribute('href') || ""};
       }
@@ -200,6 +240,7 @@
       const composing = event.isComposing || event.keyCode === 229 || (current?.editor === replyEditor && current.composing);
       // Reserve plain Tab before AI readiness checks; pending/absent suggestions must not move focus.
       if (plainTab && replyEditor && !composing) event.preventDefault();
+      if(interactionBlocked())return;
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && current &&
           event.target === current.editor && (current.writing || current.rewriting || current.recommending)) {
         event.preventDefault();event.stopImmediatePropagation();toast("请等待生成、填入或改写完成，再确认发送。");return;
@@ -213,7 +254,7 @@
       if(plainTab && s.ghost?.isConnected && s.candidates[s.index]?.startsWith(edit.read(s.editor))) {
         event.preventDefault();event.stopImmediatePropagation();void adopt(s);return;
       }
-      if(["ArrowUp","ArrowDown"].includes(event.key) && !edit.read(s.editor) && s.candidates.length) {
+      if(["ArrowUp","ArrowDown"].includes(event.key) && !s.autoReply && !edit.read(s.editor) && s.candidates.length) {
         event.preventDefault();event.stopImmediatePropagation();
         s.index=Math.max(0,Math.min(s.candidates.length-1,s.index+(event.key==="ArrowDown"?1:-1)));
         draw(s);if(s.candidates.length-1-s.index+s.pending.size<1)generate(s);
@@ -221,14 +262,21 @@
     },true);
     async function reload() {
       const epoch=++configEpoch;enabled=false;stop();previews=new WeakMap();conflicts=new WeakSet();
-      try {const status=await message({type:"AI_STATUS"});if(epoch===configEpoch){enabled=status.enabled===true;autoComplete=status.autoComplete===true;requestRefresh();}}
+      try {
+        const status=await message({type:"AI_STATUS"});
+        if(epoch===configEpoch){
+          enabled=status.enabled===true;autoComplete=status.autoComplete===true;fillRecommended=status.fillRecommended===true;
+          typingDelayMin=status.typingDelayMin ?? 35;typingDelayMax=status.typingDelayMax ?? 100;
+          requestRefresh();
+        }
+      }
       catch { /* Existing local features stay usable if AI settings are unavailable. */ }
     }
-    chrome.storage.onChanged.addListener((changes,area)=>{if(area==="local" && (changes.aiConfig || changes.aiAutoComplete))void reload();});
+    chrome.storage.onChanged.addListener((changes,area)=>{if(area==="local" && (changes.aiConfig || changes.aiAutoComplete || changes.aiFillRecommended))void reload();});
     document.addEventListener("visibilitychange",()=>{if(document.hidden)stop();else requestRefresh();});
     window.addEventListener("pagehide",stop);
     void reload();
-    return {refresh,stop,recommend,phase:editor=>{
+    return {refresh,stop,pause,recommend,fillRecommendedEnabled:()=>enabled && fillRecommended,phase:editor=>{
       if (!current || current.editor!==editor) return "";
       if (current.writing) return "writing";
       if (current.rewriting) return "rewriting";

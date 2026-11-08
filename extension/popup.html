@@ -10,14 +10,43 @@
   <p id="status" role="status">正在读取本地统计…</p>
   <a id="history" class="primary" hidden target="_blank" rel="noopener noreferrer">补充我的历史回复</a>
   <a class="secondary" href="https://x.com/notifications" target="_blank" rel="noopener noreferrer">打开 X 通知</a>
+  <form id="timed-reply-settings" class="home-filter-setting">
+    <label><input name="enabled" type="checkbox" disabled>为你推荐 · 定时评论点赞下条</label>
+    <p class="setting-hint">默认关闭。会发送已填好的草稿；每轮需在回复框手动开始，页面固定显示运行标记。</p>
+    <details><summary>配置</summary>
+      <label class="timed-number">随机间隔（秒）<input name="minSeconds" aria-label="最短间隔（秒）" type="number" min="3" max="3600" required disabled>～<input name="maxSeconds" aria-label="最长间隔（秒）" type="number" min="3" max="3600" required disabled></label>
+      <label class="timed-number">最多触发次数<input name="maxAttempts" type="number" min="1" max="500" required disabled></label>
+      <label class="timed-number">最长运行分钟<input name="maxMinutes" type="number" min="1" max="240" required disabled></label>
+      <p>默认3～10秒（按毫秒随机，如3.864秒）、最多500次或60分钟，任一先到即不再触发新发送。草稿就绪后才开始本次随机等待；没有草稿不发送，不自行请求AI。仅前台生效；手动暂停、后台或失焦保留次数与原截止时间，需手动继续，暂停不延长时长。红字、失败、运行中编辑、关闭、切页或配置变化仍结束本轮，不补发、不重试；手动刷新不恢复，插件自动换批延续剩余预算。</p>
+      <p>手动停止会取消本条尚未执行的后续点赞与跳转；达到次数上限则允许已触发本条正常收尾。设置修改会结束正在运行的一轮。</p>
+    </details>
+    <button type="submit" disabled>保存定时设置</button><p role="status"></p>
+  </form>
+  <section class="home-filter-setting">
+    <label><input id="random-skip-reply-like" type="checkbox" disabled aria-describedby="random-like-help">评论后50%概率跳过点赞</label>
+    <p id="random-like-help" class="setting-hint">默认关闭；不点赞也停顿300～750ms，再进入下一条。</p>
+    <details><summary>详情</summary>
+      <p>仅用于“评论点赞下条”按钮和 Option/Alt+Enter。每次点击独立决定一次，评论成功并保存后才执行；不是固定一半，也不是交替点赞。更改开关从下一次操作生效，已开始的操作不重新随机。</p>
+      <p>跳过点赞不取消已有红心、不伪造点赞记录；评论照常记录并计入换批次数。独立点赞按钮、原生回复和“跳过”保持原行为。等待期间切到后台、编辑、关闭或出现异常仍暂停，不额外请求接口。</p>
+    </details>
+    <p id="random-like-status" role="status"></p>
+  </section>
   <section class="home-filter-setting">
     <label><input id="ai-auto-complete" type="checkbox" disabled aria-describedby="ai-auto-help">自动 AI 补全</label>
-    <p id="ai-auto-help" class="setting-hint">默认关闭；点击回复框「推荐评论」才生成并填入。</p>
+    <p id="ai-auto-help" class="setting-hint">默认关闭；开启后显示灰字候选。</p>
     <details><summary>详情</summary>
-      <p>开启后，空回复框自动生成三条灰字候选，可用上下键切换、Tab 采用；推荐未就绪时 Tab 保持回复输入焦点，不跳到其他控件。关闭后不自动生成，手动推荐和 Option+Tab 改写仍可用。需先在 AI 设置中配置并开启 API；修改此开关不会改动接口或 Key。</p>
+      <p>开启后，空回复框自动生成三条灰字候选，可用上下键切换、Tab 采用；推荐未就绪时 Tab 保持回复输入焦点，不跳到其他控件。手动推荐和 Option+Tab 改写独立可用。需先在 AI 设置中配置并开启 API；修改此开关不会改动接口或 Key。</p>
       <p>手动推荐可点击按钮，也可在回复框按 Option+Q（Mac）或 Alt+Q（Windows）。每次只生成一条，追加到已有草稿末尾。等待时继续编辑会保留你的新内容；不会自动发送或点赞。</p>
     </details>
     <p id="ai-auto-status" role="status"></p>
+  </section>
+  <section class="home-filter-setting">
+    <label><input id="ai-fill-recommended" type="checkbox" disabled aria-describedby="ai-fill-help">为你推荐 · 自动填入 AI 草稿</label>
+    <p id="ai-fill-help" class="setting-hint">默认关闭；先准备草稿，手动发送或另行开启定时触发。</p>
+    <details><summary>详情</summary>
+      <p>需开启并配置 AI API。仅在「为你推荐」从列表打开空回复框时生成一条，按 AI 设置逐字填入，优先于灰字候选。已有草稿保留；每个回复框自动尝试一次。发送和点赞仍由已有快捷键或按钮触发。</p>
+    </details>
+    <p id="ai-fill-status" role="status"></p>
   </section>
   <section class="home-filter-setting">
     <label><input id="hide-completed-home" type="checkbox" disabled aria-describedby="home-filter-help">主页隐藏自己及已完成原帖</label>
@@ -64,8 +93,8 @@
   <p>「整理列表」仅一次应用已加载评论的完成状态。「自动整理」仍为空闲10秒处理阅读区下方的完成评论；点赞、关注、转发由各自开关在接收时过滤，不再追加1px隐藏占位。空批提示使用独立浮层，不往列表顶部堆积空间。</p>
   </details>
   <details><summary>异常提示与暂停</summary>
-    <p>已监听的评论／点赞接口返回错误、限流、警告或无法确认结果时，顶部红色提示持续显示，并暂停本页发送、点赞与连续处理；草稿保留，列表不挪动。不增加 X 请求。</p>
-    <p>先核对 X 提示和操作结果，再点「我已查看，解除暂停」。解除不会重试；重新打开回复框可启动连续回复。仅当前页生效，完整刷新会结束暂停，不代表账号已解除限制。</p>
+    <p>已监听的评论／点赞接口返回错误、限流、警告或无法确认结果时，顶部红色提示持续显示，并暂停本页发送、点赞、AI生成与连续处理；草稿保留，列表不挪动。不增加 X 请求。</p>
+    <p>先核对 X 提示和操作结果，再点「我已查看，解除暂停」。解除不会重试；重新打开回复框可启动连续回复。账号暂时读不到时仍保持暂停；原生L/R/T/N互动键与AI快捷键也受保护。仅当前页生效，完整刷新会结束暂停，不代表账号已解除限制。</p>
   </details>
   <details><summary>自动换一批（默认关闭）</summary>
     <p>仅在为你推荐的回复框最下面开启，默认每轮随机10～20条，可修改区间。仅计“评论点赞下条”确认成功并保存的评论，跳过和原生回复不计。达到次数、点赞流程结束且回复框关闭后，进入并刷新为你推荐，打开一条已加载且未回复的帖子，仍由你确认发送。</p>
@@ -84,8 +113,8 @@
     <p>个人主页“帖子／回复”和搜索“热门／最新”支持连续处理，换主页、搜索词、筛选或页签结束本轮；搜索“用户／媒体／列表”、个人主页“媒体／转帖”和主页自定义页签暂不启动，但照常回复仍会保存。普通、长评论以及原生回复都使用同一保存流程；不需要额外进入详情页。主页不插入逐条标签，避免撑高列表。</p>
     <p>快捷填入提供“一起加油”“哈哈”“难受啊”“太卷了”“可爱捏”“不许色色”六组预设短语，仅做原句的轻微语气变化；点击随机搭配四种末尾标点并追加到草稿，不自动发送。中文输入法组字、改写填入或发送中暂停使用。快捷键 Option/Alt+1～6 依次对应：一起加油、哈哈、难受啊、太卷了、可爱捏、不许色色。</p>
     <p>“跳过”只跳过本轮，不标记已回复。有未发送内容时优先保存到 X 草稿；无法确认保存时暂停，让你核对后继续。手动关闭回复框可退出连续处理。</p>
-    <p>只处理当前页面已加载的内容，不自动翻页补抓。新消息不会打断编辑，下一步时已加载的也可选。卡片移出页面后可改选其他已加载项；切换页签或账号结束本轮。等待时编辑草稿或页面进入后台会取消后续发送。点赞超时、保存失败或发送结果不明会停下，不自动重试。</p>
-    <p>使用内置 AI 或 XReply 时，先按 Tab 接受要发送的内容；逐字填入或改写期间暂停连续操作。内置 AI 在独立设置页开启，请勿同时启用两套 AI。</p>
+    <p>只处理当前页面已加载的内容，不自动翻页补抓。新消息不会打断编辑，下一步时已加载的也可选。评论已保存后，卡片移出或点赞按钮不可用会略过点赞、进入下一条；待确认点赞或红字警告仍暂停，不补造红心记录。切换页签或账号结束本轮。等待时编辑草稿或页面进入后台会取消后续发送。点赞超时、保存失败或发送结果不明会停下，不自动重试。</p>
+    <p>灰字候选可用 Tab 采用；「为你推荐」自动草稿会直接逐字填入。填入或改写期间暂停连续操作，切换到下一条期间的 Option/Alt+Enter 会被忽略。内置 AI 在独立设置页开启，请勿同时启用两套 AI。</p>
   </details>
   <details><summary>统计口径与“待确认”</summary>
   <p>总览的文字回复按同一原帖、同一对方去重，红心按具体帖子去重且只计已点状态，二者不保证相等。红心保留优先照顾真实点赞与取消证据；普通未点赞快照不会挤掉它们。已丢失的历史不能由评论推算补回，正常浏览取得新依据后才更新。</p>
@@ -99,7 +128,8 @@
     <p>“待确认”表示目前没找到依据，不代表从未操作。手机或其他浏览器里的操作，需要在此浏览器加载后才能识别。</p>
     <p>所有数字和 NEW 仅依据本地已读取记录；原帖作者未确认时不计入原帖数，确认后补计。0 不代表历史上从未操作；记录到期或淘汰后，统计可能减少。不额外抓取完整历史。</p>
   </details>
-  <footer>互动统计仅本机保存 · 每条由你确认发送<br>记录保留 90 天，各类记录最多 10,000 条</footer>
+  <footer>互动统计仅本机保存 · 定时发送需手动开启<br>记录保留 90 天，各类记录最多 10,000 条</footer>
+  <script src="timed-replies.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
