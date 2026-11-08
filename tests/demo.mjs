@@ -91,6 +91,7 @@ globalThis.chrome = {
           const mode = document.querySelector('#context-result-mode').value;
           if (mode === 'delayed') await new Promise(resolve => setTimeout(resolve,1600));
           if (mode === 'failed') throw new Error('模拟本地读取失败');
+          if (mode === 'incomplete') snapshot.rows = snapshot.rows.map(row => ({...row,newPerson:false,personStats:{...row.personStats,incomplete:true}}));
           if (mode === 'missing-person') snapshot.rows = snapshot.rows.map(row => ({ ...row,personStats:null }));
           if (mode === 'missing-author') snapshot.rows = snapshot.rows.map(row => ({ ...row,authorHandle:'' }));
         }

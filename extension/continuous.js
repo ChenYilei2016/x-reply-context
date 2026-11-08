@@ -580,7 +580,7 @@
       const dialog=s.current.dialog,editor=dialog?.querySelector(EDITOR);
       if(!dialog?.isConnected || composer()!==dialog || !editor)return {...state,reason:"回复框已变化，已停止"};
       if(hasAttachments(dialog))return {...state,reason:"定时发送只支持纯文字，请手动处理附件或投票"};
-      state.draft=editor.innerText;
+      state.editor=editor;state.draft=editor.innerText;
       state.ready=Boolean(state.draft.trim() && !s.current.composing && !s.current.quickPending && !draftBusy(s) &&
         singleReply(dialog) && enabled(dialog.querySelector(SEND)));
       state.waiting="等待草稿或AI填入完成";
@@ -829,14 +829,14 @@
       if (aiButton) {
         const caption=aiButton.querySelector(".xrc-ai-caption"),label=aiLabels[phase] || "推荐评论";
         if (caption.textContent!==label) caption.textContent=label;
-        const active=String(Boolean(phase));
+        const active=String(Boolean(phase&&phase!=="paused"));
         if (aiButton.getAttribute("aria-busy")!==active) aiButton.setAttribute("aria-busy",active);
       }
       const busy = draftBusy(s) || s.current.quickPending === true;
-      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : s.feed === "profile" ? "个人主页 · " : s.feed === "search" ? "搜索 · " : ""}已处理 ${s.handled.size} 条 · ${phase ? `AI ${aiLabels[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
+      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : s.feed === "profile" ? "个人主页 · " : s.feed === "search" ? "搜索 · " : ""}已处理 ${s.handled.size} 条 · ${phase==="paused" ? (timedReplies?.isPaused?.()?"AI 自动填入已暂停，可手动推荐或继续本轮。":"AI 自动填入已暂停，可点击推荐评论。") : phase ? `AI ${aiLabels[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;
-      const active=String(Boolean(phase));
+      const active=String(Boolean(phase&&phase!=="paused"));
       if(status.dataset.aiActive!==active) status.dataset.aiActive=active;
       const canAct = ["ready","failed"].includes(s.phase);
       const native = nativeHeart(s);

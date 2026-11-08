@@ -17,12 +17,12 @@ function setup(config={enabled:true,minSeconds:10,maxSeconds:20,maxAttempts:2,ma
  const scope=vm.createContext({document,Element,location:{pathname:"/home"},crypto:{randomUUID:()=>"run-"+(++runSequence)},window:{addEventListener:(n,f)=>events.set(n,f)},Date:class extends Date{static now(){return wallStart+clock;}},performance:{now:()=>clock,getEntriesByType:()=>[{type:"navigate"}]},Math:Object.assign(Object.create(Math),{random:()=>0}),
   setTimeout:(fn,delay)=>{timers.set(++id,{fn,at:clock+delay});return id;},clearTimeout:id=>timers.delete(id)});
  vm.runInContext(source,scope);
- let trigger=s=>{calls.push({id:s.id,at:clock});state.ready=false;return true;};
+ let trigger=s=>{calls.push({id:s.id,at:clock});state.ready=false;return true;},continueAction=()=>'';
  const controller=scope.XReplyTimedReplies.create({storage:{local:{get:async()=>({timedReplies:config})},onChanged:{addListener:f=>{listener=f;}}},
-  readState:()=>state,trigger:s=>trigger(s),requestRefresh(){},onInterrupt:reason=>interrupts.push(reason),cancelRefresh:id=>cancellations.push(id),
+  readState:()=>state,trigger:s=>trigger(s),requestRefresh(){},onInterrupt:reason=>interrupts.push(reason),onContinue:s=>continueAction(s),cancelRefresh:id=>cancellations.push(id),
   keepAwake:(until,leaving=false)=>wake.push({until,leaving})});
  function advance(ms){const end=clock+ms;let iterations=0;for(;;){const next=[...timers].sort((a,b)=>a[1].at-b[1].at)[0];if(!next||next[1].at>end)break;assert.ok(++iterations<1000,'no timer loop');clock=next[1].at;timers.delete(next[0]);next[1].fn();}clock=end;}
- return {controller,state,calls,timers,advance,scope,document,events,Element,interrupts,cancellations,wake,setTrigger:f=>{trigger=f;},change:value=>listener({timedReplies:{newValue:value}},'local')};
+ return {controller,state,calls,timers,advance,scope,document,events,Element,interrupts,cancellations,wake,setTrigger:f=>{trigger=f;},setContinue:f=>{continueAction=f;},change:value=>listener({timedReplies:{newValue:value}},'local')};
 }
 test('默认关闭且间隔默认3～10秒，次数/时长均有界',async()=>{
  const env=setup(undefined);await flush();const api=env.scope.XReplyTimedReplies;assert.equal(env.timers.size,0,'仅开启设置不自动开始');
@@ -302,4 +302,19 @@ test('浮窗按焦点和可见性事件更新，已暂停时仍更新，不新�
  assert.equal(row().textContent,'页面隐藏 · 已失焦');assert.equal(env.timers.size,0);
  env.document.hidden=false;env.events.get('visibilitychange')();assert.equal(row().textContent,'页面可见 · 已失焦');assert.equal(env.controller.isPaused(),true);
  focused=true;env.events.get('focus')();assert.equal(row().textContent,'页面可见 · 有焦点');assert.equal(env.timers.size,0);
+});
+
+
+test('只有明确继续才恢复草稿准备，拒绝半成品时保持暂停且不重置预算',async()=>{
+ const env=setup();await flush();let continued=0;
+ env.setContinue(()=>{continued++;return '请核对半成品';});env.controller.start();env.advance(1000);env.controller.pause();env.controller.refresh();
+ assert.equal(continued,0);env.controller.continueRun();assert.equal(continued,1);assert.equal(env.controller.isPaused(),true);assert.equal(env.timers.size,0);
+ env.setContinue(()=>{continued++;return '';});env.controller.continueRun();env.controller.continueRun();assert.equal(continued,2);
+ const ticket=env.controller.prepareRefresh('continued');assert.equal(ticket.runId,'run-1');assert.equal(ticket.expiresAt,1800000060000);assert.equal(ticket.attempts,0);
+});
+test('后台和异常终止不调用继续准备钩子，钩子失败不发送',async()=>{
+ const env=setup();await flush();let continued=0;env.setContinue(()=>{continued++;throw Error('failed');});env.controller.start();env.controller.pause();
+ env.document.hidden=true;env.controller.continueRun();assert.equal(continued,0);
+ env.document.hidden=false;env.controller.continueRun();assert.equal(continued,1);assert.equal(env.controller.isPaused(),true);assert.equal(env.timers.size,0);
+ env.controller.stop('rate limit');env.controller.continueRun();assert.equal(continued,1);env.advance(20000);assert.equal(env.calls.length,0);
 });

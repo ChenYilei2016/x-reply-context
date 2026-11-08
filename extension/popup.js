@@ -38,6 +38,9 @@ void installCheckbox("#auto-hide-repost-notifications","autoHideRepostNotificati
     if (!summary?.ok) throw new Error(summary?.error || "本地记录暂不可用");
     status.textContent = `@${account}\n已记录 ${summary.replyCount} 组文字回复 · ${summary.likeCount} 条红心`;
     status.title = "文字按当前账号、原帖和对方去重；红心按帖子去重，仅统计本地仍有已点赞证据的记录。历史来源不同，二者不保证相等。";
+    const statistics=document.querySelector("#statistics-status");
+    if(statistics)statistics.textContent=summary.statistics ?
+      `独立互动事实 ${summary.statistics.factCount}/20,000 · ${summary.statistics.incomplete?"历史不完整，按下限显示":"本地已确认"}${summary.statistics.atCapacity?"；部分新增事实未计入，请导出备份后检查容量":""}。升级前备份已保留。` : "互动统计尚未迁移，请重载扩展后刷新 X。";
     const history = document.querySelector("#history");
     history.href = `https://x.com/${account}/with_replies`;
     history.hidden = false;

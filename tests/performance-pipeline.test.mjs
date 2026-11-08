@@ -25,10 +25,10 @@ test('点赞热路径仍在过期或容量超限时维护上限并使分类缓�
   const old=Object.values(state.likes)[0];
   core.classifyBatch(state,'me',[fixtureRootId(0)]);
   core.ingest(state,{likes:[{id:'111',account:'me',liked:true,observedAt:now+1}]},'me',now+1);
-  assert.equal(Object.keys(state.likes).length,10000);
+  assert.equal(Object.keys(state.likes).length,20000);
   assert.ok(state.likes[`${old.actorId}:111`]);
   core.ingest(state,{likes:[{id:'111',account:'me',liked:false,observedAt:now+core.RETENTION_MS+2}]},'me',now+core.RETENTION_MS+2);
-  assert.ok(Object.keys(state.likes).length<10000);
+  assert.ok(Object.keys(state.likes).length<20000);
   assert.equal(core.classifyBatch(state,'me',[fixtureRootId(0)])[0].likeEvidenceId,'');
 });
 

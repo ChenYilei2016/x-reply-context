@@ -143,7 +143,7 @@ test("未知父帖、引用、自我串帖不冒充已经回复某个参与者",
   assert.equal(core.classify(state,"my_account","100").status,"not-reply");
 });
 
-test("缓存和证据保留 90 天、上限 10000 条，清理后回到待确认", () => {
+test("缓存和证据保留 90 天、上限 20000 条，清理后回到待确认", () => {
   const state = core.createState();
   const start = 1000000000000;
   core.ingest(state,{ users,tweets:demoTweets },"my_account",start);
@@ -151,11 +151,11 @@ test("缓存和证据保留 90 天、上限 10000 条，清理后回到待确认
   assert.equal(Object.keys(state.replies).length,0);
   assert.equal(Object.keys(state.people).length,0);
   assert.equal(core.classify(state,"my_account","2112500000000000004").status,"unknown");
-  for (let i = 1; i <= 10010; i++) {
+  for (let i = 1; i <= core.LIMIT+10; i++) {
     state.tweets[String(i)] = { ...post(String(i),"101",String(i)),seenAt:start };
   }
   core.ingest(state,{},"my_account",start);
-  assert.equal(Object.keys(state.tweets).length,10000);
+  assert.equal(Object.keys(state.tweets).length,core.LIMIT);
 });
 
 test("页面观察器保留原 fetch 行为，只读取成功的目标响应", async () => {

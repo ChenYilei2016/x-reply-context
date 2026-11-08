@@ -4,10 +4,10 @@ import '../extension/core.js';
 const core=globalThis.XReplyContext;
 const event=(id,liked,at,source='snapshot')=>({id,account:'me',liked,observedAt:at,source});
 function seed(now){const s=core.createState();core.ingest(s,{users:[{id:'1',handle:'me'},{id:'2',handle:'peer'}],tweets:[{id:'100',authorId:'2',conversationId:'100',text:'root'},{id:'101',authorId:'1',conversationId:'100',parentId:'100',recipientId:'2',text:'reply'}],likes:[event('100',true,now,'mutation')]},'me',now);return s;}
-function browse(s,now){for(let batch=0;batch<20;batch++)core.ingest(s,{likes:Array.from({length:500},(_,i)=>event(String(1000+batch*500+i),false,now+batch))},'me',now+batch);}
-test('普通未点赞浏览快照不挤掉真实红心，仍保持10000条上限',()=>{
+function browse(s,now){for(let batch=0;batch<core.LIMIT/500;batch++)core.ingest(s,{likes:Array.from({length:500},(_,i)=>event(String(1000+batch*500+i),false,now+Math.floor(batch/2)))},'me',now+Math.floor(batch/2));}
+test('普通未点赞浏览快照不挤掉真实红心，仍保持20000条上限',()=>{
  const now=Date.now(),s=seed(now);browse(s,now+1);
- assert.equal(s.likes['1:100']?.liked,true);assert.equal(Object.keys(s.likes).length,10000);assert.equal(Object.keys(s.replies).length,1);
+ assert.equal(s.likes['1:100']?.liked,true);assert.equal(Object.keys(s.likes).length,20000);assert.equal(Object.keys(s.replies).length,1);
 });
 test('取消证据经过未点赞快照更新后仍保留，旧正快照不能恢复',()=>{
  const now=Date.now(),s=seed(now);
@@ -36,7 +36,7 @@ test('持久化形状重载后仍有时间保护，90天过期规则不变',()=>
 });
 test('真实取消证据超容量淘汰后仍保护同时间旧快照，账号之间隔离',()=>{
  const now=Date.now(),s=seed(now);core.ingest(s,{likes:[event('100',false,now+1,'mutation')]},'me',now+1);
- for(let batch=0;batch<20;batch++)core.ingest(s,{likes:Array.from({length:500},(_,i)=>event(String(1000+batch*500+i),true,now+2+batch,'mutation'))},'me',now+2+batch);
+ for(let batch=0;batch<core.LIMIT/500;batch++)core.ingest(s,{likes:Array.from({length:500},(_,i)=>event(String(1000+batch*500+i),true,now+2+Math.floor(batch/2),'mutation'))},'me',now+2+Math.floor(batch/2));
  assert.equal(s.likes['1:100'],undefined);
  core.ingest(s,{likes:[event('100',true,now+1)]},'me',now+30);assert.equal(s.likes['1:100'],undefined);
  core.ingest(s,{users:[{id:'3',handle:'other'}],likes:[{id:'100',account:'other',liked:true,source:'snapshot',observedAt:now}]},'other',now+31);

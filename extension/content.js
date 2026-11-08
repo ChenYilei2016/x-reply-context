@@ -327,14 +327,14 @@
     ].map(([label,count,description]) => {
       const badge = document.createElement("span");
       badge.className = "xrc-person";
-      badge.textContent = `${label} ${count ?? "待确认"}`;
-      badge.title = `${description}。同一篇下多次评论（含楼中楼）只算 1 篇；在自己或第三方原帖下回话、点赞均不计。只统计本地保留且已确认原帖作者的记录。`;
+      badge.textContent = `${label} ${stats?.incomplete?(count>0?`≥${count}`:"待确认"):(count ?? "待确认")}`;
+      badge.title = `${description}。同一篇下多次评论（含楼中楼）只算 1 篇；在自己或第三方原帖下回话、点赞均不计。只统计本地已确认的原帖，累计记录独立于正文缓存。${stats?.incomplete?"历史不完整：正数为保守下限，缺少证据不显示为0。旧统计下限与已确认事实可能重叠，不直接相加。":""}`;
       return badge;
     });
   }
 
   function renderPersonStats(bar,stats) {
-    const signature = JSON.stringify([stats?.myCommentedPosts,stats?.theirCommentedPosts]);
+    const signature = JSON.stringify([stats?.myCommentedPosts,stats?.theirCommentedPosts,stats?.incomplete]);
     if (bar.dataset.signature === signature) return;
     bar.dataset.signature = signature;
     bar.replaceChildren(...personBadges(stats));
@@ -460,6 +460,7 @@
     resume:(intent,valid)=>continuous.resumeRecommended(intent,valid),notify:text=>continuous?.notify(text)});
   timedReplies = globalThis.XReplyTimedReplies?.create({storage:chrome.storage,readState:()=>continuous?.timedState(),
     trigger:state=>continuous?.timedSend(state),requestRefresh:scheduleControls,keepAwake,
+    onContinue:state=>aiReplies?.resumeAutomatic(state.editor)||"",
     onInterrupt:reason=>{aiReplies?.pause();continuous?.cancelTimedFollowup(reason);},cancelRefresh:id=>refreshCycle?.cancel(id)});
   continuous = globalThis.XReplyContinuous?.create({refreshCycle,timedReplies,randomSkipLikeEnabled:()=>randomSkipReplyLike,interactionBlocked:()=>interactionAlert?.blocked()===true, accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels:(bar,row) => renderLabels(bar,row,false),renderPersonStats,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor),aiPhase:editor => aiReplies?.phase(editor) || "",
     aiFillRecommendedEnabled:()=>aiReplies?.fillRecommendedEnabled() === true});

@@ -31,9 +31,9 @@ document.querySelector('#run').addEventListener('click',async event => {
     globalThis.chrome = { storage:{ local:{ get:async () => { legacyReads++; return { replyContext:structuredClone(legacy) }; } } } };
     const storage = globalThis.XReplyStorage.create();
     let started = performance.now();
-    const state = await storage.load();
+    const state = await storage.load();core.prepare(state);
     metrics.migrationMs = performance.now()-started;
-    check('迁移保留原记录且各表有界',state.version === 1 && Object.keys(state.likes).length === 10000 && Object.keys(state.people).length > 0);
+    check('迁移保留原记录且各表有界',state.version === 1 && Object.keys(state.likes).length === core.LIMIT && Object.keys(state.people).length > 0);
     const key = Object.keys(state.likes)[0]; const likeId = state.likes[key].id;
     measure = true;
     started = performance.now();
@@ -62,7 +62,7 @@ document.querySelector('#run').addEventListener('click',async event => {
     await storage.save(state);
     const guarded=await globalThis.XReplyStorage.create().load();core.prepare(guarded);
     const actor=core.findAccount(guarded,'me').id;
-    check('普通负快照不能挤掉满量的真实红心',!guarded.likes[actor+':555'] && Object.keys(guarded.likes).length===10000);
+    check('普通负快照不能挤掉满量的真实红心',!guarded.likes[actor+':555'] && Object.keys(guarded.likes).length===core.LIMIT);
     check('旧快照时间保护与真实红心同时持久化',guarded.likeSnapshotFloors?.[actor]?.at===now+4 && guarded.likes[key].interactionEvidence===true);
     core.ingest(guarded,{likes:[{id:'555',account:'me',liked:true,observedAt:now+3,source:'snapshot'}]},'me',now+5);
     check('重开后迟到旧正快照仍不能误恢复',!guarded.likes[actor+':555']);

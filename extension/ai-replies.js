@@ -5,7 +5,7 @@
     const edit = globalThis.XReplyEditor;
     let enabled = false, autoComplete = false, current, target, notice, configEpoch = 0;
     let fillRecommended = false;
-    const autoFilled = new WeakSet();
+    const autoPreparations = new WeakMap();
     const attachment = '[data-testid="attachments"],[data-testid="mediaPreview"],[data-testid="pollOption_0"]';
     let typingDelayMin=35,typingDelayMax=100;
     const pausedEditors=new WeakSet();
@@ -50,9 +50,59 @@
     }
     function pause() {
       const editor=current?.editor || document.querySelector(EDITOR);
-      if(editor)pausedEditors.add(editor);
+      if(editor){
+        pausedEditors.add(editor);
+        const reply=current?.autoReply || recommendedReply(editor);
+        if(reply){
+          const preparation=autoPreparations.get(reply) || {partial:""};
+          preparation.paused=true;
+          const draft=edit.read(editor);
+          if(current?.autoExpected!==undefined && draft && draft!==current.autoExpected)preparation.partial=draft;
+          autoPreparations.set(reply,preparation);
+        }
+      }
       if(current)stop();
       if(editor)previews.delete(editor);
+    }
+    // Continue uses the live reply and editor, never a snapshot of an old DOM node.
+    function resumeAutomatic(editor) {
+      if(interactionBlocked() || !connected() || document.hidden || !editor?.isConnected || document.querySelector(EDITOR)!==editor)
+        return "当前回复框不可用，请核对页面后继续。";
+      const reply=recommendedReply(editor);
+      if(!reply)return "尚未确认当前回复对象，请重新打开回复框。";
+      if(current?.composing || current?.writing || current?.rewriting || current?.recommending || current?.pending.size || edit.busy(editor))
+        return "AI 或编辑操作尚未完成，请稍后再继续。";
+      const draft=edit.read(editor),preparation=autoPreparations.get(reply);
+      if(draft && preparation?.partial===draft)return "AI 只填入了部分内容，请先核对并编辑，或清空后再继续。";
+      if(draft.trim()){
+        pausedEditors.delete(editor);if(preparation)preparation.paused=false;requestRefresh();return "";
+      }
+      if(!enabled || !fillRecommended)return "空草稿尚未准备：请开启 AI 自动填入，或先手动写好回复。";
+      if(conflict())return "检测到其他回复插件，请先停用后再继续。";
+      if(editor.closest('[role="dialog"]')?.querySelector(attachment))return "请先手动处理附件或投票，再继续本轮。";
+      // Explicit Continue gets one fresh attempt, including when X replaced the editor.
+      if(current)stop();
+      pausedEditors.delete(editor);previews.delete(editor);autoPreparations.delete(reply);
+      refresh();
+      if(current?.editor===editor && current.autoReply===reply && current.recommending)return "";
+      pausedEditors.add(editor);autoPreparations.set(reply,{paused:true,partial:""});
+      return "AI 未能开始准备草稿，请检查帖子文字或手动推荐后继续。";
+    }
+    function prepareAutomatic(s) {
+      const reply=fillRecommended && recommendedReply(s.editor);
+      if(!reply)return false;
+      s.autoReply=reply;
+      const previous=autoPreparations.get(reply);
+      if(previous){
+        if(!previous.paused && !edit.read(s.editor).trim()){
+          previous.paused=true;
+          autoFillBlocked(s,"AI 准备已中断或输入框已重建，请手动推荐或重新开始；不会自动重试。");
+        }
+        return true;
+      }
+      autoPreparations.set(reply,{paused:false,partial:""});
+      if(!edit.read(s.editor).trim() && !s.dialog.querySelector(attachment))void applyRecommendation(s,true);
+      return true;
     }
     function conflict() { return Boolean(document.querySelector('#xreply-ghost') || document.querySelector('#xreply-toast:not([style*="display: none"])')); }
     function draw(s) {
@@ -124,12 +174,8 @@
         candidates:reuse?[...cached.candidates]:[],index:reuse?cached.index:0,version:0,writing:false,rewriting:false,composing:false};
       target=undefined;
       if(pausedEditors.has(editor))return; // Acknowledgement alone must not restart generation in the old composer.
-      s.autoReply = fillRecommended ? recommendedReply(editor) : null;
-      if (s.autoReply) {
-        if (autoFilled.has(s.autoReply)) return;
-        autoFilled.add(s.autoReply);
-        if (!edit.read(editor) && !dialog.querySelector(attachment)) void applyRecommendation(s,true);
-      } else if (autoComplete && !edit.read(editor) && (!reuse || cached.retry)) for(let index=0;index<3;index++) generate(s);
+      if(prepareAutomatic(s))return;
+      if (autoComplete && !edit.read(editor) && (!reuse || cached.retry)) for(let index=0;index<3;index++) generate(s);
       else {draw(s);if(reuse && cached.error && !s.candidates.length)toast(`AI：${cached.error}`);}
     }
     function autoFillBlocked(s,text) {
@@ -176,6 +222,7 @@
         s.writing=true;
         requestRefresh();
         if (automatic) {
+          s.autoExpected=before+result.text;
           const complete=await typeDraft(s,result.text,before,{automatic:true});
           if(!complete && valid(s))autoFillBlocked(s,"AI 填入未完成，已保留当前文字；请检查后手动继续，不会自动重试。");
           return;
@@ -184,7 +231,7 @@
         const ok=await edit.write(editor,value,{expected:before,valid:()=>valid(s)&&s.version===version&&!s.composing});
         if (!ok && valid(s)) toast("推荐未完整填入，请核对草稿；不会自动重试。");
       } catch {if(valid(s)){const text="推荐未填入，请检查草稿后重试。";if(automatic)autoFillBlocked(s,text);else toast(text);}}
-      finally {s.writing=false;s.recommending=false;requestRefresh();}
+      finally {s.autoExpected=undefined;s.writing=false;s.recommending=false;requestRefresh();}
     }
     async function adopt(s) {
       if (!valid(s) || s.writing || s.rewriting || s.recommending || s.composing) return;
@@ -294,11 +341,13 @@
     document.addEventListener("visibilitychange",()=>{if(document.hidden)stop();else requestRefresh();});
     window.addEventListener("pagehide",stop);
     void reload();
-    return {refresh,stop,pause,recommend,fillRecommendedEnabled:()=>enabled && fillRecommended,phase:editor=>{
-      if (!current || current.editor!==editor) return "";
+    return {refresh,stop,pause,resumeAutomatic,recommend,fillRecommendedEnabled:()=>enabled && fillRecommended,phase:editor=>{
+      if(!enabled)return "";
+      const paused=pausedEditors.has(editor)||autoPreparations.get(current?.editor===editor?current.autoReply:recommendedReply(editor))?.paused;
+      if (!current || current.editor!==editor) return paused?"paused":"";
       if (current.writing) return "writing";
       if (current.rewriting) return "rewriting";
-      return current.recommending || current.pending.size ? "generating" : "";
+      return current.recommending || current.pending.size ? "generating" : paused?"paused":"";
     },busy:editor=>Boolean(current && current.editor===editor&&(current.writing||current.rewriting||current.recommending))};
   }
   globalThis.XReplyAIReplies={create};

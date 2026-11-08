@@ -2,12 +2,12 @@
 (() => {
   "use strict";
   const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
-  const LIMIT = 10000;
+  const LIMIT = 20000;
   const runtime = new WeakMap();
   function cacheFor(state) {
     let cache = runtime.get(state);
     if (!cache) {
-      cache = { users:null,lookups:new Map(),dirty:null,expiry:0,likeCount:0 };
+      cache = { users:null,lookups:new Map(),dirty:null,expiry:0,likeCount:0,factSignatures:new Map(),facts:new Map(),factOverflow:false };
       runtime.set(state,cache);
     }
     return cache;
@@ -34,6 +34,7 @@
     state[name] = records;
   }
   function saved(state) {
+    cacheFor(state).facts.clear();cacheFor(state).factOverflow=false;
     cacheFor(state).dirty = Object.fromEntries(
       ["users","tweets","roots","replies","likes","people"].map(name => [name,new Set()]));
   }
@@ -203,6 +204,7 @@
   function prune(state, now) {
     let relationshipsChanged = false;
     for (const key of ["users", "tweets", "roots", "replies", "likes", "people"]) {
+      if(key === "people" && state.statistics)continue;
       const retained = retainRecords(state[key],now,key === "likes");
       if (key !== "likes" && key !== "people" && retained !== state[key]) relationshipsChanged = true;
       if (retained !== state[key]) replace(state,key,retained);
@@ -277,6 +279,41 @@
     replace(state,"people",retainRecords(people,now));
   }
 
+  function* interactionFacts(state) {
+    const accounts=state.accounts || {};
+    function* facts(authorId,rootId,replyId,seenAt,directOwner="") {
+      const owner=state.roots?.[rootId]?.authorId || state.tweets?.[rootId]?.authorId || directOwner;
+      if(!id(rootId)||!id(authorId)||!id(owner)||!id(replyId)||authorId===owner)return;
+      if(accounts[authorId])yield {key:`${authorId}:${owner}:out:${rootId}`,accountId:authorId,peerId:owner,direction:"out",rootId,firstReplyId:"",seenAt};
+      if(accounts[owner])yield {key:`${owner}:${authorId}:in:${rootId}`,accountId:owner,peerId:authorId,direction:"in",rootId,firstReplyId:id(replyId),seenAt};
+    }
+    for(const tweet of Object.values(state.tweets || {})) {
+      if(tweet.parentId){const rootId=conversationOf(state,tweet);yield* facts(tweet.authorId,rootId,tweet.id,tweet.seenAt,tweet.parentId===rootId?tweet.recipientId:"");}
+    }
+    for(const reply of Object.values(state.replies || {})) {
+      const tweet=state.tweets?.[reply.id];
+      if(tweet?.parentId && conversationOf(state,tweet))continue;
+      yield* facts(reply.actorId,reply.conversationId,reply.id,reply.seenAt);
+    }
+  }
+  function collectInteractionFacts(state) {
+    const cache=cacheFor(state),seen=new Set();
+    for(const fact of interactionFacts(state)){
+      // Timestamp-only reloads do not touch the durable ledger. Incoming older IDs can refine NEW evidence.
+      const signature=fact.firstReplyId || "out";
+      const previous=cache.factSignatures.get(fact.key);
+      seen.add(fact.key);
+      if(previous===signature || previous && fact.direction==="in" && BigInt(previous)<=BigInt(signature))continue;
+      cache.factSignatures.set(fact.key,signature);
+      const queued=cache.facts.get(fact.key);
+      if(queued && (fact.direction!=="in" || BigInt(queued.firstReplyId)<=BigInt(fact.firstReplyId)))continue;
+      if(cache.facts.size<LIMIT || queued)cache.facts.set(fact.key,fact);
+      else cache.factOverflow=true;
+    }
+    for(const key of cache.factSignatures.keys())if(!seen.has(key))cache.factSignatures.delete(key);
+  }
+  const interactionChanges=state=>({facts:cacheFor(state).facts,overflow:cacheFor(state).factOverflow});
+
   // Refresh derived evidence timestamps without rebuilding counts for unchanged posts.
   // Missing derived evidence falls back to the normal rebuild (e.g. after retention).
   function touchEvidence(state,tweet,now) {
@@ -298,7 +335,7 @@
       else if (reply.id === tweet.id) touch("replies",key);
     }
     const rootAuthorId = state.roots[rootId]?.authorId || state.tweets[rootId]?.authorId;
-    if (tweet.parentId && rootAuthorId && rootAuthorId !== tweet.authorId) {
+    if (!state.statistics && tweet.parentId && rootAuthorId && rootAuthorId !== tweet.authorId) {
       if (state.accounts[tweet.authorId]) touch("people",`${tweet.authorId}:${rootAuthorId}`);
       if (state.accounts[rootAuthorId]) touch("people",`${rootAuthorId}:${tweet.authorId}`);
     }
@@ -377,10 +414,11 @@
       }
     }
     if (relationshipsChanged) indexReplies(state);
+    if(state.statistics && relationshipsChanged)collectInteractionFacts(state);
     // Timestamp-only observations preserve the existing indexes; expiry is a safe lower bound.
     const maintenance = relationshipsChanged || now >= cache.expiry || cache.likeCount > LIMIT;
     const relationshipsPruned = maintenance ? prune(state,now) : false;
-    if (relationshipsChanged || relationshipsPruned) indexPeople(state,now);
+    if (!state.statistics && (relationshipsChanged || relationshipsPruned)) indexPeople(state,now);
     if (maintenance) {
       prepare(state);
       cache.users = null;
@@ -423,10 +461,11 @@
       // Original cards (including quotes) need a like on that card, not on a reply below it.
       likeEvidenceId: result.likeEvidenceId || (original ? "" : like?.id || ""),
       personStats: me ? {
-        myCommentedPosts:person?.myCommentedPosts || 0,
-        theirCommentedPosts:person?.theirCommentedPosts || 0
+        myCommentedPosts:Math.max(person?.myCommentedPosts || 0,person?.legacyMyLowerBound || 0),
+        theirCommentedPosts:Math.max(person?.theirCommentedPosts || 0,person?.legacyTheirLowerBound || 0),
+        ...(state.statistics?{incomplete:state.statistics.incomplete===true}: {})
       } : null,
-      newPerson: Boolean(origin === "mine" && person?.myCommentedPosts === 0 &&
+      newPerson: Boolean(!state.statistics?.incomplete && origin === "mine" && person?.myCommentedPosts === 0 &&
         person.firstCommentOnMyPostId === tweet.id)
     };
   }
@@ -463,6 +502,7 @@
     const cache = cacheFor(state);
     cache.expiry = Infinity;
     for (const name of ["users","tweets","roots","replies","likes","people"]) {
+      if(name==="people" && state.statistics)continue;
       for (const record of Object.values(state[name] || {})) cache.expiry = Math.min(cache.expiry,record.seenAt+RETENTION_MS+1);
     }
     for (const seenAt of Object.values(state.accounts)) cache.expiry = Math.min(cache.expiry,seenAt+RETENTION_MS+1);
@@ -481,5 +521,5 @@
     }
   }
 
-  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, findAccount, id, handle, RETENTION_MS, LIMIT, changes, saved, prepare };
+  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, findAccount, id, handle, RETENTION_MS, LIMIT, changes, saved, prepare, interactionFacts, interactionChanges, primeInteractions:collectInteractionFacts };
 })();

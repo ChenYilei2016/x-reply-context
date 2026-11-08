@@ -28,7 +28,7 @@
     return {runId:raw.runId,account:raw.account,attempts:raw.attempts,expiresAt:raw.expiresAt,
       capturedAt:raw.capturedAt,remainingMs:raw.remainingMs,lastId:raw.lastId,settings};
   }
-  function create({storage,readState,trigger,requestRefresh,onInterrupt=()=>{},cancelRefresh=()=>{},keepAwake=()=>{}}) {
+  function create({storage,readState,trigger,requestRefresh,onInterrupt=()=>{},onContinue=()=>"",cancelRefresh=()=>{},keepAwake=()=>{}}) {
     let config={...defaults},loaded=false,run=null,paused=null,armed=null,timer=null,scheduledAt=0;
     let row=null,badge=null,caption="尚未开始",attempts=0,firing=false,stopped=false;
     let handoff=null,restoring=null,restoreRequested=false,shownExpiry=0,shownEnd="";
@@ -118,6 +118,9 @@
       if(!allowed() || state.reason || !state.resumeReady){
         caption=state.reason||"请等待本条结果，核对后进入下一条再继续";paint();return;
       }
+      let problem;
+      try {problem=onContinue(state);}catch {problem="AI 恢复未确认，请检查草稿后手动推荐。";}
+      if(problem){caption=problem;paint();return;}
       run=paused;paused=null;stopped=false;caption="继续本轮，等待草稿就绪";
       refresh();requestRefresh();
       if(run)keepAwake(run.expiresAt);

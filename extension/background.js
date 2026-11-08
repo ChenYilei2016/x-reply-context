@@ -1,4 +1,4 @@
-importScripts("core.js","storage.js","ai-config.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js");
+importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js");
 let aiService;
 let companion;
 let refreshCycle;
@@ -34,7 +34,8 @@ let revisionPending = false;
 
 async function persist(changed = true) {
   revisionPending ||= changed;
-  await storage.save(state);
+  const result=await storage.save(state);
+  revisionPending ||= result?.statsChanged===true;
   if (!revisionPending) return false;
   savedRevision = `${Date.now()}:${++revision}`;
   try { await chrome.storage.local.set({ replyContextRevision:savedRevision }); revisionPending = false; }
@@ -108,9 +109,9 @@ async function handleMessage(message) {
   if (!state) {
     state = await storage.load();
     core.prepare(state);
-    if (!state.people || Object.values(state.people).some(person =>
+    if (!state.statistics && (!state.people || Object.values(state.people).some(person =>
       typeof person.myCommentedPosts !== "number" || typeof person.theirCommentedPosts !== "number" ||
-      typeof person.firstCommentOnMyPostId !== "string")) {
+      typeof person.firstCommentOnMyPostId !== "string"))) {
       core.ingest(state,{},"");
       await persist();
     }
@@ -133,7 +134,7 @@ async function handleMessage(message) {
     }
     if (message.type === "CLASSIFY") return { ok:true,rows,account,recognized:Boolean(me) };
     return {
-      ok:true, rows, account, recognized:Boolean(me),
+      ok:true, rows, account, recognized:Boolean(me),statistics:state.statistics || null,
       replyCount: me ? Object.values(state.replies).filter(reply => reply.actorId === me.id).length : 0,
       likeCount: me ? Object.values(state.likes || {}).filter(like => like.actorId === me.id && like.liked).length : 0
     };

@@ -24,6 +24,7 @@
     </details>
     <button type="submit" disabled>保存定时设置</button><p role="status"></p>
   </form>
+  <section class="home-filter-setting"><p id="statistics-status">互动统计：读取中</p><a href="backup.html" target="_blank" rel="noopener">导出升级前备份／统计说明 ↗</a></section>
   <section class="home-filter-setting">
     <label><input id="random-skip-reply-like" type="checkbox" disabled aria-describedby="random-like-help">评论后50%概率跳过点赞</label>
     <p id="random-like-help" class="setting-hint">默认关闭；不点赞也停顿300～750ms，再进入下一条。</p>
@@ -128,9 +129,9 @@
     <p>打开自己的“回复”页，向下浏览近期回复。已加载的回复会自动记住，新发送成功的回复也会记录。</p>
     <p>正常浏览通知和帖子即可补充页面返回的红心状态。点赞成功后自动记录，取消点赞后更新对应记录。</p>
     <p>“待确认”表示目前没找到依据，不代表从未操作。手机或其他浏览器里的操作，需要在此浏览器加载后才能识别。</p>
-    <p>所有数字和 NEW 仅依据本地已读取记录；原帖作者未确认时不计入原帖数，确认后补计。0 不代表历史上从未操作；记录到期或淘汰后，统计可能减少。不额外抓取完整历史。</p>
+    <p>所有数字和 NEW 仅依据本地已读取记录；原帖作者未确认时不计入原帖数，确认后补计。缓存清理不再减少人物累计。历史不完整时显示≥下限或待确认，不推断NEW；到2万事实上限后保留旧数，提示部分新增未计入。不额外抓取完整历史。</p>
   </details>
-  <footer>互动统计仅本机保存 · 定时发送需手动开启<br>记录保留 90 天，各类记录最多 10,000 条</footer>
+  <footer>互动统计仅本机保存 · 定时发送需手动开启<br>缓存保留90天、每类最多20,000条；互动累计独立保存，事实与人物各限20,000条</footer>
   <script src="timed-replies.js"></script>
   <script src="popup.js"></script>
 </body>
