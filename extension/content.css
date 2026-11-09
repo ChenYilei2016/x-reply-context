@@ -68,6 +68,11 @@ article[data-xrc-notification-hidden],
 }
 .xrc-main-labels::-webkit-scrollbar { display: none; }
 .xrc-main-labels > *, .xrc-new-person { flex-shrink: 0; white-space: nowrap; }
+.xrc-user-counts {
+  margin-inline-start: 6px; font: 11px/1 system-ui,sans-serif;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.xrc-main-labels > .xrc-user-counts { margin-inline-start: 2px; opacity: .75; }
 .xrc-labels .xrc-origin, .xrc-labels .xrc-status, .xrc-labels .xrc-heart, .xrc-labels .xrc-person, .xrc-flow-people .xrc-person {
   padding: 2px 6px; border: 1px solid #8293a43b; border-radius: 5px;
   background: #8293a410; white-space: nowrap;
@@ -99,6 +104,10 @@ article[data-xrc-notification-hidden],
 .xrc-continuous { flex-wrap: wrap; }
 .xrc-reply-tools { display:flex; flex:0 0 100%; min-width:0; align-items:center; gap:6px; height:34px; }
 .xrc-quick-replies { display: flex; flex: 1; align-items: center; gap: 4px; height: 30px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.xrc-ai-options { flex: 0 0 min(38%,122px); min-width: 0; display: flex; justify-content: flex-end; align-items: center; gap: 6px; white-space: nowrap; font-size: 11px; }
+.xrc-ai-options label { flex: none; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+.xrc-ai-options input { width: 13px; height: 13px; margin: 0; accent-color: #087ebd; }
+.xrc-ai-context-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; opacity: .8; }
 .xrc-continuous .xrc-quick-reply { padding:4px 4px; font-size:12px; display:inline-flex; align-items:center; gap:4px; }
 .xrc-continuous kbd { font:10px/1 system-ui,sans-serif; opacity:.7; white-space:nowrap; }
 .xrc-flow-context {

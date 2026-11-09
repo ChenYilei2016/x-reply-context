@@ -15,6 +15,20 @@ test('迁移按不同原帖去重，保留历史下限而不相加，原快照�
  assert.deepEqual(core.classify(state,'me','101').personStats,{myCommentedPosts:8,theirCommentedPosts:1,incomplete:true});
  assert.equal(core.classify(state,'me','101').newPerson,false);
 });
+test('帖子未缓存时可按卡片作者读取人物汇总，已缓存帖子优先使用记录的作者',()=>{
+ const state=initial();
+ const plan=ledger.migrationPlan(state,null,now);
+ Object.assign(state,{people:plan.people,statistics:plan.statistics});
+ const [uncached]=core.classifyBatch(state,'me',['900'],'peer');
+ assert.deepEqual(uncached.personStats,{myCommentedPosts:1,theirCommentedPosts:1,incomplete:true});
+ assert.equal(uncached.authorHandle,'peer');
+ assert.equal(uncached.origin,'unknown');
+ assert.equal(uncached.evidenceId,'');
+ const [cached]=core.classifyBatch(state,'me',['101'],'third');
+ assert.equal(cached.authorHandle,'peer');
+ assert.deepEqual(cached.personStats,uncached.personStats);
+ assert.equal(core.classifyBatch(state,'me',['900'],'unknown')[0].personStats,null);
+});
 test('没有可恢复明细的旧零值仍标记历史不完整，首次评论证据提供至少1而非假零',()=>{
  const state=core.createState();state.people['1:2']={myCommentedPosts:0,theirCommentedPosts:0,firstCommentOnMyPostId:'101',seenAt:now};
  const plan=ledger.migrationPlan(state,null,now);assert.equal(plan.facts.size,0);assert.equal(plan.people['1:2'].legacyTheirLowerBound,1);assert.equal(plan.statistics.incomplete,true);

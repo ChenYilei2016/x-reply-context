@@ -1,7 +1,17 @@
 (() => {
   "use strict";
   const CHANNEL = "x-reply-context-v1";
+  const postVideo = globalThis.XReplyPostVideo;
+  const aiContext = globalThis.XReplyAIContext?.create();
+  let observedPostVideo;
   const NOTIFICATION_COLUMN = '[data-testid="primaryColumn"]:has(a[role="tab"][href^="/notifications"])';
+  const PEOPLE_LIST_PATH = /^\/[a-z0-9_]{1,15}\/(?:following|followers|verified_followers)\/?$/i;
+  const PROFILE_LINK = /^(?:https:\/\/(?:x|twitter)\.com)?\/([a-z0-9_]{1,15})\/?$/i;
+  const PEOPLE_NAMES = '[data-testid="UserCell"] a[href] [dir="ltr"]';
+  const RECOMMENDED_NAMES = 'article[data-testid="tweet"] [data-testid="User-Name"]:not([role="link"]:not(a) *,[role="dialog"] *) a[href] [dir="ltr"]';
+  const userCounts = new Map();
+  let exactCount, compactCount;
+  let inlineNames = "";
   let timer;
   let running = false;
   let again = false;
@@ -192,7 +202,7 @@
   async function message(payload) {
     if (payload.type !== "CLASSIFY") return sendMessage(payload);
     const revision = annotationRevision;
-    const keyFor = id => `${payload.account}:${payload.includeRootText === true}:${id}`;
+    const keyFor = id => `${payload.account}:${payload.includeRootText === true}:${payload.authorHint || ""}:${id}`;
     const missing = payload.ids.filter(id => !classifications.has(keyFor(id)));
     if (missing.length) {
       const reply = await sendMessage({ ...payload,ids:missing });
@@ -230,13 +240,14 @@
     for (const name of ["users","tweets","likes"]) {
       for (const record of (Array.isArray(batch?.[name]) ? batch[name] : []).slice(0,500)) {
         if (!record?.id) continue;
+        if (name === "tweets" && (!record.aiAccount || record.aiAccount === account)) aiContext?.observe(record.aiAccount || "",record);
         const key = name === "likes" ? `${record.account}:${record.id}` : record.id;
         const previous = group[name].get(key);
         if (name === "likes" && previous && (previous.observedAt > record.observedAt ||
             previous.observedAt === record.observedAt && previous.source === "mutation" && record.source !== "mutation")) continue;
         // Partial timeline records must not erase fields learned by an earlier response.
         const merged = { ...previous };
-        for (const [field,value] of Object.entries(record)) if (value !== "") merged[field] = value;
+        for (const [field,value] of Object.entries(record)) if (field !== "aiPhoto" && field !== "aiAccount" && value !== "") merged[field] = value;
         group[name].set(key,merged);
       }
     }
@@ -299,6 +310,66 @@
     return anchor;
   }
 
+  function receiveUserCounts(users) {
+    if (!Array.isArray(users)) return;
+    let changed = false;
+    const count = value => Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+    for (const user of users.slice(0,500)) {
+      const handle = user?.handle;
+      if (typeof handle !== "string" || !/^[a-z0-9_]{1,15}$/.test(handle)) continue;
+      const following = count(user.following), followers = count(user.followers);
+      if (following === undefined && followers === undefined) continue;
+      const previous = userCounts.get(handle);
+      if (previous?.following === following && previous?.followers === followers) continue;
+      exactCount ??= new Intl.NumberFormat("zh-CN");
+      compactCount ??= new Intl.NumberFormat("zh-CN",{ notation:"compact",maximumFractionDigits:1 });
+      const counts = [
+        { label:"关注",shortLabel:"关",value:following },
+        { label:"粉丝",shortLabel:"粉",value:followers }
+      ].filter(({value}) => value !== undefined);
+      const title = counts.map(({label,value}) => `${label} ${exactCount.format(value)}`).join(" · ");
+      const text = counts.map(({shortLabel,value}) => `${shortLabel} ${(value < 10000 ? exactCount : compactCount).format(value)}`).join(" · ");
+      userCounts.delete(handle);
+      userCounts.set(handle,{ following,followers,text,title });
+      if (userCounts.size > 1000) userCounts.delete(userCounts.keys().next().value);
+      changed = true;
+    }
+    if (changed) {
+      lastSignature = "";
+      if (!document.hidden) schedule();
+    }
+  }
+
+  function renderUserCounts(host,handle) {
+    if (!host) return;
+    const counts = userCounts.get(handle);
+    const existing = host.querySelector(":scope > .xrc-user-counts");
+    if (!counts) { existing?.remove(); return; }
+    if (existing?.title === counts.title) return;
+    const badge = existing || document.createElement("span");
+    badge.className = "xrc-user-counts";
+    badge.textContent = counts.text;
+    badge.title = counts.title;
+    if (!existing) host.append(badge);
+  }
+
+  function renderInlineUserCounts() {
+    const recommended = globalThis.XReplyHomeFilter.column?.();
+    const names = recommended ? RECOMMENDED_NAMES : PEOPLE_LIST_PATH.test(location.pathname) ? PEOPLE_NAMES : "";
+    if (inlineNames && inlineNames !== names) {
+      document.querySelectorAll(`${inlineNames} > .xrc-user-counts`).forEach(node => node.remove());
+    }
+    inlineNames = names;
+    if (!names || !userCounts.size) return;
+    const column = recommended || document.querySelector('[data-testid="primaryColumn"]');
+    for (const name of column?.querySelectorAll(names) || []) {
+      const handle = name.closest("a")?.getAttribute("href")?.match(PROFILE_LINK)?.[1]?.toLowerCase();
+      const username = name.firstChild?.textContent?.trim().toLowerCase();
+      if (handle && username === `@${handle}`) renderUserCounts(name,handle);
+      else name.querySelector(":scope > .xrc-user-counts")?.remove();
+    }
+  }
+
   function render(article, result) {
     article.dataset.xrcId = result.id;
     article.dataset.xrcStatus = result.status;
@@ -318,17 +389,20 @@
       anchor.before(bar);
     }
     renderLabels(bar,result);
+    if (userCounts.size) renderUserCounts(bar.querySelector(".xrc-main-labels"),result.authorHandle);
   }
 
-  function personBadges(stats) {
+  function personBadges(stats,compact = false) {
+    const pendingLabel = compact ? "待定" : "待确认";
     return [
-      ["我评他",stats?.myCommentedPosts,"你评论过他的几篇原帖"],
-      ["他评我",stats?.theirCommentedPosts,"他评论过你的几篇原帖"]
+      [compact ? "我评" : "我评他",stats?.myCommentedPosts,"你评论过他的几篇原帖"],
+      [compact ? "他评" : "他评我",stats?.theirCommentedPosts,"他评论过你的几篇原帖"]
     ].map(([label,count,description]) => {
       const badge = document.createElement("span");
       badge.className = "xrc-person";
-      badge.textContent = `${label} ${stats?.incomplete?(count>0?`≥${count}`:"待确认"):(count ?? "待确认")}`;
-      badge.title = `${description}。同一篇下多次评论（含楼中楼）只算 1 篇；在自己或第三方原帖下回话、点赞均不计。只统计本地已确认的原帖，累计记录独立于正文缓存。${stats?.incomplete?"历史不完整：正数为保守下限，缺少证据不显示为0。旧统计下限与已确认事实可能重叠，不直接相加。":""}`;
+      const known = stats?.incomplete ? count > 0 : count != null;
+      badge.textContent = `${label} ${known ? count : pendingLabel}`;
+      badge.title = `${description}。同一篇下多次评论（含楼中楼）只算 1 篇。统计来自本地记录。${stats?.incomplete ? "历史不完整，显示的数字是本地已知下限。" : ""}`;
       return badge;
     });
   }
@@ -347,31 +421,31 @@
     bar.dataset.origin = result.origin;
     const origin = document.createElement("span");
     origin.className = "xrc-origin";
-    origin.textContent = { mine:"我原帖", others:"别人原帖", unknown:"原帖待确认" }[result.origin];
+    origin.textContent = { mine:"我帖", others:"他帖", unknown:"帖-待定" }[result.origin];
     origin.title = result.rootHandle ?
       `原帖作者 @${result.rootHandle}；按整段对话最初的帖子判断，楼中楼沿用原帖归属。` :
       "尚未读取到原帖作者，暂不判断归属。";
     const labels = [origin];
-    const status = result.evidenceId ? link("文字-已回",result.evidenceId,result.evidenceText) :
+    const status = result.evidenceId ? link("文-已回",result.evidenceId,result.evidenceText) :
       document.createElement("span");
     status.className = "xrc-status";
     status.dataset.confirmed = String(Boolean(result.evidenceId));
-    if (!result.evidenceId) status.textContent = "文字-待确认";
+    if (!result.evidenceId) status.textContent = "文-待定";
     status.title = result.evidenceId ?
       `${result.status === "not-reply" ? "你已在这篇原帖下评论过（含楼中楼）" : "你在同一原帖里已经回复过这个人"}。点击查看：${result.evidenceText || "我的回复"}` :
       "当前本地记录还没有确认你回过此人，不代表你从未回复。";
-    const heart = result.likeEvidenceId ? link("红心-已点",result.likeEvidenceId) : document.createElement("span");
+    const heart = result.likeEvidenceId ? link("红-已点",result.likeEvidenceId) : document.createElement("span");
     heart.className = "xrc-heart";
     heart.dataset.confirmed = String(Boolean(result.likeEvidenceId));
-    if (!result.likeEvidenceId) heart.textContent = "红心-待确认";
+    if (!result.likeEvidenceId) heart.textContent = "红-待定";
     heart.title = result.likeEvidenceId ?
       (result.likeEvidenceId === result.id ?
         "已给这条帖子点过红心。点击查看；若是旧记录，状态以 X 当前显示为准。" :
         "已给这个人在同一原帖中的另一条帖子点过红心。点击查看依据；若是旧记录，状态以 X 当前显示为准。") :
       "当前记录没有确认你给这个人在同一原帖中点过红心，不代表从未点赞。";
     labels.push(status,heart);
-    if (includePersonStats && result.personStats) labels.push(...personBadges(result.personStats));
-    labels.push(result.rootId ? link("原帖",result.rootId) : link("查看上下文",result.id));
+    if (includePersonStats && result.personStats) labels.push(...personBadges(result.personStats,true));
+    labels.push(result.rootId ? link("原帖",result.rootId) : link("上下文",result.id));
     const main = document.createElement("div");
     main.className = "xrc-main-labels";
     main.replaceChildren(...labels);
@@ -380,7 +454,7 @@
       const badge = document.createElement("strong");
       badge.className = "xrc-new-person";
       badge.textContent = "NEW";
-      badge.title = "这条是本地记录中他第一次评论你的原帖，且“我评他”为 0。仅第一条评论通知标新，后续不重复；点赞、你在自己原帖下回他不影响 NEW。只依据本地已读取记录，不保证覆盖完整历史。";
+      badge.title = "这条是本地记录中他首次评论你的原帖，且你评论过他的原帖数为 0。";
       bar.append(badge);
     }
   }
@@ -394,6 +468,7 @@
     running = true;
     urgentRefresh = false;
     try {
+      if (userCounts.size || inlineNames) renderInlineUserCounts();
       const account = accountHandle();
       if (!account) { homeFilter.reset(); notificationFilter.reset(); return; }
       if (account !== lastAccount) {
@@ -451,7 +526,9 @@
   interactionAlert = globalThis.XReplyInteractionAlert?.create({accountHandle,
     onPause:()=>{timedReplies?.stop("收到异常提醒，已停止");aiReplies?.pause();continuous?.pauseForAlert();refreshCycle?.cancel();},
     onRelease:()=>continuous?.stop()});
-  aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,requestRefresh:scheduleControls,interactionBlocked:()=>interactionAlert?.blocked()===true,
+  aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,tweetId,requestRefresh:scheduleControls,interactionBlocked:()=>interactionAlert?.blocked()===true,
+    readContext:(account,postId,includeImage)=>aiContext?.read(account,postId,includeImage) || { postId },
+    replyPostId:editor=>continuous?.replyPostId(editor),
     rootOwnership:editor=>continuous?.rootOwnership(editor) || "unknown",
     recommendedReply:editor=>continuous?.recommendedReply(editor),
     canAutoFillUnfocused:editor=>continuous?.canAutoFillUnfocused(editor)===true,
@@ -463,6 +540,7 @@
     onContinue:state=>aiReplies?.resumeAutomatic(state.editor)||"",
     onInterrupt:reason=>{aiReplies?.pause();continuous?.cancelTimedFollowup(reason);},cancelRefresh:id=>refreshCycle?.cancel(id)});
   continuous = globalThis.XReplyContinuous?.create({refreshCycle,timedReplies,randomSkipLikeEnabled:()=>randomSkipReplyLike,interactionBlocked:()=>interactionAlert?.blocked()===true, accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels:(bar,row) => renderLabels(bar,row,false),renderPersonStats,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor),aiPhase:editor => aiReplies?.phase(editor) || "",
+    renderAiOptions:(tools,editor) => aiReplies?.renderOptions(tools,editor),
     aiFillRecommendedEnabled:()=>aiReplies?.fillRecommendedEnabled() === true});
 
   window.addEventListener("message", event => {
@@ -475,6 +553,15 @@
       return;
     }
     if (event.data.type === "INTERACTION_ALERT") {interactionAlert?.show(event.data);return;}
+    if (event.data.type === "USER_COUNTS") { receiveUserCounts(event.data.users); return; }
+    if (event.data.type === "POST_VIDEO_MEDIA") {
+      const post = postVideo?.parsePostLink(location.href);
+      if (post && post.id === event.data.id) {
+        const url = postVideo.mp4Url(event.data.url);
+        if (url || event.data.url === "") observedPostVideo = { id:post.id,url };
+      }
+      return;
+    }
     if (event.data.type === "NOTIFICATION_FILTER_STATUS") {
       networkStatus = event.data; schedule(); return;
     }
@@ -497,7 +584,13 @@
     enqueueObserved(event.data.batch);
     if (!document.hidden) schedule();
   });
-  chrome.runtime.onMessage.addListener((request,_sender,respond) => {
+  chrome.runtime.onMessage.addListener((request,sender,respond) => {
+    if (request?.type === "GET_POST_VIDEO" && sender.id === chrome.runtime.id) {
+      const post = postVideo?.parsePostLink(location.href);
+      const seen = Boolean(post && post.id === observedPostVideo?.id && (!request.id || post.id === request.id));
+      respond({ postUrl:post?.url,seen,url:seen ? observedPostVideo.url : "" });
+      return;
+    }
     if(request?.type==="REFRESH_CANCELLED"){refreshCycle?.cancelled(request.refreshId);respond({ok:true});return;}
     if (request?.type === "GET_ACCOUNT") respond({ account:accountHandle() });
   });
@@ -576,7 +669,7 @@
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
     if (!connected()) return;
-    const owned = ".xrc-labels,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice,.xrc-interaction-alert";
+    const owned = ".xrc-labels,.xrc-user-counts,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice,.xrc-interaction-alert";
     const relevant = '[data-testid="primaryColumn"],[role="dialog"],[aria-modal="true"],a[data-testid="AppTabBar_Profile_Link"]';
     if (records.some(record => !record.target.closest?.(owned) &&
         (record.target.closest?.(relevant) || [...(record.addedNodes || []),...(record.removedNodes || [])]

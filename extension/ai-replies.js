@@ -1,10 +1,11 @@
 (() => {
   "use strict";
   const EDITOR = '[role="dialog"] [contenteditable="true"][data-testid="tweetTextarea_0"]';
-  function create({accountHandle,connected,message,requestRefresh,rootOwnership=()=>"unknown",recommendedReply=()=>null,canAutoFillUnfocused=()=>false,onAutoFillBlocked=()=>{},interactionBlocked=()=>false}) {
+  function create({accountHandle,connected,message,requestRefresh,tweetId,replyPostId=()=>"",rootOwnership=()=>"unknown",recommendedReply=()=>null,canAutoFillUnfocused=()=>false,onAutoFillBlocked=()=>{},interactionBlocked=()=>false,readContext=(_account,postId)=>({postId})}) {
     const edit = globalThis.XReplyEditor;
     let enabled = false, autoComplete = false, current, target, notice, configEpoch = 0;
     let fillRecommended = false;
+    let includeImage = false, imageReady = false, savingImage = false, imageRevision = 0;
     const autoPreparations = new WeakMap();
     const attachment = '[data-testid="attachments"],[data-testid="mediaPreview"],[data-testid="pollOption_0"]';
     let typingDelayMin=35,typingDelayMax=100;
@@ -27,6 +28,41 @@
       }
       notice.querySelector("span").textContent = text; notice.hidden = false;
     }
+    function renderOptions(tools,editor) {
+      let options = tools.querySelector(".xrc-ai-options");
+      if (!options) {
+        options = document.createElement("div"); options.className = "xrc-ai-options";
+        const summary = document.createElement("span"); summary.className = "xrc-ai-context-summary";
+        summary.setAttribute("aria-live","polite");
+        const label = document.createElement("label");
+        label.title = "手动推荐和自动生成共用此选项。开启后最多带一张已加载照片，需要模型支持图片输入。";
+        const checkbox = document.createElement("input"); checkbox.type = "checkbox";
+        label.append(checkbox,"带图"); options.append(summary,label); tools.append(options);
+        checkbox.addEventListener("change",async () => {
+          const previous = includeImage;
+          const revision = ++imageRevision;
+          includeImage = checkbox.checked;
+          savingImage = checkbox.disabled = true;
+          try { await chrome.storage.local.set({aiReplyIncludeImage:includeImage}); }
+          catch {
+            if (revision === imageRevision) includeImage = previous;
+            toast("带图设置未保存，请重试。");
+          } finally { savingImage = false; requestRefresh(); }
+        });
+      }
+      const checkbox = options.querySelector("input");
+      const disabled = !imageReady || savingImage;
+      if (checkbox.disabled !== disabled) checkbox.disabled = disabled;
+      if (checkbox.checked !== includeImage) checkbox.checked = includeImage;
+      const used = current && current.editor === editor ? current.contextUsed : null;
+      const labels = used ? [used.parent ? "上级" : used.root ? "原帖" : "",
+        used.comments ? `评 ${used.comments}` : "",used.image ? "图 1" : ""].filter(Boolean) : [];
+      const summary = options.querySelector(".xrc-ai-context-summary");
+      const text = used ? labels.join(" · ") || "仅本帖" : "";
+      if (summary.textContent !== text) summary.textContent = text;
+      const title = text ? `上次生成携带 ${text}` : "";
+      if (summary.title !== title) summary.title = title;
+    }
     function valid(s) {
       return !interactionBlocked() && connected() && enabled && current === s && s.epoch === configEpoch && s.editor.isConnected &&
         accountHandle() === s.account && document.querySelector(EDITOR) === s.editor &&
@@ -40,7 +76,8 @@
     function stop() {
       const old = current; current = undefined;
       if (old) {
-        previews.set(old.editor,{account:old.account,post:old.post,targetId:old.targetId,epoch:old.epoch,candidates:[...old.candidates],index:old.index,
+        previews.set(old.editor,{account:old.account,post:old.post,targetId:old.targetId,quote:old.quote,epoch:old.epoch,
+          candidates:[...old.candidates],index:old.index,contextUsed:old.contextUsed,
           retry:!old.candidates.length && old.pending.size > 0,error:old.error});
         cancelRequests(old);hidePreview(old);clearTimeout(old.timer);old.wake?.();
       }
@@ -123,20 +160,27 @@
       if (draft) {const prefix=document.createElement("span");prefix.textContent=draft;prefix.style.color="transparent";s.ghost.append(prefix);}
       s.ghost.append(document.createTextNode(label));s.drawn=signature;
     }
-    async function request(s,kind,draft = "") {
+    async function request(s,kind,draft = "",context) {
       if(!valid(s))return {ok:false,cancelled:true};
       const id = crypto.randomUUID();s.pending.add(id);requestRefresh();
-      try {return await message({type:"AI_REQUEST",id,kind,post:s.post,draft,rootOwnership:rootOwnership(s.editor)});}
+      try {return await message({type:"AI_REQUEST",id,kind,post:s.post,draft,rootOwnership:rootOwnership(s.editor),...(context ? {context} : {})});}
       catch(error) {return {ok:false,error:error.message};}
       finally {s.pending.delete(id);requestRefresh();}
     }
-    function generate(s) {
+    const generationContext = s => readContext(s.account,s.targetId || replyPostId(s.editor),includeImage);
+    const hasGenerationMaterial = (s,context) => s.post || (context?.imageFrom === "post" && context.image);
+
+    function generate(s,context) {
       if (!autoComplete || s.autoReply || !valid(s) || edit.read(s.editor) || s.pending.size >= 3) return;
-      void request(s,"generate").then(result => {
-        if (!valid(s) || edit.read(s.editor) || s.writing || s.rewriting) return;
+      context ??= generationContext(s);
+      if (!hasGenerationMaterial(s,context)) return;
+      void request(s,"generate","",context).then(result => {
+        if (!valid(s) || edit.read(s.editor) || s.writing || s.rewriting || s.recommending) return;
         if (result.ok) {
           s.candidates.push(result.text);
           if (s.candidates.length > 32) {s.candidates.shift();s.index=Math.max(0,s.index-1);}
+          s.contextUsed = result.contextUsed;
+          requestRefresh();
         } else if (!result.cancelled) s.error=result.error;
         if (!s.pending.size && !s.candidates.length && s.error) toast(`AI：${s.error}`);
         draw(s);
@@ -167,15 +211,23 @@
       const quote = dialog.querySelector('[data-testid="tweetText"]');
       const post = textOf(quote);
       const account = accountHandle();
-      if (!post || !account) return;
+      if (!account) return;
       const cached=previews.get(editor);
-      const reuse=cached?.account===account && cached.post===post && (!target || cached.targetId===target.id) && cached.epoch===configEpoch;
-      const s = current = {editor,dialog,root,post,account,targetId:target?.id || "",quote,quoteText:quote?.textContent,epoch:configEpoch,pending:new Set(),
-        candidates:reuse?[...cached.candidates]:[],index:reuse?cached.index:0,version:0,writing:false,rewriting:false,composing:false};
+      const liveId = replyPostId(editor) || (target?.account === account ? target.id : "");
+      const reuse = cached?.account === account && cached.post === post && cached.epoch === configEpoch &&
+        (liveId ? cached.targetId === liveId : cached.quote === quote);
+      const targetId = liveId || (reuse ? cached.targetId : "");
+      if (!post && !targetId) return;
+      const s = current = {editor,dialog,root,post,account,targetId,quote,quoteText:quote?.textContent,epoch:configEpoch,pending:new Set(),
+        candidates:reuse?[...cached.candidates]:[],index:reuse?cached.index:0,contextUsed:reuse?cached.contextUsed:undefined,
+        version:0,writing:false,rewriting:false,composing:false};
       target=undefined;
       if(pausedEditors.has(editor))return; // Acknowledgement alone must not restart generation in the old composer.
-      if(prepareAutomatic(s))return;
-      if (autoComplete && !edit.read(editor) && (!reuse || cached.retry)) for(let index=0;index<3;index++) generate(s);
+      if (prepareAutomatic(s)) return;
+      if (autoComplete && !edit.read(editor) && (!reuse || cached.retry)) {
+        const context = generationContext(s);
+        for (let index=0;index<3;index++) generate(s,context);
+      }
       else {draw(s);if(reuse && cached.error && !s.candidates.length)toast(`AI：${cached.error}`);}
     }
     function autoFillBlocked(s,text) {
@@ -195,17 +247,25 @@
       if (!enabled) {toast("请先在 AI 设置中配置并开启 API；自动补全可保持关闭。");return;}
       refresh();
       const s=current;
-      if (!s || s.editor!==editor || !valid(s)) {toast("未找到当前回复文字，请从帖子重新打开回复框。");return;}
-      await applyRecommendation(s);
+      if (!s || s.editor!==editor || !valid(s)) {toast("未找到当前回复对象，请从帖子重新打开回复框。");return;}
+      await applyRecommendation(s,false);
     }
-    async function applyRecommendation(s,automatic=false) {
+    async function applyRecommendation(s,automatic) {
       if(!valid(s))return;
       const {editor}=s;
       if (s.writing || s.rewriting || s.recommending || s.composing || edit.busy(editor)) return;
+      const context = generationContext(s);
+      if (!hasGenerationMaterial(s,context)) {
+        const reason = includeImage ? "本帖缺少可用于生成的文字或图片。" : "本帖缺少文字，可勾选「带图」后重试。";
+        if (automatic) autoFillBlocked(s,reason);
+        else toast(reason);
+        return;
+      }
       const before=edit.read(editor), version=s.version;
+      s.contextUsed = undefined;
       s.recommending=true;cancelRequests(s);hidePreview(s);requestRefresh();
       try {
-        const result=await request(s,"generate");
+        const result=await request(s,"generate","",context);
         if (!valid(s)) return;
         if(automatic && !canAutoFill(s)){
           autoFillBlocked(s,"AI 已返回，但当前焦点或回复条件不允许填入；请核对后手动继续。");return;
@@ -219,6 +279,7 @@
           if(!result.cancelled){const text=`AI：${result.error}`;if(automatic)autoFillBlocked(s,text);else toast(text);}
           return;
         }
+        s.contextUsed = result.contextUsed;
         s.writing=true;
         requestRefresh();
         if (automatic) {
@@ -285,7 +346,7 @@
       if (article && !article.closest('[role="dialog"]')) {
         const editor=document.querySelector(EDITOR);if(editor)pausedEditors.delete(editor);
         if (current) stop(); // A new reply action invalidates even a reused editor with identical text.
-        target={id:article.querySelector('time')?.closest('a')?.getAttribute('href') || ""};
+        target={id:tweetId(article),account:accountHandle()};
       }
       if (node?.closest('[data-testid="app-bar-close"]') && current) stop();
     },true);
@@ -327,21 +388,30 @@
     },true);
     async function reload() {
       const epoch=++configEpoch;enabled=false;stop();previews=new WeakMap();conflicts=new WeakSet();
+      const revision = imageRevision;
       try {
         const status=await message({type:"AI_STATUS"});
         if(epoch===configEpoch){
           enabled=status.enabled===true;autoComplete=status.autoComplete===true;fillRecommended=status.fillRecommended===true;
+          if (revision === imageRevision) includeImage = status.includeImage === true;
+          imageReady = true;
           typingDelayMin=status.typingDelayMin ?? 35;typingDelayMax=status.typingDelayMax ?? 100;
           requestRefresh();
         }
       }
       catch { /* Existing local features stay usable if AI settings are unavailable. */ }
     }
-    chrome.storage.onChanged.addListener((changes,area)=>{if(area==="local" && (changes.aiConfig || changes.aiAutoComplete || changes.aiFillRecommended))void reload();});
+    chrome.storage.onChanged.addListener((changes,area)=>{
+      if (area !== "local") return;
+      if (changes.aiReplyIncludeImage) {
+        imageRevision++; includeImage = changes.aiReplyIncludeImage.newValue === true; imageReady = true; requestRefresh();
+      }
+      if (changes.aiConfig || changes.aiAutoComplete || changes.aiFillRecommended) void reload();
+    });
     document.addEventListener("visibilitychange",()=>{if(document.hidden)stop();else requestRefresh();});
     window.addEventListener("pagehide",stop);
     void reload();
-    return {refresh,stop,pause,resumeAutomatic,recommend,fillRecommendedEnabled:()=>enabled && fillRecommended,phase:editor=>{
+    return {refresh,stop,pause,resumeAutomatic,recommend,renderOptions,fillRecommendedEnabled:()=>enabled && fillRecommended,phase:editor=>{
       if(!enabled)return "";
       const paused=pausedEditors.has(editor)||autoPreparations.get(current?.editor===editor?current.autoReply:recommendedReply(editor))?.paused;
       if (!current || current.editor!==editor) return paused?"paused":"";

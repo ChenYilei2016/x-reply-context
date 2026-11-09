@@ -31,7 +31,8 @@ timed=XReplyTimedReplies.create({storage:{local:{get:async()=>({})},onChanged:{a
  onContinue:state=>ai?.resumeAutomatic(state.editor)||"",
  onInterrupt:reason=>{ai?.pause();flow?.cancelTimedFollowup(reason);}});
 const guard=XReplyInteractionAlert.create({accountHandle,onPause:()=>{ai?.pause();flow?.pauseForAlert();},onRelease:()=>flow?.stop()});
-ai=XReplyAIReplies.create({interactionBlocked:()=>guard.blocked(),accountHandle,connected:()=>true,message,requestRefresh,rootOwnership:editor=>flow?.rootOwnership(editor)||"unknown",
+ai=XReplyAIReplies.create({interactionBlocked:()=>guard.blocked(),accountHandle,tweetId,connected:()=>true,message,requestRefresh,
+  replyPostId:editor=>flow?.replyPostId(editor),rootOwnership:editor=>flow?.rootOwnership(editor)||"unknown",
   recommendedReply:editor=>flow?.recommendedReply(editor),canAutoFillUnfocused:()=>allowUnfocusedFill,
   onAutoFillBlocked:(editor,reason)=>{automaticFailures.push(reason);if(flow?.recommendedReply(editor))timed?.stop(reason);}});
 flow=XReplyContinuous.create({timedReplies:timed,interactionBlocked:()=>guard.blocked(),accountHandle,tweetId,columnSelector:'[data-testid="primaryColumn"]',message,requestRefresh,aiBusy:editor=>ai.busy(editor),aiRecommend:editor=>ai.recommend(editor),aiPhase:editor=>ai.phase(editor),

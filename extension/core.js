@@ -59,7 +59,7 @@
     };
   }
 
-  function extract(payload) {
+  function extract(payload,observeUser,observeTweet) {
     const users = new Map();
     const tweets = new Map();
     const likes = new Map();
@@ -73,7 +73,10 @@
         id: node.rest_id || legacy.id_str || (node.username ? node.id : ""),
         handle: node.core?.screen_name || legacy.screen_name || node.username
       });
-      if (user) users.set(user.id,user);
+      if (user) {
+        users.set(user.id,user);
+        observeUser?.(user,node);
+      }
       const recipient = cleanUser({
         id:legacy.in_reply_to_user_id_str, handle:legacy.in_reply_to_screen_name
       });
@@ -101,6 +104,7 @@
             }
             const previous = tweets.get(tweet.id);
             tweets.set(tweet.id, previous ? mergeKnown(previous,tweet) : tweet);
+            observeTweet?.(tweet,node);
             if (typeof legacy.favorited === "boolean") {
               likes.set(tweet.id,{ id:tweet.id,liked:legacy.favorited });
             }
@@ -434,7 +438,15 @@
     return relationshipsChanged || classificationChanged || maintenance;
   }
 
-  function classifyWith(state, me, tweetId, lookup) {
+  function summarizePerson(state,person) {
+    return {
+      myCommentedPosts:Math.max(person?.myCommentedPosts || 0,person?.legacyMyLowerBound || 0),
+      theirCommentedPosts:Math.max(person?.theirCommentedPosts || 0,person?.legacyTheirLowerBound || 0),
+      ...(state.statistics ? { incomplete:state.statistics.incomplete === true } : {})
+    };
+  }
+
+  function classifyWith(state, me, tweetId, lookup, authorHint) {
     const tweet = state.tweets[id(tweetId)];
     const result = {
       id:id(tweetId), origin:"unknown", status:"unknown", rootId:"", evidenceId:"",
@@ -442,8 +454,15 @@
     };
     const directLike = me && state.likes?.[`${me.id}:${result.id}`];
     if (directLike?.liked) result.likeEvidenceId = directLike.id;
-    if (!tweet) return result;
-    result.authorHandle = state.users[tweet.authorId]?.handle || "";
+    if (!tweet) {
+      if (result.id && authorHint) {
+        result.authorHandle = authorHint;
+        const author = me && findAccount(state,authorHint);
+        if (author) result.personStats = summarizePerson(state,state.people?.[`${me.id}:${author.id}`]);
+      }
+      return result;
+    }
+    result.authorHandle = state.users[tweet.authorId]?.handle || authorHint;
     const original = !tweet.parentId && tweet.conversationId === tweet.id;
     if (!original && me && tweet.authorId === me.id) return { ...result, status: "self" };
     const rootId = conversationOf(state, tweet);
@@ -460,11 +479,7 @@
       evidenceId: evidence?.id || "", evidenceText: evidence?.text || "",
       // Original cards (including quotes) need a like on that card, not on a reply below it.
       likeEvidenceId: result.likeEvidenceId || (original ? "" : like?.id || ""),
-      personStats: me ? {
-        myCommentedPosts:Math.max(person?.myCommentedPosts || 0,person?.legacyMyLowerBound || 0),
-        theirCommentedPosts:Math.max(person?.theirCommentedPosts || 0,person?.legacyTheirLowerBound || 0),
-        ...(state.statistics?{incomplete:state.statistics.incomplete===true}: {})
-      } : null,
+      personStats: me ? summarizePerson(state,person) : null,
       newPerson: Boolean(!state.statistics?.incomplete && origin === "mine" && person?.myCommentedPosts === 0 &&
         person.firstCommentOnMyPostId === tweet.id)
     };
@@ -474,14 +489,15 @@
     return classifyBatch(state,accountHandle,[tweetId])[0];
   }
 
-  function classifyBatch(state, accountHandle, tweetIds) {
+  function classifyBatch(state, accountHandle, tweetIds, authorHandle) {
     const ids = Array.isArray(tweetIds) ? tweetIds.slice(0,100) : [];
     if (!ids.length) return [];
+    const authorHint = ids.length === 1 ? handle(authorHandle) : "";
     const me = findAccount(state,accountHandle);
-    if (!me) return ids.map(tweetId => classifyWith(state,null,tweetId));
+    if (!me) return ids.map(tweetId => classifyWith(state,null,tweetId,undefined,authorHint));
     const cache = cacheFor(state);
     let lookup = cache.lookups.get(me.id);
-    if (lookup) return ids.map(tweetId => classifyWith(state,me,tweetId,lookup));
+    if (lookup) return ids.map(tweetId => classifyWith(state,me,tweetId,lookup,authorHint));
     lookup = { comments:new Map(),likes:new Map() };
     for (const reply of Object.values(state.replies)) {
       if (reply.actorId === me.id && !lookup.comments.has(reply.conversationId)) lookup.comments.set(reply.conversationId,reply);
@@ -495,7 +511,7 @@
       if (like.actorId === me.id) updateLikeLookup(lookup,like);
     }
     cache.lookups.set(me.id,lookup);
-    return ids.map(tweetId => classifyWith(state,me,tweetId,lookup));
+    return ids.map(tweetId => classifyWith(state,me,tweetId,lookup,authorHint));
   }
 
   function prepare(state) {

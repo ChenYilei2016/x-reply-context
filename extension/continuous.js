@@ -37,7 +37,18 @@
     (row.status === "not-reply" ? row.origin !== "mine" :
       !["replied","self","not-reply"].includes(row.status));
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,renderPersonStats = () => {},requestRefresh,refreshCycle,timedReplies,randomSkipLikeEnabled = () => false,interactionBlocked = () => false,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "",aiFillRecommendedEnabled = () => false }) {
+  function authorFromPostLink(article,id) {
+    const time = article?.querySelector("time");
+    const href = time?.closest("a")?.getAttribute("href");
+    if (!href || time.closest('[role="link"]:not(a)')) return "";
+    try {
+      const url = new URL(href,location.href);
+      const match = url.pathname.match(/^\/([a-z0-9_]{1,15})\/status\/(\d+)\/?$/i);
+      return url.origin === location.origin && match?.[2] === id ? match[1].toLowerCase() : "";
+    } catch { return ""; }
+  }
+
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,renderPersonStats = () => {},requestRefresh,refreshCycle,timedReplies,randomSkipLikeEnabled = () => false,interactionBlocked = () => false,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "",aiFillRecommendedEnabled = () => false,renderAiOptions }) {
     let session;
     let notice;
     let noticeTimer;
@@ -260,7 +271,7 @@
       session = {
         profile,searchKey:search,
         account,feed,homeTabIndex:feed === "home" ? selectedHomeTab(document.querySelector(PRIMARY_COLUMN)) : -1,
-        handled:new Set(),current:{ id,article },phase:"ready",
+        handled:new Set(),current:{ id,article,authorHint:authorFromPostLink(article,id) },phase:"ready",
         note:"从当前页选择，略过已回复。",attempt:null
       };
       refresh();
@@ -296,11 +307,15 @@
       session.phase="opening";openCurrent(session);return "opened";
     }
 
-    function rootOwnership(editor) {
+    function replyPostId(editor) {
       const s=session;
-      if (!s || !currentSession(s) || s.current.dialog?.querySelector(EDITOR)!==editor ||
-          s.current.context?.id!==s.current.id) return "unknown";
-      return s.current.context.origin || "unknown";
+      if (!editor || !s || s.current.dialog?.querySelector(EDITOR) !== editor || !currentSession(s)) return "";
+      return s.current.id;
+    }
+
+    function rootOwnership(editor) {
+      const id = replyPostId(editor);
+      return id && session.current.context?.id === id ? session.current.context.origin || "unknown" : "unknown";
     }
 
     const timedPageAllowed = () => timedReplies?.pageAllowed?.() ?? (!document.hidden && (!document.hasFocus || document.hasFocus()));
@@ -432,7 +447,8 @@
           return;
         }
         s.afterReply=null;
-        s.current = { id:nextId,article:candidates.find(([id]) => id === nextId)?.[1] };
+        const article = candidates.find(([id]) => id === nextId)?.[1];
+        s.current = { id:nextId,article,authorHint:authorFromPostLink(article,nextId) };
         s.phase = "opening";
         s.note = s.saveClicked ? "上一条已保存到 X 草稿。" : "从当前页选择，略过已回复。";
         openCurrent(s);
@@ -714,7 +730,8 @@
       if (current.contextRevision === revision) return;
       current.contextRevision = revision;
       // Local classification only; never resolve the profile from the conversation's root author.
-      void message({ type:"CLASSIFY",account:s.account,ids:[current.id],includeRootText:withDetails }).then(result => {
+      void message({ type:"CLASSIFY",account:s.account,ids:[current.id],includeRootText:withDetails,
+        authorHint:current.authorHint }).then(result => {
         if (!currentSession(s) || s.current !== current || contextRevision !== revision) return;
         const row = result.rows.find(item => item.id === current.id);
         if (!row) return;
@@ -823,7 +840,9 @@
       }
       if (nativeToolbar.nextElementSibling !== bar) nativeToolbar.after(bar);
       renderContext(s,bar);
-      const phase = aiPhase(dialog.querySelector(EDITOR));
+      const editor = dialog.querySelector(EDITOR);
+      if (renderAiOptions) renderAiOptions(bar.querySelector(".xrc-reply-tools"),editor);
+      const phase = aiPhase(editor);
       const aiLabels={generating:"生成中…",rewriting:"改写中…",writing:"填入中…"};
       const aiButton=bar.querySelector(".xrc-ai-recommend");
       if (aiButton) {
@@ -858,7 +877,6 @@
       const sendText = s.phase === "sent" ? "下一条" : s.phase === "liking" ? "点赞中…" : s.phase === "like-delay" ? (s.afterReply?.skipLike?"等待下一条…":"等待点赞…") : s.phase === "sending" ? "发送中…" : "评论点赞下条";
       if (send.textContent !== sendText) send.textContent = sendText;
       const single = singleReply(dialog);
-      const editor = dialog.querySelector(EDITOR);
       const quickDisabled = !canAct || busy || !single || s.current.composing === true ||
         !editor || editor.getAttribute("aria-disabled") === "true";
       for (const button of bar.querySelectorAll(".xrc-quick-reply,.xrc-ai-recommend")) {
@@ -1070,7 +1088,7 @@
         requestAnimationFrame(() => { if (session === s && !composer()) finish(); });
       }
     },true);
-    return { refresh,canAutoFillUnfocused,timedState,timedSend,cancelTimedFollowup,pauseForAlert,receiveReply,receiveLike,resumeRecommended,rootOwnership,recommendedReply,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
+    return { refresh,canAutoFillUnfocused,timedState,timedSend,cancelTimedFollowup,pauseForAlert,receiveReply,receiveLike,resumeRecommended,replyPostId,rootOwnership,recommendedReply,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
   }
 
   globalThis.XReplyContinuous = { create };

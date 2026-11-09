@@ -80,7 +80,7 @@ globalThis.chrome = {
       }
       if (message.type === "CLASSIFY") {
         const snapshot = {
-          ok:true,rows:core.classifyBatch(state,message.account,message.ids),
+          ok:true,rows:core.classifyBatch(state,message.account,message.ids,message.authorHint),
           replyCount:Object.keys(state.replies).length,
           likeCount:Object.values(state.likes).filter(like => like.liked).length
         };

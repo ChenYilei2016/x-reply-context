@@ -2,16 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
-const sources=await Promise.all(['ai-config.js','ai-service.js'].map(name=>readFile(new URL(`../extension/${name}`,import.meta.url),'utf8')));
+const sources=await Promise.all(['ai-config.js','ai-context.js','ai-service.js'].map(name=>readFile(new URL(`../extension/${name}`,import.meta.url),'utf8')));
 const config={enabled:true,baseUrl:'https://model.example/v1',apiKey:'test-key',model:'test-model',generatePrompt:'post=${post}',rewritePrompt:'post=${post};draft=${draft}'};
-function setup(fetchImpl=async()=>new Response(JSON.stringify({choices:[{message:{content:'<reply>你好。</reply>'}}]}),{headers:{'content-type':'application/json'}})) {
+function setup(fetchImpl=async()=>new Response(JSON.stringify({choices:[{message:{content:'<reply>你好。</reply>'}}]}),{headers:{'content-type':'application/json'}}),readThread) {
   let settings=structuredClone(config);const preferences={},changed=[],calls=[];
   const chrome={runtime:{getURL:path=>`chrome-extension://test/${path}`,openOptionsPage:async()=>{}},
     storage:{local:{get:async()=>({aiConfig:settings,...preferences}),set:async next=>{const change={};for(const [key,value] of Object.entries(next)){if(key==='aiConfig')settings=value;else preferences[key]=value;change[key]={newValue:value};}changed.forEach(fn=>fn(change,'local'));}},onChanged:{addListener:fn=>changed.push(fn)}},
     permissions:{contains:async()=>true}};
   const scope=vm.createContext({chrome,fetch:(...args)=>{calls.push(args);return fetchImpl(...args);},URL,Headers,Response,TextDecoder,DOMException,AbortController,setTimeout,clearTimeout});
   sources.forEach(source=>vm.runInContext(source,scope));
-  const service=scope.XReplyAIService.create();
+  const service=scope.XReplyAIService.create({readThread});
   const sender={id:'test',url:'https://x.com/notifications',tab:{id:1},frameId:0,documentId:'doc1'};
   const request=(id,extra={})=>service.handle({type:'AI_REQUEST',id,kind:'generate',post:'一条帖子',draft:'',...extra},sender);
   return {service,sender,request,calls,chrome,scope};
@@ -28,6 +28,35 @@ test('自带API请求只发模型地址，模板/输出清理兼容，网页拿�
   assert.equal(scope.XReplyAIConfig.originPattern(scope.XReplyAIConfig.endpoint('http://localhost:11434/v1')),'http://localhost/*');
   await chrome.storage.local.set({aiConfig:{...config,enabled:false}});
   assert.equal((await request('disabled')).ok,false);assert.equal(calls.length,1);
+});
+test('生成把已加载的上下文作为素材发送，带图可选，改写只用正文和草稿',async()=>{
+  const {request,calls}=setup(undefined,id=>id==='123'?{root:'本地原帖摘要'}:{});
+  const context={postId:'123',comments:['直接评论1','直接评论2','直接评论3','不带第四条'],
+    image:'https://pbs.twimg.com/media/Example?format=jpg&name=small&token=test-token',imageFrom:'post'};
+  const result=await request('with-context',{post:'本帖正文',context});
+  assert.equal(result.ok,true);
+  assert.equal(result.contextUsed.root,true);
+  assert.equal(result.contextUsed.comments,3);
+  assert.equal(result.contextUsed.image,true);
+  const [system,user]=JSON.parse(calls[0][1].body).messages;
+  assert.match(system.content,/post=见用户消息中的「当前帖子」/);
+  assert.doesNotMatch(system.content,/本帖正文|本地原帖摘要|直接评论/);
+  assert.match(user.content[0].text,/当前帖子\n本帖正文[\s\S]+原帖\n本地原帖摘要[\s\S]+直接评论3/);
+  assert.doesNotMatch(user.content[0].text,/不带第四条/);
+  assert.deepEqual(user.content[1],{type:'image_url',image_url:{url:'https://pbs.twimg.com/media/Example?format=jpg&name=small',detail:'low'}});
+  await request('text-only',{context:{postId:'123',comments:['直接评论1']}});
+  assert.match(JSON.parse(calls[1][1].body).messages[1].content,/已加载的评论\n- 直接评论1/);
+  await request('rewrite',{kind:'rewrite',draft:'草稿',context});
+  assert.equal(JSON.parse(calls[2][1].body).messages[1].content,'开始。');
+  assert.equal(calls.length,3);
+});
+test('仅图片的目标可生成回复，外部或上级图片不能代替当前目标',async()=>{
+  const {request,calls}=setup();
+  const image='https://pbs.twimg.com/media/Example.jpg';
+  assert.equal((await request('photo-only',{post:'',context:{postId:'123',image,imageFrom:'post'}})).ok,true);
+  assert.equal((await request('ancestor-only',{post:'',context:{postId:'123',image,imageFrom:'root'}})).ok,false);
+  assert.equal((await request('outside-image',{post:'',context:{postId:'123',image:'https://example.test/Example.jpg'}})).ok,false);
+  assert.equal(calls.length,1);
 });
 test('SSE按字节断开中文仍完整，DONE后结束读取，不等连接关闭',async()=>{
   const raw='data: '+JSON.stringify({choices:[{delta:{content:'<reply>一起加油。</reply>'}}]})+'\n\ndata: [DONE]\n\n';
