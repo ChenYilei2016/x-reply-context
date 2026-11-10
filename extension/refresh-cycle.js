@@ -200,8 +200,9 @@
       if(me!==pending.account) {stopResume("账号已变化，未续开回复框。");return;}
       if(!safe()) {stopResume("已有编辑内容或弹窗，未续开回复框。");return;}
       const intent=pending;resuming=true;
+      const hasBudget=()=>!intent.timed || getTimed()?.canResume(intent.refreshId)===true;
       try {
-        const result=await resume(intent,()=>pending===intent&&config.enabled&&safe()&&accountHandle()===intent.account);
+        const result=await resume(intent,()=>pending===intent&&config.enabled&&safe()&&accountHandle()===intent.account&&hasBudget());
         if(pending!==intent)return;
         if(result==="opened") {
           pending=null;clearTimeout(deadline);
@@ -209,8 +210,8 @@
           requestRefresh();
         }
         else if(result==="empty")stopResume("本批暂无可处理帖子，请手动选择；不会自动翻页。");
-        else if(result==="paused")stopResume("页面状态已变化，未自动打开回复框。");
-      } catch {stopResume("本地记录暂不可用，未自动打开回复框。");}
+        else if(result==="paused")stopResume(hasBudget()?"页面状态已变化，未自动打开回复框。":"定时设置变化或剩余预算不足，已停止。");
+      } catch {if(pending===intent)stopResume("本地记录暂不可用，未自动打开回复框。");}
       finally{resuming=false;}
     }
     function render(s,bar) {

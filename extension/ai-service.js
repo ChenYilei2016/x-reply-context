@@ -2,15 +2,19 @@
   "use strict";
   const LIMIT = 1024*1024;
   const TIMEOUT = 25000;
-  function output(text) {
+  const outputError = (code,message) => Object.assign(new Error(message),{code});
+  function output(text,maxLength) {
     const match = text.match(/<reply>([\s\S]*?)<\/reply>/i);
     const clean = (match ? match[1] : text.replace(/<\/?[a-z][a-z0-9-]*>/gi,"")).trim().replace(/。+$/,"");
-    if (!clean || clean.length > 12000) throw new Error("模型返回为空或过长，请调整 Prompt。");
+    if (!clean) throw outputError("EMPTY_AI_OUTPUT","模型返回了空内容。");
+    if (clean.length > maxLength) {
+      throw outputError("AI_OUTPUT_TOO_LONG",`模型返回 ${clean.length} 个字符，超过设置的 ${maxLength} 个字符上限。`);
+    }
     return clean;
   }
-  async function readResponse(response,signal) {
+  async function readResponse(response,signal,maxLength) {
     if (!response.ok) throw new Error(({401:"Key 无效或未授权。",403:"模型接口拒绝访问。",429:"模型额度不足或请求过于频繁。"})[response.status] || `模型请求失败（HTTP ${response.status}），请检查接口和模型。`);
-    if (!response.body) throw new Error("模型接口没有返回内容。");
+    if (!response.body) throw outputError("EMPTY_AI_OUTPUT","模型接口没有返回内容。");
     const reader = response.body.getReader(), decoder = new TextDecoder();
     let bytes = 0, buffer = "", text = "", finished = false;
     const sse = /text\/event-stream/i.test(response.headers.get("content-type") || "");
@@ -43,10 +47,11 @@
       else {
         const data = JSON.parse(buffer);
         if (data.error) throw new Error("模型接口返回错误，请检查配置或额度。");
-        text = data.choices?.[0]?.message?.content;
+        const message = data.choices?.[0]?.message;
+        text = message ? message.content ?? "" : undefined;
       }
       if (typeof text !== "string") throw new Error("模型响应格式不兼容。");
-      return output(text);
+      return output(text,maxLength);
     } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
   }
   function create({ readThread = () => ({}) } = {}) {
@@ -108,13 +113,14 @@
           body:JSON.stringify({model:saved.model,messages:[{role:"system",content:prompt},{role:"user",content:userContent}],...processing,stream:true})
         });
         submittedContext = contextUsed;
-        const text = await readResponse(response,job.controller.signal);
+        const text = await readResponse(response,job.controller.signal,saved.maxReplyLength);
         return job.cancelled ? {ok:false,cancelled:true} : {ok:true,text,...(contextUsed ? {contextUsed} : {})};
       } catch (error) {
         if (job.cancelled) return {ok:false,cancelled:true};
         const message = job.timedOut ? "模型响应超时，请稍后重试。" : error instanceof TypeError || error instanceof SyntaxError ?
           "模型连接或响应格式异常，请检查接口配置。" : error.message;
-        return {ok:false,error:message,...(submittedContext ? {contextUsed:submittedContext} : {})};
+        const code = !job.timedOut && ["EMPTY_AI_OUTPUT","AI_OUTPUT_TOO_LONG"].includes(error.code) ? error.code : undefined;
+        return {ok:false,error:message,code,...(submittedContext ? {contextUsed:submittedContext} : {})};
       } finally { clearTimeout(job.timer); }
     }
     function drain() {

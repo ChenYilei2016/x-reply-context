@@ -2,7 +2,7 @@
   "use strict";
   function create(options) {
     const { columnSelector,enabled,ready,holdLayout,save,schedule,accountHandle,
-      autoEnabled,autoReady,saveAuto,mode } = options;
+      autoEnabled,autoReady,saveAuto,mode,pausedPage = () => null,continuePage = () => {} } = options;
     let button;
     let repliedButton;
     let applyButton;
@@ -112,7 +112,8 @@
       }
       // Read layout before changing controls, and reuse it within this synchronous render.
       const applying = filter.applying();
-      const unavailable = saving || !ready() || holdLayout() || applying;
+      const locked = saving || holdLayout() || applying;
+      const unavailable = locked || !ready();
       if (!button) {
         button = document.createElement("button");
         button.type = "button";
@@ -131,9 +132,13 @@
         applyButton.className = "xrc-filter-apply";
         applyButton.addEventListener("click",event => {
           event.stopPropagation();
-          if (saving || holdLayout() || filter.applying() || !canOrganize()) return;
+          if (saving || document.hidden || holdLayout() || filter.applying()) return;
+          const page = pausedPage();
+          const organize = ready() && canOrganize();
+          if (page?.loading || (!page && !organize)) return;
           automaticPassAvailable = false;
-          if (enabled()) filter.requestApply();
+          if (organize) filter.requestApply();
+          if (page) continuePage();
           renderButton(); schedule();
         });
       }
@@ -173,12 +178,15 @@
         const accessibleLabel = `隐藏${label}${error ? "，设置保存失败，点击重试" : ""}`;
         if (control.getAttribute("aria-label") !== accessibleLabel) control.setAttribute("aria-label",accessibleLabel);
       }
-      const busy = String(saving || applying);
+      const page = pausedPage();
+      const loading = page?.loading === true;
+      const busy = String(saving || applying || loading);
       if (controls.getAttribute("aria-busy") !== busy) controls.setAttribute("aria-busy",busy);
-      const hasOrganizable = canOrganize();
-      const applyDisabled = unavailable || !hasOrganizable;
+      const applyDisabled = locked || document.hidden || loading || (!page && (!ready() || !canOrganize()));
       if (applyButton.disabled !== applyDisabled) applyButton.disabled = applyDisabled;
-      const applyTitle = "仅一次应用已加载评论的完成状态；点赞、关注、转发按各自开关在接收时过滤，不再追加隐藏占位。回复框关闭后可操作。";
+      const applyTitle = loading ? "正在加载一批通知，加载完成后可继续。" : page ?
+        "整理已加载通知并放行下一批。每次点击只继续一批。" :
+        "仅一次应用已加载评论的完成状态；点赞、关注、转发按各自开关在接收时过滤。回复框关闭后可操作。";
       if (applyButton.title !== applyTitle) applyButton.title = applyTitle;
       const applyText = "整理列表";
       if (applyButton.textContent !== applyText) applyButton.textContent = applyText;

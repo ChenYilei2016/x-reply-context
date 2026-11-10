@@ -68,6 +68,10 @@ article[data-xrc-notification-hidden],
 }
 .xrc-main-labels::-webkit-scrollbar { display: none; }
 .xrc-main-labels > *, .xrc-new-person { flex-shrink: 0; white-space: nowrap; }
+.xrc-notification-author-actions {
+  display: inline-flex; flex: none; align-items: center; gap: 6px;
+  margin-inline-start: auto; padding-inline: 4px;
+}
 .xrc-user-counts {
   margin-inline-start: 6px; font: 11px/1 system-ui,sans-serif;
   font-variant-numeric: tabular-nums; white-space: nowrap;
@@ -91,16 +95,34 @@ article[data-xrc-notification-hidden],
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75;
   font: 11px/1 system-ui,sans-serif; font-variant-numeric: tabular-nums;
 }
-.xrc-skip-author {
+:is(.xrc-skip-author,.xrc-whitelist-author) {
   display: inline-flex; align-items: center; justify-content: center; flex: 0 0 16px; align-self: center;
   box-sizing: border-box; width: 16px; height: 16px; padding: 0; margin: 0;
   border: 1px solid #8293a460; border-radius: 50%; background: transparent; color: inherit;
   font: 13px/1 system-ui,sans-serif; vertical-align: middle; opacity: .65; cursor: pointer;
 }
-.xrc-skip-author:hover,.xrc-skip-author[aria-pressed="true"] { opacity: 1; }
+:is(.xrc-skip-author,.xrc-whitelist-author):is(:hover,[aria-pressed="true"]) { opacity: 1; }
 .xrc-skip-author[aria-pressed="true"] { color: #e04730; border-color: currentColor; background: #e047301c; }
-.xrc-skip-author:focus-visible { outline: 2px solid #087ebd; outline-offset: 2px; }
+.xrc-whitelist-author[aria-pressed="true"] { color: #0b9270; border-color: currentColor; background: #0b92701c; }
+:is(.xrc-skip-author,.xrc-whitelist-author):focus-visible { outline: 2px solid #087ebd; outline-offset: 2px; }
 .xrc-skip-author:disabled { opacity: .45; cursor: wait; }
+.xrc-whitelist-author:disabled { opacity: .45; cursor: default; }
+.xrc-whitelist-author[aria-busy="true"] { cursor: wait; }
+.xrc-follow-author {
+  flex: 0 0 auto; height: 16px; box-sizing: border-box; padding: 0 5px;
+  border: 1px solid #8293a460; border-radius: 8px; background: transparent; color: inherit;
+  font: 10px/1 system-ui,sans-serif; white-space: nowrap; cursor: pointer;
+}
+.xrc-follow-author:hover { background: #8293a420; }
+.xrc-follow-author:focus-visible { outline: 2px solid #087ebd; outline-offset: 2px; }
+.xrc-inline-author > .xrc-follow-author { order: 1; }
+.xrc-notification-author-actions .xrc-follow-author { height: 18px; font-size: 11px; }
+.xrc-author-action-notice {
+  position: fixed; z-index: 2147483646; box-sizing: border-box; pointer-events: none;
+  width: max-content; max-width: min(300px,calc(100vw - 16px)); padding: 7px 10px;
+  border-radius: 9px; background: #183443; color: white; box-shadow: 0 4px 16px #0003;
+  font: 12px/1.5 system-ui,sans-serif; overflow-wrap: anywhere;
+}
 .xrc-labels .xrc-origin, .xrc-labels .xrc-status, .xrc-labels .xrc-heart, .xrc-labels .xrc-person, .xrc-flow-people .xrc-person {
   padding: 2px 6px; border: 1px solid #8293a43b; border-radius: 5px;
   background: #8293a410; white-space: nowrap;

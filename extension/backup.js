@@ -10,7 +10,9 @@
     const [backup,metadata]=await Promise.all([request(transaction.objectStore('backups').get('manifest')),request(transaction.objectStore('metadata').get('state'))]);
     if(!backup)throw Error('未找到升级前备份。');
     const stats=metadata?.value?.statistics;
-    status.textContent=`备份时间：${new Date(backup.value.at).toLocaleString()}\n${stats?`已确认互动事实：${stats.factCount}/20,000；${stats.incomplete?'历史不完整，按下限显示':'本地记录完整'}${stats.atCapacity?'；容量不足，部分新增未计入':''}`:'迁移尚未完成，旧备份仍保留。'}`;
+    const limit=globalThis.XReplyContext.INTERACTION_LIMIT;
+    const atCapacity=stats&&(stats.factCount>=limit || stats.peopleCount>=limit);
+    status.textContent=`备份时间：${new Date(backup.value.at).toLocaleString()}\n${stats?`已确认互动事实：${stats.factCount}/${limit.toLocaleString('en-US')} · ${stats.incomplete?'历史不完整，按下限显示':'本机已确认'}${atCapacity?' · 账本已达容量':''}`:'迁移尚未完成，旧备份仍保留。'}`;
     button.disabled=false;
   })().catch(error=>{status.textContent=error.message||'备份暂不可用。';});
   button.addEventListener('click',async()=>{

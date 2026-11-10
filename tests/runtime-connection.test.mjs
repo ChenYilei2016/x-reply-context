@@ -131,13 +131,36 @@ test('普通保存暂时失败保留数据，下一次事件可补齐且不自�
 
 test('分类在同一数据版本复用，正文请求隔离，更新通知后重新读取',async () => {
   const { state,runtime,flush,changed } = setup(); await flush();
-  const calls=[]; runtime.sendMessage = async payload => { calls.push(payload); return {ok:true,rows:payload.ids.map(id=>({id,rootId:id}))}; };
+  const calls=[];
+  runtime.sendMessage = async payload => {
+    calls.push(payload);
+    return {ok:true,account:payload.account,accountId:'101',recognized:true,rows:payload.ids.map(id=>({id,rootId:id}))};
+  };
   const query={type:'CLASSIFY',account:'me',ids:['1','2']};
-  await state.message(query); await state.message({...query,ids:['2']});
+  await state.message(query);
+  const cached=await state.message({...query,ids:['2']});
   assert.equal(calls.length,1);
+  assert.equal(cached.accountId,'101','选帖从缓存读取时仍需要账号 ID 来匹配白名单');
+  assert.equal(cached.recognized,true);
   await state.message({...query,ids:['1'],includeRootText:true}); assert.equal(calls.length,2);
   changed('new'); await state.message(query); assert.equal(calls.length,3);
   changed('new'); await state.message(query); assert.equal(calls.length,3,'同一保存回执与storage通知不能重复失效');
+});
+
+test('部分分类在途时缓存失效，会重读整批候选',async () => {
+  const {state,runtime,flush,changed}=setup(); await flush();
+  const calls=[]; let invalidate=false;
+  runtime.sendMessage=async payload => {
+    calls.push(Array.from(payload.ids));
+    if (invalidate) {invalidate=false;changed('new-interaction');}
+    return {ok:true,rows:payload.ids.map(id=>({id}))};
+  };
+  const query={type:'CLASSIFY',account:'me',ids:['3']};
+  await state.message(query);
+  invalidate=true;
+  const result=await state.message({...query,ids:['1','2','3']});
+  assert.deepEqual(calls,[['3'],['1','2'],['1','2','3']]);
+  assert.deepEqual(Array.from(result.rows,row=>row.id),['1','2','3']);
 });
 
 test('原生控件变化在下一帧刷新，不等待250ms列表任务',async () => {

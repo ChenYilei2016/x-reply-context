@@ -372,9 +372,9 @@
       }
       else {draw(s);if(reuse && cached.error && !s.candidates.length)toast(`AI：${cached.error}`);}
     }
-    function autoFillBlocked(s,text) {
+    function autoFillBlocked(s,text,recoverable=false) {
       toast(text);
-      onAutoFillBlocked(s.editor,text);
+      onAutoFillBlocked(s.editor,text,recoverable);
     }
     function canAutoFill(s) {
       const focusAllowed=document.activeElement===s.editor ||
@@ -418,7 +418,13 @@
       s.contextUsed = undefined;
       s.recommending=true;cancelRequests(s);hidePreview(s);requestRefresh();
       try {
-        const result=await request(s,"generate","",input);
+        let result = await request(s,"generate","",input);
+        let retried = false;
+        if (result.code === "EMPTY_AI_OUTPUT" && !document.hidden && valid(s) && s.version === version &&
+            edit.read(editor) === before && (!automatic || canAutoFill(s))) {
+          retried = true;
+          result = await request(s,"generate","",input);
+        }
         if (!valid(s)) return;
         s.contextUsed = result.contextUsed;
         if(automatic && !canAutoFill(s)){
@@ -430,7 +436,12 @@
           return;
         }
         if (!result.ok) {
-          if(!result.cancelled){const text=`AI：${result.error}`;if(automatic)autoFillBlocked(s,text);else toast(text);}
+          if (!result.cancelled) {
+            const recoverable = result.code === "EMPTY_AI_OUTPUT" || result.code === "AI_OUTPUT_TOO_LONG";
+            const text = retried && result.code === "EMPTY_AI_OUTPUT" ? "AI：重试一次后仍返回空内容。" : `AI：${result.error}`;
+            if (automatic) autoFillBlocked(s,text,recoverable);
+            else toast(text);
+          }
           return;
         }
         s.writing=true;

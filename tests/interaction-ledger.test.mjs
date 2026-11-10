@@ -58,7 +58,7 @@ test('统计模式在缓存清理前捕获事实，不清理人物汇总；账�
  core.ingest(state,{},'me',now+core.RETENTION_MS+10);
  assert.equal(Object.keys(state.tweets).length,0);assert.equal(state.people['1:2'].myCommentedPosts,1);assert.equal(state.people['1:2'].theirCommentedPosts,1);
 });
-test('迁移事实与人物各受2万上限，溢出标记不完整，不借扩大正文无限加载',()=>{
+test('迁移按独立的4万账本上限保留事实，浏览缓存仍为2万',()=>{
  const state=core.createState();state.accounts['1']=now;
  for(let i=0;i<core.LIMIT;i++){
   const root=String(1000000+i),reply=String(2000000+i);
@@ -67,6 +67,7 @@ test('迁移事实与人物各受2万上限，溢出标记不完整，不借扩�
   state.replies['1:'+peerRoot+':2']={id:String(4000000+i),actorId:'1',conversationId:peerRoot,recipientId:'2',seenAt:now};
  }
  const plan=ledger.migrationPlan(state,null,now);
- assert.equal(plan.facts.size,20000);assert.equal(plan.statistics.atCapacity,true);assert.equal(plan.statistics.incomplete,true);
- assert.ok(Object.keys(plan.people).length<=20000);
+ assert.equal(core.LIMIT,20000);assert.equal(core.INTERACTION_LIMIT,40000);
+ assert.equal(plan.facts.size,core.INTERACTION_LIMIT);assert.equal(plan.statistics.atCapacity,true);assert.equal(plan.statistics.incomplete,true);
+ assert.ok(Object.keys(plan.people).length<=core.INTERACTION_LIMIT);
 });

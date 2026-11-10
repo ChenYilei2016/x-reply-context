@@ -31,6 +31,9 @@ body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding
 <input id="typingDelayMax" type="number" min="0" max="1000" step="1" required aria-label="逐字间隔最大值（毫秒）" style="width:110px"><span>ms</span>
 </div>
 <div class="hint">默认35～100ms；每字在区间内随机等待，另有编辑器同步时间。可填0～1000的整数，最小值不能大于最大值。用于 Tab 采用建议和「为你推荐」自动填入草稿。保存后生效。</div>
+<label for="maxReplyLength">回复最大字符数（所有 API 共用）</label>
+<input id="maxReplyLength" type="number" min="1" max="12000" step="1" required style="width:110px">
+<div class="hint">默认 12,000。用于检查生成和改写后的文本，超限时会提示实际长度。</div>
 <label for="generatePrompt">生成回复的 Prompt</label><textarea id="generatePrompt" spellcheck="false"></textarea><div class="hint">可填写自己的写作要求。<code>${post}</code> 指向本次附上的当前帖子，已加载的相关评论和勾选带上的照片也会作为参考材料。<code>${rootOwnership}</code> 可表示我的原帖、别人的原帖或待确认，原帖也可能属于第三人。输出用 &lt;reply&gt;...&lt;/reply&gt; 包裹。</div>
 <label for="rewritePrompt">改写草稿的 Prompt</label><textarea id="rewritePrompt" spellcheck="false"></textarea><div class="hint">支持 <code>${post}</code>、<code>${draft}</code> 和 <code>${rootOwnership}</code>。默认模板为独立编写，需原样保持写作风格时请填入你自己的 Prompt。</div>
 <button id="save" type="submit" disabled>保存并使用此配置</button><button id="defaults" type="button">填入默认 Prompt</button>

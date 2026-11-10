@@ -15,6 +15,9 @@
   let inlineNames = "";
   let inlineAuthorTools = new Map();
   const inlinePersonStats = new Map();
+  const authorShortcuts = new WeakMap();
+  let followMenuRequest = 0;
+  let authorActionNotice, authorActionNoticeTimer;
   let timer;
   let running = false;
   let again = false;
@@ -27,6 +30,7 @@
   let uiFrame;
   let lastRevision = "";
   const classifications = new Map();
+  const classificationAccounts = new Map();
   let continuous;
   let aiReplies;
   let refreshCycle;
@@ -51,7 +55,13 @@
   let networkStatus;
   let networkNotice;
   let disconnected = false;
-  const skipAuthors = globalThis.XReplySkipAuthors?.createClient(chrome.storage,() => schedule(0));
+  const skipAuthors = globalThis.XReplySkipAuthors?.createClient(chrome.storage,skippedChanged => {
+    if (skippedChanged) schedule(0);
+    else {
+      refreshInlineWhitelist();
+      scheduleControls();
+    }
+  });
   const homeFilter = globalThis.XReplyHomeFilter.create({
     accountHandle,tweetId,message,holdLayout,enabled:() => hideCompletedHome
   });
@@ -62,6 +72,7 @@
     clearTimeout(timer); timer = undefined; pending.clear(); again = false;
     observer.disconnect();
     continuous?.stop(); aiReplies?.stop(); refreshCycle?.cancel();timedReplies?.stop("扩展连接已失效");
+    clearAuthorActionNotice();
     if (networkNotice) networkNotice.hidden = true;
     // Pause without resetting filters: restoring hidden rows here would move the reading position.
     void notificationFilter.refresh();
@@ -89,6 +100,7 @@
   }
   const notificationFilter = globalThis.XReplyNotificationFilter.create({
     accountHandle,tweetId,message,holdLayout,schedule,columnSelector:NOTIFICATION_COLUMN,
+    pausedPage:pausedNotificationPage,continuePage:continueNotificationPage,
     enabled:() => notificationHideMode !== "off",mode:() => notificationHideMode,ready:() => notificationSettingLoaded,
     autoEnabled:() => autoOrganizeNotifications,autoReady:() => automaticSettingLoaded,
     saveAuto:async value => {
@@ -108,15 +120,28 @@
       likes:autoHideLikeNotifications,follows:autoHideFollowNotifications,reposts:autoHideRepostNotifications },location.origin);
   }
 
-  function renderNetworkNotice() {
+  function pausedNotificationPage() {
+    if (!networkStatus?.paused || !/^\/notifications(?:\/|$)/.test(location.pathname)) return null;
     const timeline = location.pathname.includes("mentions") ? "mentions" :
       location.pathname.includes("verified") ? "verified" : "all";
     const account = accountHandle();
-    const paused = networkStatus?.paused && networkStatus.account === account &&
-      networkStatus.key?.toLowerCase() === `${account}:${timeline}`;
+    return account && networkStatus.account === account &&
+      networkStatus.key?.toLowerCase() === `${account}:${timeline}` ? networkStatus : null;
+  }
+
+  function continueNotificationPage() {
+    const page = pausedNotificationPage();
+    if (!page || page.loading || document.hidden || holdLayout() || !connected()) return;
+    window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_CONTINUE",key:page.key },location.origin);
+    if (networkNotice) networkNotice.hidden = true;
+    window.dispatchEvent(new Event("scroll"));
+  }
+
+  function renderNetworkNotice() {
+    const page = pausedNotificationPage();
     const summary = notificationFilter.hiddenSummary();
     const allHidden = summary.total > 0 && summary.hidden === summary.total;
-    const show = /^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout() && (paused || allHidden);
+    const show = /^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout() && (page || allHidden);
     if (!show) { if (networkNotice) networkNotice.hidden = true; return; }
     if (!networkNotice) {
       networkNotice = document.createElement("div");
@@ -124,12 +149,7 @@
       networkNotice.setAttribute("role","status");
       const text = document.createElement("span");
       const next = document.createElement("button"); next.type = "button"; next.className = "xrc-network-continue";
-      next.addEventListener("click",() => {
-        if (holdLayout() || !networkStatus?.paused || networkStatus.account !== accountHandle()) return;
-        window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_CONTINUE",key:networkStatus.key },location.origin);
-        networkNotice.hidden = true;
-        window.dispatchEvent(new Event("scroll"));
-      });
+      next.addEventListener("click",continueNotificationPage);
       const restore = document.createElement("button"); restore.type = "button"; restore.className = "xrc-empty-restore";
       restore.textContent = "显示本批";
       restore.title = "恢复当前加载且被隐藏的帖子，保留筛选条件；不主动请求，也不自动再次整理。";
@@ -140,11 +160,11 @@
       networkNotice.append(text,next,restore); document.body.append(networkNotice);
     }
     networkNotice.querySelector("span").textContent = allHidden ?
-      `本批 ${summary.hidden} 条帖子均已隐藏${paused ? "，分页已暂停" : "，可显示本批继续查看"}` :
-      networkStatus.empty ? "本批没有可显示通知，已暂停翻页" : "本批已加载，继续翻页需手动确认";
+      `本批 ${summary.hidden} 条帖子均已隐藏${page ? "，可点「整理列表」继续翻页" : "，可显示本批继续查看"}` :
+      page?.empty ? "本批没有可显示通知，可点「整理列表」继续" : "本批已加载，可点「整理列表」继续";
     const next = networkNotice.querySelector(".xrc-network-continue");
-    next.hidden = !paused;
-    next.disabled = networkStatus?.loading === true;
+    next.hidden = !page;
+    next.disabled = page?.loading === true;
     next.textContent = next.disabled ? "加载中" : "继续加载";
     const restore = networkNotice.querySelector(".xrc-empty-restore");
     restore.hidden = !allHidden;
@@ -186,7 +206,8 @@
   }
 
   function invalidateAnnotations() {
-    lastSignature = ""; annotationRevision++; classifications.clear(); continuous?.invalidateContext();
+    lastSignature = ""; annotationRevision++; classifications.clear(); classificationAccounts.clear();
+    continuous?.invalidateContext();
   }
 
   async function sendMessage(payload) {
@@ -194,7 +215,8 @@
     try {
       const reply = await chrome.runtime.sendMessage(payload);
       if (!connected()) throw new Error("扩展连接已失效，请刷新页面");
-      if (payload.type === "AI_REQUEST" && (reply?.cancelled || reply?.contextUsed)) return reply;
+      if (payload.type === "AI_REQUEST" && (reply?.cancelled || reply?.contextUsed ||
+          reply?.code === "EMPTY_AI_OUTPUT" || reply?.code === "AI_OUTPUT_TOO_LONG")) return reply;
       if (!reply?.ok) throw new Error(reply?.error || "扩展连接已断开，请刷新页面");
       return reply;
     } catch (error) {
@@ -207,17 +229,29 @@
     if (payload.type !== "CLASSIFY") return sendMessage(payload);
     const revision = annotationRevision;
     const keyFor = id => `${payload.account}:${payload.includeRootText === true}:${payload.authorHint || ""}:${id}`;
-    const missing = payload.ids.filter(id => !classifications.has(keyFor(id)));
-    if (missing.length) {
-      const reply = await sendMessage({ ...payload,ids:missing });
-      if (revision !== annotationRevision) return reply;
-      for (const row of reply.rows) classifications.set(keyFor(row.id),row);
-      const rows = payload.ids.map(id => classifications.get(keyFor(id))).filter(Boolean);
-      // Only mounted/recent cards need a UI cache; this does not remove stored evidence.
-      while (classifications.size > 1000) classifications.delete(classifications.keys().next().value);
-      return { ...reply,rows };
+    const rowsById = new Map();
+    const missing = [];
+    for (const id of payload.ids) {
+      const cached = classifications.get(keyFor(id));
+      if (cached) rowsById.set(id,cached);
+      else missing.push(id);
     }
-    return { ok:true,rows:payload.ids.map(id => classifications.get(keyFor(id))) };
+    if (!missing.length) {
+      return {ok:true,...classificationAccounts.get(payload.account),rows:payload.ids.map(id => rowsById.get(id))};
+    }
+    const reply = await sendMessage({ ...payload,ids:missing });
+    // A storage update can invalidate the cached half of a mixed batch. Read the whole batch once.
+    if (revision !== annotationRevision && missing.length < payload.ids.length) return sendMessage(payload);
+    if (revision !== annotationRevision) return reply;
+    const {account,accountId,recognized} = reply;
+    classificationAccounts.set(payload.account,{account,accountId,recognized});
+    for (const row of reply.rows) {
+      rowsById.set(row.id,row);
+      classifications.set(keyFor(row.id),row);
+    }
+    // Only mounted/recent cards need a UI cache; this does not remove stored evidence.
+    while (classifications.size > 1000) classifications.delete(classifications.keys().next().value);
+    return { ...reply,rows:payload.ids.map(id => rowsById.get(id)).filter(Boolean) };
   }
 
   function applyRevision(revision) {
@@ -296,8 +330,8 @@
     });
   }
 
-  function persistInteraction(batch,account) {
-    const saved = message({ type:"INGEST",account,batch,interaction:true });
+  function persistInteraction(payload) {
+    const saved = message({ ...payload,interaction:true });
     void saved.then(result => {
       if (result.changed !== false) { applyRevision(result.revision); if (!document.hidden) schedule(0); }
     },error => console.warn("回过了：",error.message));
@@ -370,13 +404,190 @@
 
   const profileHandle = anchor => anchor?.getAttribute("href")?.match(PROFILE_LINK)?.[1]?.toLowerCase() || "";
 
+  function nativePostMenu(article) {
+    return [...(article?.querySelectorAll('[data-testid="caret"]:is(button,[role="button"])') || [])].find(button => {
+      const quote = button.closest('[role="link"]:not(a)');
+      return button.closest('article[data-testid="tweet"]') === article && (!quote || !article.contains(quote));
+    });
+  }
+
+  function renderFollowShortcut(host,target) {
+    const {article,author,account,postId} = target;
+    const existing = host.querySelector(":scope > .xrc-follow-author");
+    if (!article || !account || !author || author === account || !postId) {
+      existing?.remove();
+      return;
+    }
+    const button = existing || document.createElement("button");
+    if (!existing) {
+      button.type = "button";
+      button.className = "xrc-follow-author";
+      button.textContent = "关注菜单 ▾";
+      button.setAttribute("aria-haspopup","menu");
+      host.append(button);
+    }
+    const label = `打开 @${author} 的 X 关注菜单`;
+    if (button.title !== label) {
+      button.title = label;
+      button.setAttribute("aria-label",label);
+    }
+    authorShortcuts.set(button,target);
+  }
+
+  function authorOverlayPosition(anchor,{width,height}) {
+    const {clientWidth,clientHeight} = document.documentElement;
+    const left = Math.max(8,Math.min(anchor.right-width,clientWidth-width-8));
+    const below = anchor.bottom+4;
+    const top = below+height <= clientHeight-8 ? below : Math.max(8,anchor.top-height-4);
+    return {left,top};
+  }
+
+  function positionFollowMenu(popup,button) {
+    const style = getComputedStyle(popup);
+    if (style.position !== "absolute" || style.translate !== "none") return;
+    const menu = popup.getBoundingClientRect();
+    const {left,top} = authorOverlayPosition(button.getBoundingClientRect(),menu);
+    // X removes this popup on close. Translate only the popup, leaving the list and native caret in place.
+    popup.style.translate = `${left-menu.left}px ${top-menu.top}px`;
+  }
+
+  function clearAuthorActionNotice() {
+    if (!authorActionNotice) return;
+    clearTimeout(authorActionNoticeTimer);
+    authorActionNotice.remove();
+    authorActionNotice = undefined;
+    window.removeEventListener("scroll",clearAuthorActionNotice,true);
+  }
+
+  function showAuthorActionNotice(button,text) {
+    if (!button.isConnected) return;
+    clearAuthorActionNotice();
+    const notice = document.createElement("div");
+    notice.className = "xrc-author-action-notice";
+    notice.setAttribute("role","status");
+    notice.textContent = text;
+    document.body.append(notice);
+    const {left,top} = authorOverlayPosition(button.getBoundingClientRect(),notice.getBoundingClientRect());
+    notice.style.left = `${left}px`;
+    notice.style.top = `${top}px`;
+    authorActionNotice = notice;
+    authorActionNoticeTimer = setTimeout(clearAuthorActionNotice,4000);
+    window.addEventListener("scroll",clearAuthorActionNotice,{capture:true,passive:true});
+  }
+
+  function matchesPostShortcut(button,{article,author,postId}) {
+    return button.isConnected && button.closest('article[data-testid="tweet"]') === article &&
+      globalThis.XReplyContinuous?.authorFromPostLink?.(article,postId) === author;
+  }
+
+  function openFollowMenu(button,target) {
+    const request = ++followMenuRequest;
+    const {article,author,account} = target;
+    clearAuthorActionNotice();
+    const valid = () => accountHandle() === account && matchesPostShortcut(button,target);
+    if (!valid()) {
+      schedule(0);
+      showAuthorActionNotice(button,"帖子已更新，请重新打开关注菜单。");
+      return;
+    }
+    const caret = nativePostMenu(article);
+    if (!caret || caret.disabled || caret.getAttribute("aria-disabled") === "true") {
+      showAuthorActionNotice(button,"本帖暂没有可用的 X 菜单。");
+      return;
+    }
+    const current = () => request === followMenuRequest && !disconnected && !document.hidden && valid();
+    const reveal = waitForPopup => {
+      if (!current()) return;
+      const expanded = caret.isConnected && caret.getAttribute("aria-expanded") === "true";
+      const items = expanded ? [...document.querySelectorAll('#layers [role="menu"] [role="menuitem"]')].filter(item => {
+        const label = item.textContent.trim().replace(/\s+/g," ");
+        const match = label.match(/^(?:(?:un)?follow|(?:取消)?(?:关注|關注|追蹤)|取关)\s*@([a-z0-9_]{1,15})$/i);
+        return match?.[1].toLowerCase() === author && item.getClientRects().length &&
+          getComputedStyle(item).visibility !== "hidden";
+      }) : [];
+      if (items.length !== 1) {
+        if (waitForPopup) setTimeout(() => reveal(false),350);
+        else showAuthorActionNotice(button,expanded ? `未在 X 菜单里定位到 @${author} 的关注选项。` :
+          "X 菜单未打开，可试试本帖右上角的「更多」。");
+        return;
+      }
+      const [item] = items;
+      positionFollowMenu(item.closest('[role="menu"]'),button);
+      // Let X finish setting its own default focus first.
+      requestAnimationFrame(() => { if (item.isConnected && current()) item.focus({preventScroll:true}); });
+    };
+    if (caret.getAttribute("aria-expanded") !== "true") caret.click();
+    requestAnimationFrame(() => reveal(true));
+  }
+
   function isSkipAuthorLink(anchor,handle) {
     if (PEOPLE_LIST_PATH.test(location.pathname)) return Boolean(anchor?.closest('[data-testid="UserCell"]'));
     const article = anchor?.closest('article[data-testid="tweet"]');
     return Boolean(article && !article.closest('[role="dialog"]') && globalThis.XReplyContinuous?.authorFromPostLink?.(article) === handle);
   }
 
-  function renderAuthorTools(anchor,account,handle,skipped,body) {
+  function renderSkipAuthor(tools,target,skipped) {
+    const {author} = target;
+    let button = tools.querySelector(":scope > .xrc-skip-author");
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "xrc-skip-author";
+      button.textContent = "⊘";
+      tools.prepend(button);
+    }
+    const label = `自动下一条时跳过 @${author}`;
+    if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label",label);
+    if (button.getAttribute("aria-pressed") !== String(skipped)) button.setAttribute("aria-pressed",String(skipped));
+    const title = skipped ? `已跳过 @${author}。点击恢复。` : `${label}。`;
+    if (button.title !== title) button.title = title;
+    authorShortcuts.set(button,target);
+  }
+
+  function paintWhitelistAuthor(button,{accountId,peerId,author}) {
+    const whitelist = skipAuthors.whitelist(accountId);
+    const ready = Boolean(accountId && peerId && whitelist);
+    const included = ready && whitelist.has(peerId);
+    const symbol = included ? "★" : "☆";
+    if (button.textContent !== symbol) button.textContent = symbol;
+    const label = `@${author} 的白名单标记`;
+    if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label",label);
+    if (button.getAttribute("aria-pressed") !== String(included)) button.setAttribute("aria-pressed",String(included));
+    const title = ready ? `${included ? "移出白名单" : "加入白名单"} @${author}` : "等待本机确认当前账号和帖子作者";
+    if (button.title !== title) button.title = title;
+    const disabled = !ready || button.getAttribute("aria-busy") === "true";
+    if (button.disabled !== disabled) button.disabled = disabled;
+  }
+
+  function renderWhitelistAuthor(tools,target,visible,cached) {
+    let button = tools.querySelector(":scope > .xrc-whitelist-author");
+    if (!visible) { button?.remove(); return; }
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "xrc-whitelist-author";
+      tools.querySelector(":scope > .xrc-skip-author").after(button);
+    }
+    const action = {...target,accountId:cached?.accountId,peerId:cached?.postAuthorConfirmed ? cached.authorId : ""};
+    authorShortcuts.set(button,action);
+    paintWhitelistAuthor(button,action);
+  }
+
+  function refreshInlineWhitelist() {
+    if (document.hidden || !inlineAuthorTools.size) return;
+    const column = globalThis.XReplyHomeFilter.column?.();
+    if (!column) return;
+    const account = accountHandle();
+    for (const [tools,{article}] of inlineAuthorTools) {
+      if (!tools.isConnected || !column.contains(article)) continue;
+      const button = tools.querySelector(":scope > .xrc-whitelist-author");
+      const target = authorShortcuts.get(button);
+      if (target?.account === account) paintWhitelistAuthor(button,target);
+    }
+  }
+
+  function renderAuthorTools(target,skipped,body) {
+    const {anchor,account,author} = target;
     let tools = body ? body.previousElementSibling : anchor.nextElementSibling;
     if (!tools?.matches(".xrc-inline-author")) {
       tools = document.createElement("span");
@@ -385,22 +596,9 @@
       else anchor.after(tools);
     }
     tools.classList.toggle("xrc-inline-author-row",Boolean(body));
-    let button = tools.querySelector(".xrc-skip-author");
-    if (!button) {
-      button = document.createElement("button");
-      button.type = "button";
-      button.className = "xrc-skip-author";
-      button.textContent = "⊘";
-      tools.append(button);
-    }
     if (tools.dataset.account !== account) tools.dataset.account = account;
-    if (tools.dataset.author !== handle) {
-      tools.dataset.author = handle;
-      button.setAttribute("aria-label",`自动下一条时跳过 @${handle}`);
-    }
-    if (button.getAttribute("aria-pressed") !== String(skipped)) button.setAttribute("aria-pressed",String(skipped));
-    const title = skipped ? `已跳过 @${handle}。点击恢复。` : `自动下一条时跳过 @${handle}。`;
-    if (button.title !== title) button.title = title;
+    if (tools.dataset.author !== author) tools.dataset.author = author;
+    renderSkipAuthor(tools,target,skipped);
     return tools;
   }
 
@@ -432,10 +630,10 @@
     const showCounts = Boolean(countsNames && userCounts.size);
     const showSkip = Boolean(account && skipAuthors?.revision());
     const visibleTools = new Map(), targets = new Map();
-    if (showCounts || showSkip) {
+    const column = recommended || document.querySelector('[data-testid="primaryColumn"]');
+    if ((showCounts || showSkip) && !column?.matches(NOTIFICATION_COLUMN)) {
       const names = peopleList ? PEOPLE_NAMES : TWEET_NAMES;
-      const column = recommended || document.querySelector('[data-testid="primaryColumn"]');
-      const showStats = !peopleList && !column?.matches?.(NOTIFICATION_COLUMN);
+      const showStats = !peopleList;
       const skipped = skipAuthors?.authors(account);
       for (const name of column?.querySelectorAll(names) || []) {
         const anchor = name.closest("a");
@@ -451,14 +649,17 @@
           const article = showStats ? anchor.closest('article[data-testid="tweet"]') : null;
           const postId = article ? tweetId(article) : "";
           const body = article && article.querySelector('[data-testid="tweetText"]:not([role="link"] *)');
-          const tools = renderAuthorTools(anchor,account,handle,skipped.has(handle),body);
-          visibleTools.set(tools,{anchor,postId});
+          const target = {anchor,article,account,author:handle,postId};
+          const tools = renderAuthorTools(target,skipped.has(handle),body);
+          visibleTools.set(tools,target);
           const cached = inlinePersonStats.get(postId);
+          renderWhitelistAuthor(tools,target,Boolean(recommended),cached);
           if (showStats) {
             if (postId) targets.set(postId,{postId,authorHandle:handle});
             renderInlinePersonStats(tools,cached?.stats);
           } else tools.querySelector(".xrc-inline-person-stats")?.remove();
           renderUserCounts(tools,showStats ? handle : "",cached?.authorId);
+          renderFollowShortcut(tools,target);
         }
       }
     }
@@ -479,17 +680,20 @@
         const rows = new Map(result.rows.map(row => [row.postId,row]));
         for (const {postId} of batch) {
           const row = rows.get(postId);
-          inlinePersonStats.set(postId,{revision,stats:row?.personStats,authorId:row?.authorId});
+          inlinePersonStats.set(postId,{revision,accountId:result.accountId,stats:row?.personStats,
+            authorId:row?.authorId,postAuthorConfirmed:row?.postAuthorConfirmed});
         }
       }
-      for (const [tools,{anchor,postId}] of inlineAuthorTools) {
+      const recommended = globalThis.XReplyHomeFilter.column?.();
+      for (const [tools,target] of inlineAuthorTools) {
+        const {anchor,postId,article} = target;
         if (!targets.has(postId) || !tools.isConnected || !anchor.isConnected || tools.dataset.account !== account ||
             profileHandle(anchor) !== tools.dataset.author) continue;
-        const article = anchor.closest('article[data-testid="tweet"]');
-        if (article && tweetId(article) === postId) {
+        if (article && anchor.closest('article[data-testid="tweet"]') === article && tweetId(article) === postId) {
           const cached = inlinePersonStats.get(postId);
           renderInlinePersonStats(tools,cached?.stats);
           renderUserCounts(tools,tools.dataset.author,cached?.authorId);
+          renderWhitelistAuthor(tools,target,Boolean(recommended?.contains(article)),cached);
         }
       }
       while (inlinePersonStats.size > 1000) inlinePersonStats.delete(inlinePersonStats.keys().next().value);
@@ -498,7 +702,35 @@
     }
   }
 
-  function render(article, result) {
+  function renderNotificationAuthorActions(bar,article,account,postId,skipped) {
+    const author = globalThis.XReplyContinuous?.authorFromPostLink?.(article,postId);
+    let tools = bar.querySelector(":scope > .xrc-notification-author-actions");
+    if (!author || author === account) { tools?.remove(); return; }
+    if (!tools) {
+      tools = document.createElement("span");
+      tools.className = "xrc-notification-author-actions";
+      bar.append(tools);
+    }
+    const target = {article,author,account,postId};
+    if (skipped) renderSkipAuthor(tools,target,skipped.has(author));
+    renderFollowShortcut(tools,target);
+  }
+
+  function refreshKnownNotificationActions(articles,ids,account,skipped) {
+    for (let index = 0; index < articles.length; index++) {
+      const article = articles[index], id = ids[index];
+      if (!id) continue;
+      const {xrcId,xrcStatus,xrcOrigin} = article.dataset;
+      if (xrcId !== id) return false;
+      if (xrcStatus === "self" || (xrcStatus === "not-reply" && xrcOrigin === "mine")) continue;
+      const bar = article.querySelector(".xrc-labels");
+      if (!bar) return false;
+      renderNotificationAuthorActions(bar,article,account,id,skipped);
+    }
+    return true;
+  }
+
+  function render(article,result,account,skipped) {
     article.dataset.xrcId = result.id;
     article.dataset.xrcStatus = result.status;
     article.dataset.xrcOrigin = result.origin;
@@ -517,7 +749,9 @@
       anchor.before(bar);
     }
     renderLabels(bar,result);
-    if (userCounts.size) renderUserCounts(bar.querySelector(".xrc-main-labels"),result.authorHandle,result.authorId);
+    const labels = bar.querySelector(".xrc-main-labels");
+    if (userCounts.size) renderUserCounts(labels,result.authorHandle,result.authorId);
+    renderNotificationAuthorActions(bar,article,account,result.id,skipped);
   }
 
   function displayPersonCount(count,fallback) {
@@ -579,16 +813,22 @@
     labels.push(status,heart);
     if (includePersonStats && result.personStats) labels.push(...personBadges(result.personStats,true));
     labels.push(result.rootId ? link("原帖",result.rootId) : link("上下文",result.id));
-    const main = document.createElement("div");
-    main.className = "xrc-main-labels";
+    let main = bar.querySelector(":scope > .xrc-main-labels");
+    if (!main) {
+      main = document.createElement("div");
+      main.className = "xrc-main-labels";
+      bar.prepend(main);
+    }
+    // Keep notification actions and their focus across updates to the statistics.
     main.replaceChildren(...labels);
-    bar.replaceChildren(main);
-    if (result.newPerson) {
+    const newPerson = bar.querySelector(":scope > .xrc-new-person");
+    if (!result.newPerson) newPerson?.remove();
+    else if (!newPerson) {
       const badge = document.createElement("strong");
       badge.className = "xrc-new-person";
       badge.textContent = "NEW";
       badge.title = "这条是本地记录中他首次评论你的原帖，且你评论过他的原帖数为 0。";
-      bar.append(badge);
+      main.after(badge);
     }
   }
 
@@ -632,11 +872,8 @@
         .filter(article => !article.closest('[role="dialog"],[aria-modal="true"]'));
       const ids = articles.map(tweetId);
       const signature = account + ":" + ids.join(",");
-      const annotationsPresent = articles.every((article,index) => !ids[index] ||
-        (article.dataset.xrcId === ids[index] &&
-         (article.dataset.xrcStatus === "self" ||
-          (article.dataset.xrcStatus === "not-reply" && article.dataset.xrcOrigin === "mine") || article.querySelector(".xrc-labels"))));
-      if (signature === lastSignature && annotationsPresent) return;
+      const skipped = skipAuthors?.revision() ? skipAuthors.authors(account) : undefined;
+      if (signature === lastSignature && refreshKnownNotificationActions(articles,ids,account,skipped)) return;
       const observedRevision = annotationRevision;
       const byId = new Map();
       for (let offset = 0; offset < ids.length; offset += 100) {
@@ -648,7 +885,7 @@
       }
       for (const article of articles) {
         const row = byId.get(tweetId(article));
-        if (article.isConnected && row) render(article,row);
+        if (article.isConnected && row) render(article,row,account,skipped);
       }
       lastSignature = signature;
     } catch (error) {
@@ -670,7 +907,11 @@
     recommendedReply:editor=>continuous?.recommendedReply(editor),
     canAutoFillUnfocused:editor=>continuous?.canAutoFillUnfocused(editor)===true,
     skipVideo:editor=>continuous?.skipVideo(editor)===true,
-    onAutoFillBlocked:(editor,reason)=>{if(continuous?.recommendedReply(editor))timedReplies?.stop(reason);}});
+    onAutoFillBlocked:(editor,reason,recoverable)=>{
+      if (!continuous?.recommendedReply(editor)) return;
+      if (recoverable) timedReplies?.pause(`${reason} 可手动填写，或点击「继续本轮」再试。`);
+      else timedReplies?.stop(reason);
+    }});
   refreshCycle = globalThis.XReplyRefreshCycle?.create({storage:chrome.storage,message,accountHandle,requestRefresh:scheduleControls,getTimed:()=>timedReplies,
     resume:(intent,valid)=>continuous.resumeRecommended(intent,valid),notify:text=>continuous?.notify(text)});
   timedReplies = globalThis.XReplyTimedReplies?.create({storage:chrome.storage,readState:()=>continuous?.timedState(),
@@ -681,25 +922,55 @@
     renderAiOptions:(tools,editor) => aiReplies?.renderOptions(tools,editor),
     aiFillRecommendedEnabled:()=>aiReplies?.fillRecommendedEnabled() === true});
 
-  document.addEventListener("click",async event => {
-    const button = event.target?.closest?.(".xrc-skip-author");
-    const tools = button?.closest(".xrc-inline-author");
-    const anchor = inlineAuthorTools.get(tools)?.anchor;
-    if (!anchor?.isConnected) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (button.disabled || !connected()) return;
-    const account = accountHandle();
-    const author = profileHandle(anchor);
-    if (!account || account !== tools.dataset.account || !author || author !== tools.dataset.author || !isSkipAuthorLink(anchor,author)) {
+  async function toggleWhitelistAuthor(button,target) {
+    const {account,accountId,peerId,postId,article} = target;
+    const whitelist = skipAuthors.whitelist(accountId);
+    if (!accountId || !peerId || !whitelist || accountHandle() !== account ||
+        !globalThis.XReplyHomeFilter.column?.()?.contains(article) || !matchesPostShortcut(button,target)) {
       schedule(0);
       return;
     }
+    clearAuthorActionNotice();
+    button.setAttribute("aria-busy","true");
+    button.disabled = true;
+    try {
+      await message({type:"SET_REPLY_WHITELIST_AUTHOR",account,accountId,peerId,postId,whitelisted:!whitelist.has(peerId)});
+    } catch (error) {
+      showAuthorActionNotice(button,error.message);
+    } finally {
+      button.removeAttribute("aria-busy");
+      paintWhitelistAuthor(button,authorShortcuts.get(button));
+    }
+  }
+
+  document.addEventListener("click",async event => {
+    const button = event.target?.closest?.(".xrc-follow-author,.xrc-skip-author,.xrc-whitelist-author");
+    const target = authorShortcuts.get(button);
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (button.disabled || !connected()) return;
+    if (button.classList.contains("xrc-follow-author")) {
+      if (event.isTrusted) openFollowMenu(button,target);
+      return;
+    }
+    if (button.classList.contains("xrc-whitelist-author")) {
+      if (event.isTrusted) await toggleWhitelistAuthor(button,target);
+      return;
+    }
+    const {anchor,account,author} = target;
+    const valid = anchor ? anchor.isConnected && profileHandle(anchor) === author && isSkipAuthorLink(anchor,author) :
+      matchesPostShortcut(button,target);
+    if (!valid || accountHandle() !== account) {
+      schedule(0);
+      return;
+    }
+    clearAuthorActionNotice();
     button.disabled = true;
     try {
       await message({ type:"SET_REPLY_SKIP_AUTHOR",account,author,skipped:!skipAuthors.authors(account).has(author) });
     } catch (error) {
-      continuous?.notify(error.message);
+      showAuthorActionNotice(button,error.message);
     } finally {
       button.disabled = false;
     }
@@ -731,14 +1002,17 @@
       const data = event.data;
       const saved = data.type === "REPLY_RESULT" && data.status === "sent" &&
         data.account === accountHandle() && data.batch ?
-        persistInteraction(data.batch,data.account) : null;
+        persistInteraction({type:"INGEST",account:data.account,batch:data.batch}) : null;
+      if (data.type === "REPLY_RESULT" && data.status === "unknown" && data.account === accountHandle() && data.replyEvidence) {
+        void persistInteraction({type:"RECORD_REPLY_EVIDENCE",account:data.account,parentId:data.parentId,reply:data.replyEvidence});
+      }
       void continuous?.receiveReply(data,saved);
       return;
     }
     if (event.data.type !== "OBSERVED") return;
     if (event.data.interaction === true) {
       if (event.data.account === accountHandle() && event.data.batch) {
-        const saved=persistInteraction(event.data.batch,event.data.account);
+        const saved=persistInteraction({type:"INGEST",account:event.data.account,batch:event.data.batch});
         void continuous?.receiveLike?.(event.data,saved);
       }
       return;

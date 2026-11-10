@@ -1,6 +1,6 @@
 (() => {
   const profileFields=["baseUrl","apiKey","model","serviceTier","reasoningEffort"];
-  const timingFields=["typingDelayMin","typingDelayMax"];
+  const numericFields=["typingDelayMin","typingDelayMax","maxReplyLength"];
   const promptFields=["generatePrompt","rewritePrompt"];
   const get=id=>document.getElementById(id);
   const status=get("status");
@@ -41,7 +41,7 @@
   void send({type:"AI_CONFIG_GET"}).then(({config:value})=>{
     config=value;selectedId=value.activeProfileId;
     for(const field of promptFields)get(field).value=config[field];
-    for(const field of timingFields)get(field).value=config[field];
+    for(const field of numericFields)get(field).value=config[field];
     get("enabled").checked=config.enabled;
     for(const id of ["save","profile","addProfile","openaiProfile","removeProfile"])get(id).disabled=false;
     renderProfiles();applied(config);status.textContent="";
@@ -82,7 +82,7 @@
     try {
       const next=XReplyAIConfig.normalizeProfiles({...config,enabled:get("enabled").checked,activeProfileId:selectedId,
         ...Object.fromEntries(promptFields.map(field=>[field,get(field).value])),
-        ...Object.fromEntries(timingFields.map(field=>[field,get(field).valueAsNumber]))});
+        ...Object.fromEntries(numericFields.map(field=>[field,get(field).valueAsNumber]))});
       const active=XReplyAIConfig.activeConfig(next);
       if(active.enabled && !await chrome.permissions.request({origins:[XReplyAIConfig.originPattern(XReplyAIConfig.endpoint(active.baseUrl))]}))throw new Error("域名未授权，设置未保存；原配置仍然生效。");
       await send({type:"AI_CONFIG_SAVE",config:next});

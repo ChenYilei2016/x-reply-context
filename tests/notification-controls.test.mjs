@@ -61,6 +61,8 @@ function setup() {
   vm.runInContext(source,context);
   const filter = context.XReplyNotificationFilter.create({
     columnSelector:'column',accountHandle:() => { env.accountReads++; return 'me'; },tweetId:card => card.id,enabled:() => env.enabled,mode:() => env.enabled ? env.mode : "off",
+    pausedPage:()=>env.page,
+    continuePage:()=>{env.page.loading=true;env.releases=(env.releases||0)+1;},
     autoEnabled:() => env.auto,autoReady:() => true,saveAuto:async value => {
       if (env.failSaveAuto) throw new Error('failed');
       env.auto = value;
@@ -119,6 +121,23 @@ test('滚动使待更新项移出或回到DOM时，应用按钮保留原节点�
   env.modal = false; location.pathname = '/notifications'; env.enabled = false; await filter.refresh();
   assert.equal(apply.hidden,false,'关闭筛选也保留位置');
   assert.equal(apply.disabled,true);
+});
+
+test('顶部整理按钮可单独继续一批，加载中和编辑时不会再次放行',async()=>{
+  const {env,filter,control}=setup();
+  env.enabled=false;env.page={loading:false};
+  await filter.refresh();
+  const apply=control('xrc-filter-apply');
+  assert.equal(apply.disabled,false);
+  apply.click({stopPropagation(){}});
+  apply.click({stopPropagation(){}});
+  assert.equal(env.releases,1);
+  assert.equal(apply.disabled,true);
+  env.page.loading=false;env.modal=true;await filter.refresh();
+  apply.click({stopPropagation(){}});
+  assert.equal(env.releases,1);
+  env.modal=false;await filter.refresh();apply.click({stopPropagation(){}});
+  assert.equal(env.releases,2);
 });
 
 async function automaticSetup() {

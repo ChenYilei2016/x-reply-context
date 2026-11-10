@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const defaults = {
-    enabled:false,baseUrl:"",apiKey:"",model:"",typingDelayMin:35,typingDelayMax:100,
+    enabled:false,baseUrl:"",apiKey:"",model:"",typingDelayMin:35,typingDelayMax:100,maxReplyLength:12000,
     generatePrompt:"请为下面的 X 帖子写一句自然、简短的中文回复，尽量不超过12个字。语气轻松，不编造经历，不添加帖子没有表达的事实。只返回 <reply>回复内容</reply>。\n\n帖子：\n${post}",
     rewritePrompt:"请把下面的回复草稿改写成一句简短自然的中文。严格保留原意、立场和情绪强度，不增加评价、经历或额外观点。只返回 <reply>改写后的内容</reply>。\n\n帖子：\n${post}\n\n草稿：\n${draft}"
   };
@@ -24,6 +24,10 @@
       if(!Number.isInteger(value[key]) || value[key]<0 || value[key]>1000)throw new Error("逐字间隔请输入0～1000毫秒的整数。");
     }
     if(value.typingDelayMin>value.typingDelayMax)throw new Error("逐字间隔最小值不能大于最大值。");
+    value.maxReplyLength = raw?.maxReplyLength ?? defaults.maxReplyLength;
+    if (!Number.isInteger(value.maxReplyLength) || value.maxReplyLength < 1 || value.maxReplyLength > defaults.maxReplyLength) {
+      throw new Error("回复最大字符数请输入 1～12000 的整数。");
+    }
     if (value.baseUrl) endpoint(value.baseUrl);
     if (value.apiKey.length > 4096 || value.model.length > 256 || value.baseUrl.length > 2048 ||
         value.generatePrompt.length > 16000 || value.rewritePrompt.length > 16000) throw new Error("配置内容过长。");
@@ -60,11 +64,13 @@
     const selected=profiles.find(profile=>profile.id===activeProfileId);
     if(!selected)throw new Error("请选择有效的 API 配置。");
     const shared=normalize({...raw,...selected});
-    return {enabled:shared.enabled,typingDelayMin:shared.typingDelayMin,typingDelayMax:shared.typingDelayMax,generatePrompt:shared.generatePrompt,rewritePrompt:shared.rewritePrompt,activeProfileId,profiles};
+    return {enabled:shared.enabled,typingDelayMin:shared.typingDelayMin,typingDelayMax:shared.typingDelayMax,maxReplyLength:shared.maxReplyLength,
+      generatePrompt:shared.generatePrompt,rewritePrompt:shared.rewritePrompt,activeProfileId,profiles};
   }
   function activeConfig(value) {
     return {...value.profiles.find(profile=>profile.id===value.activeProfileId),enabled:value.enabled,
-      generatePrompt:value.generatePrompt,rewritePrompt:value.rewritePrompt,typingDelayMin:value.typingDelayMin,typingDelayMax:value.typingDelayMax};
+      generatePrompt:value.generatePrompt,rewritePrompt:value.rewritePrompt,typingDelayMin:value.typingDelayMin,typingDelayMax:value.typingDelayMax,
+      maxReplyLength:value.maxReplyLength};
   }
   function isOpenAI(value) {
     try {return new URL(value).origin==="https://api.openai.com";} catch {return false;}

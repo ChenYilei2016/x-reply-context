@@ -3,6 +3,8 @@
   "use strict";
   const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
   const LIMIT = 20000;
+  const INTERACTION_LIMIT = 40000;
+  const ACCOUNT_LIMIT = 20;
   const runtime = new WeakMap();
   function cacheFor(state) {
     let cache = runtime.get(state);
@@ -121,7 +123,7 @@
   }
 
   function createState() {
-    return { version: 1, users: {}, tweets: {}, roots: {}, replies: {}, likes: {}, people: {}, accounts: {}, likeSnapshotFloors: {}, updatedAt: 0 };
+    return { version: 1, users: {}, tweets: {}, roots: {}, replies: {}, likes: {}, people: {}, accounts: {}, accountIdentities: [], likeSnapshotFloors: {}, updatedAt: 0 };
   }
 
   function mergeKnown(previous, next, now) {
@@ -131,9 +133,7 @@
     return result;
   }
 
-  function findAccount(state, accountHandle) {
-    const name = handle(accountHandle);
-    if (!name) return null;
+  function usersByHandle(state) {
     const cache = cacheFor(state);
     if (!cache.users) {
       cache.users = new Map();
@@ -142,7 +142,36 @@
         cache.users.set(user.handle,cache.users.has(user.handle) ? null : user);
       }
     }
-    return cache.users.get(name) || null;
+    return cache.users;
+  }
+
+  function findAccount(state, accountHandle) {
+    const name = handle(accountHandle);
+    return name ? usersByHandle(state).get(name) || null : null;
+  }
+
+  function findOwnAccount(state, accountHandle) {
+    const name = handle(accountHandle);
+    if (!name) return null;
+    const users = usersByHandle(state);
+    const saved = state.accountIdentities?.find(account => account.handle === name);
+    const user = users.get(name);
+    if (users.has(name)) return user && (!saved || saved.id === user.id) ? user : null;
+    // A cached rename or a conflicting handle must not move another account's totals.
+    return saved && !state.users[saved.id] ? saved : null;
+  }
+
+  function rememberOwnAccount(state,account) {
+    const accounts = state.accountIdentities || [];
+    if (accounts.some(item => item.id === account.id && item.handle === account.handle)) return;
+    state.accountIdentities = [...accounts.filter(item => item.id !== account.id),{id:account.id,handle:account.handle}].slice(-ACCOUNT_LIMIT);
+  }
+
+  function restoreAccountIdentities(state) {
+    for (const accountId of Object.keys(state.accounts)) {
+      const user = state.users[accountId];
+      if (user && findOwnAccount(state,user.handle)?.id === accountId) rememberOwnAccount(state,user);
+    }
   }
 
   function conversationOf(state, tweet) {
@@ -219,7 +248,7 @@
       if (retained !== state[key]) replace(state,key,retained);
     }
     const accounts = Object.entries(state.accounts);
-    const retainedAccounts = accounts.filter(([, seenAt]) => seenAt >= now - RETENTION_MS).slice(-20);
+    const retainedAccounts = accounts.filter(([, seenAt]) => seenAt >= now - RETENTION_MS).slice(-ACCOUNT_LIMIT);
     if (retainedAccounts.length !== accounts.length) relationshipsChanged = true;
     state.accounts = Object.fromEntries(retainedAccounts);
     state.likeSnapshotFloors = Object.fromEntries(Object.entries(state.likeSnapshotFloors)
@@ -305,7 +334,7 @@
       yield* facts(reply.actorId,reply.conversationId,reply.id,reply.seenAt);
     }
   }
-  function collectInteractionFacts(state) {
+  function collectInteractionFacts(state,seedOnly=false) {
     const cache=cacheFor(state),seen=new Set();
     for(const fact of interactionFacts(state)){
       // Timestamp-only reloads do not touch the durable ledger. Incoming older IDs can refine NEW evidence.
@@ -313,14 +342,17 @@
       const previous=cache.factSignatures.get(fact.key);
       seen.add(fact.key);
       if(previous===signature || previous && fact.direction==="in" && BigInt(previous)<=BigInt(signature))continue;
-      cache.factSignatures.set(fact.key,signature);
+      if(seedOnly){cache.factSignatures.set(fact.key,signature);continue;}
       const queued=cache.facts.get(fact.key);
       if(queued && (fact.direction!=="in" || BigInt(queued.firstReplyId)<=BigInt(fact.firstReplyId)))continue;
-      if(cache.facts.size<LIMIT || queued)cache.facts.set(fact.key,fact);
-      else cache.factOverflow=true;
+      if(cache.facts.size<INTERACTION_LIMIT || queued){
+        cache.factSignatures.set(fact.key,signature);
+        cache.facts.set(fact.key,fact);
+      }else cache.factOverflow=true;
     }
     for(const key of cache.factSignatures.keys())if(!seen.has(key))cache.factSignatures.delete(key);
   }
+  const primeInteractions=state=>collectInteractionFacts(state,true);
   const interactionChanges=state=>({facts:cacheFor(state).facts,overflow:cacheFor(state).factOverflow});
 
   // Refresh derived evidence timestamps without rebuilding counts for unchanged posts.
@@ -377,10 +409,11 @@
         put(state,"tweets",tweet.id,merged); observedTweets.push(merged);
       }
     }
-    const me = findAccount(state, accountHandle);
+    const me = findOwnAccount(state, accountHandle);
     if (me) {
       if (!state.accounts[me.id]) relationshipsChanged = true;
       state.accounts[me.id] = now;
+      rememberOwnAccount(state,me);
     }
     if (!relationshipsChanged) for (const tweet of observedTweets) {
       if (touchEvidence(state,tweet,now)) relationshipsChanged = true;
@@ -389,7 +422,7 @@
     const actors = new Map([[handle(accountHandle),me]]);
     for (const raw of (Array.isArray(batch?.likes) ? batch.likes : []).slice(0,500)) {
       const actorHandle = handle(raw.account);
-      if (!actors.has(actorHandle)) actors.set(actorHandle,findAccount(state,actorHandle));
+      if (!actors.has(actorHandle)) actors.set(actorHandle,findOwnAccount(state,actorHandle));
       const actor = actors.get(actorHandle);
       if (!actor || !id(raw.id) || typeof raw.liked !== "boolean" ||
           !Number.isFinite(raw.observedAt) || raw.observedAt < now - RETENTION_MS) continue;
@@ -452,7 +485,7 @@
   }
 
   function personStatsBatch(state,accountHandle,targets) {
-    const me = findAccount(state,accountHandle);
+    const me = findOwnAccount(state,accountHandle);
     if (!me || !Array.isArray(targets)) return [];
     const rows = [];
     const seen = new Set();
@@ -463,11 +496,15 @@
       const key = postId ? `post:${postId}` : `author:${authorHandle}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const authorId = state.tweets[postId]?.authorId || findAccount(state,authorHandle)?.id;
+      const postAuthorId = state.tweets[postId]?.authorId;
+      const authorId = postAuthorId || findAccount(state,authorHandle)?.id;
       if (!authorId || authorId === me.id) continue;
       const person = state.people?.[`${me.id}:${authorId}`];
       const row = { authorHandle,authorId,personStats:summarizePerson(state,person) };
-      if (postId) row.postId = postId;
+      if (postId) {
+        row.postId = postId;
+        row.postAuthorConfirmed = Boolean(postAuthorId);
+      }
       rows.push(row);
     }
     return rows;
@@ -524,7 +561,7 @@
     const ids = Array.isArray(tweetIds) ? tweetIds.slice(0,100) : [];
     if (!ids.length) return [];
     const authorHint = ids.length === 1 ? handle(authorHandle) : "";
-    const me = findAccount(state,accountHandle);
+    const me = findOwnAccount(state,accountHandle);
     if (!me) return ids.map(tweetId => classifyWith(state,null,tweetId,undefined,authorHint));
     const cache = cacheFor(state);
     let lookup = cache.lookups.get(me.id);
@@ -568,5 +605,5 @@
     }
   }
 
-  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, personStatsBatch, findAccount, id, handle, RETENTION_MS, LIMIT, changes, saved, prepare, interactionFacts, interactionChanges, primeInteractions:collectInteractionFacts };
+  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, personStatsBatch, summarizePerson, findAccount, findOwnAccount, restoreAccountIdentities, id, handle, RETENTION_MS, LIMIT, INTERACTION_LIMIT, changes, saved, prepare, interactionFacts, interactionChanges, primeInteractions };
 })();

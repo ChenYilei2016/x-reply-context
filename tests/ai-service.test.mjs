@@ -66,6 +66,19 @@ test('SSE按字节断开中文仍完整，DONE后结束读取，不等连接关�
   const {request}=setup(async()=>new Response(new ReadableStream({start(controller){for(const byte of bytes)controller.enqueue(new Uint8Array([byte]));},cancel(){cancelled=true;}}),{headers:{'content-type':'text/event-stream'}}));
   assert.equal((await request('stream')).text,'一起加油');assert.equal(cancelled,true);
 });
+test('模型空回复和超过自设字符上限分别返回可识别的原因',async()=>{
+ let content=null;
+ const {request,chrome,scope}=setup(async()=>new Response(JSON.stringify({choices:[{message:{content}}]})));
+ assert.equal(scope.XReplyAIConfig.normalizeProfiles(config).maxReplyLength,12000);
+ await chrome.storage.local.set({aiConfig:{...config,maxReplyLength:5}});
+ assert.equal((await request('empty')).code,'EMPTY_AI_OUTPUT');
+ content='<reply>一二三四五六</reply>';
+ const tooLong=await request('too-long');
+ assert.equal(tooLong.code,'AI_OUTPUT_TOO_LONG');assert.match(tooLong.error,/6.*5/);
+ content='<reply>一二三四五。</reply>';
+ assert.equal((await request('at-limit')).text,'一二三四五');
+ assert.throws(()=>scope.XReplyAIConfig.normalizeProfiles({...config,maxReplyLength:12001}),/最大字符数/);
+});
 test('全局最多3个模型请求，取消排队和在途任务，隔离不同标签页',async()=>{
   const {request,service,sender,calls}=setup((_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('cancelled','AbortError')),{once:true})));
   const pending=Array.from({length:8},(_,i)=>request(`r-${i}`));

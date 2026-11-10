@@ -64,7 +64,24 @@ test('评论确认成功但有警告时先暂停再保留成功回执，未知�
  assert.ok(success.messages.indexOf(success.alerts[0])<success.messages.indexOf(receipt));
  const unknown=await observe({operation:'CreateTweet',payload:{data:{create_tweet:{tweet_results:{result:{...tweet,legacy:{...tweet.legacy,in_reply_to_status_id_str:'456'}}}}}}});
  assert.equal(unknown.messages.find(m=>m.type==='REPLY_RESULT').status,'unknown');
+ assert.equal(unknown.messages.find(m=>m.type==='REPLY_RESULT').replyEvidence,undefined);
  assert.equal(unknown.messages.some(m=>m.type==='OBSERVED'),false);
  const partial=await observe({operation:'CreateTweet',payload:{data:{create_tweet:{errors:[{message:'partial failure'}],tweet_results:{result:tweet}}}}});
  assert.equal(partial.messages.find(m=>m.type==='REPLY_RESULT').status,'unknown');assert.equal(partial.messages.some(m=>m.type==='OBSERVED'),false);
+ assert.equal(partial.messages.find(m=>m.type==='REPLY_RESULT').replyEvidence,undefined);
+});
+
+test('评论回执缺作者资料仍转交严格匹配的事实，保守保留待确认状态',async()=>{
+ const result={rest_id:'999',legacy:{id_str:'999',user_id_str:'1',in_reply_to_status_id_str:'123',conversation_id_str:'123',in_reply_to_user_id_str:'2'}};
+ for(const [transport,operation,key] of [['fetch','CreateTweet','create_tweet'],['xhr','CreateNoteTweet','notetweet_create']]){
+  const observed=await observe({transport,operation,payload:{data:{[key]:{tweet_results:{result}}}}});
+  const receipt=observed.messages.find(message=>message.type==='REPLY_RESULT');
+  assert.equal(observed.requests,1);
+  assert.equal(receipt.status,'unknown');
+  assert.equal(receipt.batch,undefined);
+  assert.equal(receipt.replyEvidence?.id,'999');
+  assert.equal(receipt.replyEvidence?.authorId,'1');
+  assert.equal(receipt.replyEvidence?.parentId,'123');
+  assert.equal(observed.alerts.length,1);
+ }
 });

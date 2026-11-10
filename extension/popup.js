@@ -28,8 +28,48 @@ void installCheckbox("#auto-hide-follow-notifications","autoHideFollowNotificati
 void installCheckbox("#auto-hide-repost-notifications","autoHideRepostNotifications","#repost-filter-status",
   "已开启，后续接收时过滤转发通知；带正文的引用帖保留。",false,"已关闭；刷新通知页可恢复此前被过滤的转发通知。");
 
+async function installInteractionSkip() {
+  const form = document.querySelector("#recommended-interaction-skip");
+  const settings = globalThis.XReplySkipAuthors;
+  if (!form || !settings) return;
+  const {enabled,gap} = form.elements;
+  const button = form.querySelector('button[type="submit"]');
+  const status = form.querySelector('[role="status"]');
+  const key = settings.RECOMMENDED_KEY;
+  try {
+    let saved = settings.interactionSkipSetting((await chrome.storage.local.get(key))[key]);
+    function paint() {
+      enabled.checked = saved.enabled;
+      gap.value = saved.gap;
+      status.textContent = saved.enabled ? `已开启，差值超过 ${saved.gap} 篇时跳过。` : "已关闭。";
+    }
+    paint();
+    enabled.disabled = gap.disabled = button.disabled = false;
+    form.addEventListener("input",() => { status.textContent = "修改后点击保存差值设置。"; });
+    form.addEventListener("submit",async event => {
+      event.preventDefault();
+      if (button.disabled || !form.checkValidity()) return;
+      const next = {enabled:enabled.checked,gap:gap.valueAsNumber};
+      enabled.disabled = gap.disabled = button.disabled = true;
+      try {
+        await chrome.storage.local.set({[key]:next});
+        saved = next;
+        paint();
+      } catch {
+        paint();
+        status.textContent = "设置未保存，请重试。";
+      } finally {
+        enabled.disabled = gap.disabled = button.disabled = false;
+      }
+    });
+  } catch { status.textContent = "差值设置暂时不可用，请重新打开扩展。"; }
+}
+void installInteractionSkip();
+
 let popupAccount = "";
-const skipAuthors = globalThis.XReplySkipAuthors?.createClient(chrome.storage,renderSkipAuthors);
+const skipAuthors = globalThis.XReplySkipAuthors?.createClient(chrome.storage,skippedChanged => {
+  if (skippedChanged) renderSkipAuthors();
+});
 
 function renderSkipAuthors() {
   if (!popupAccount || !skipAuthors?.revision()) return;
@@ -77,8 +117,15 @@ function renderSkipAuthors() {
     status.textContent = `@${account}\n已记录 ${summary.replyCount} 组文字回复 · ${summary.likeCount} 条红心`;
     status.title = "文字按当前账号、原帖和对方去重；红心按帖子去重，仅统计本地仍有已点赞证据的记录。历史来源不同，二者不保证相等。";
     const statistics=document.querySelector("#statistics-status");
+    const capacity = summary.interactionLimit ? `/${summary.interactionLimit.toLocaleString("en-US")}` : "";
     if(statistics)statistics.textContent=summary.statistics ?
-      `独立互动事实 ${summary.statistics.factCount}/20,000 · ${summary.statistics.incomplete?"历史不完整，按下限显示":"本地已确认"}${summary.statistics.atCapacity?"；部分新增事实未计入，请导出备份后检查容量":""}。升级前备份已保留。` : "互动统计尚未迁移，请重载扩展后刷新 X。";
+      `独立互动事实 ${summary.statistics.factCount}${capacity} · ${summary.statistics.incomplete?"历史不完整，按下限显示":"本地已确认"}${summary.statistics.atCapacity?" · 账本已达容量":""}。升级前备份已保留。` : "互动统计尚未迁移，请重载扩展后刷新 X。";
+    const report = document.querySelector("#interaction-report");
+    if (report && summary.accountId) {
+      const query = new URLSearchParams({account,accountId:summary.accountId});
+      report.href = `interaction-report.html?${query}`;
+      report.hidden = false;
+    }
     const history = document.querySelector("#history");
     history.href = `https://x.com/${account}/with_replies`;
     history.hidden = false;

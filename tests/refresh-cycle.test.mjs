@@ -17,7 +17,7 @@ function setup(config={enabled:true,min:10,max:20},resume=null,options={}) {
  vm.runInContext(timedSource,scope);vm.runInContext(source,scope);
  const cycle=scope.XReplyRefreshCycle.create({storage,getTimed:()=>options.timed,accountHandle:()=>account,requestRefresh(){},notify:t=>notices.push(t),
   message:async message=>{requests.push(message);if(message.type==='REFRESH_TAKE'){if(options.take)await options.take;return {ok:true,resume:resume?{refreshId:'test-refresh',...resume}:null};}if(message.type==='REFRESH_ARM'&&arm)await arm;return {ok:true};},
-  resume:async(intent,valid)=>{resumeCalls.push(intent);return valid()?outcome:'paused';}});
+  resume:async(intent,valid)=>{resumeCalls.push(intent);options.beforeOpen?.();return valid()?outcome:'paused';}});
  return {cycle,scope,dom,location,requests,navigations,notices,timers,resumeCalls,outcome:value=>{outcome=value;},setArm:p=>{arm=p;},account:value=>{account=value;},
   setSave:fn=>{save=fn;},change:value=>{settings=value;listener({replyRefreshCycle:{newValue:value}},'local');}};
 }
@@ -93,6 +93,14 @@ test('续接只尝试打开一次；无标记不触发，账号变化也不打�
  const env=setup({enabled:true,min:1,max:1},{account:'me',min:1,max:1});await flush();
  await env.cycle.tick();assert.equal(env.timers.size,0);await env.cycle.tick();assert.equal(env.navigations.length,0);assert.equal(env.resumeCalls.length,1);
  const other=setup({enabled:true,min:1,max:1},{account:'other',min:1,max:1});await flush();await other.cycle.tick();assert.match(other.notices[0],/账号/);assert.equal(other.timers.size,0);
+});
+test('换批选帖期间定时预算不足时，在开框前取消恢复',async()=>{
+ let allowed=true,restores=0;
+ const timed={previewResume:()=>true,canResume:()=>allowed,restore:()=>{restores++;},cancelFromRefresh(){}};
+ const env=setup({enabled:true,min:1,max:1},{account:'me',min:1,max:1,timed:{expiresAt:Date.now()+10000}},
+  {timed,beforeOpen:()=>{allowed=false;}});
+ await flush();await env.cycle.tick();
+ assert.equal(env.resumeCalls.length,1);assert.equal(restores,0);assert.match(env.notices.at(-1),/预算不足/);
 });
 test('后台标记按标签隔离、一次消费、过期拒绝、关闭清理',async()=>{
  const records={};const local={get:async()=>({replyRefreshCycle:{enabled:true,min:10,max:20}})};

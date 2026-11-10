@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>互动分析 · 回过了</title>
+<link rel="stylesheet" href="interaction-report.css">
+<body>
+<main class="report-shell">
+  <header class="report-header">
+    <div>
+      <p class="eyebrow">回过了 · X 通知助手</p>
+      <h1>互动分析</h1>
+      <p>查看你和每位作者分别评论过对方多少篇原帖。</p>
+    </div>
+    <div class="header-actions">
+      <span id="report-account" class="account"></span>
+      <button id="refresh-report" type="button">刷新报表</button>
+    </div>
+  </header>
+
+  <div class="coverage">
+    <strong id="coverage-status">本机互动记录</strong>
+    <p>同一篇原帖下的多次评论只算 1 篇。「待确认」表示本机缺少这一方向的记录。</p>
+  </div>
+  <p id="report-status" role="status">正在读取本地统计…</p>
+
+  <div id="report-results" hidden>
+    <section class="metrics" aria-label="互动总览">
+      <button type="button" data-filter="all" aria-pressed="true"><span>有互动记录</span><strong>—</strong></button>
+      <button type="button" data-filter="mutual" aria-pressed="false"><span>双向有记录</span><strong>—</strong></button>
+      <button type="button" data-filter="theirsOnly" aria-pressed="false"><span>仅他评我有记录</span><strong>—</strong></button>
+      <button type="button" data-filter="mineOnly" aria-pressed="false"><span>仅我评他有记录</span><strong>—</strong></button>
+      <button type="button" data-filter="skipped" aria-pressed="false"><span>已标记跳过</span><strong>—</strong></button>
+      <button type="button" data-filter="whitelist" aria-pressed="false"><span>白名单</span><strong>—</strong></button>
+    </section>
+
+    <section class="report-panel" aria-label="人物互动明细">
+      <div class="quick-filters" aria-label="快捷筛选">
+        <button type="button" data-filter="theirsMore" aria-pressed="false">他评我较多</button>
+        <button type="button" data-filter="mineMore" aria-pressed="false">我评他较多</button>
+        <span>按本机已记录的篇数比较。</span>
+      </div>
+      <form id="report-filters" class="filters">
+        <label class="search-filter">搜索作者<input id="author-search" type="search" placeholder="@用户名或账号 ID" maxlength="32" autocomplete="off"></label>
+        <label>互动关系<select id="relationship">
+          <option value="all">全部有互动记录</option>
+          <option value="mutual">双向有记录</option>
+          <option value="theirsOnly">仅他评我有记录</option>
+          <option value="mineOnly">仅我评他有记录</option>
+          <option value="theirsMore">他评我较多</option>
+          <option value="mineMore">我评他较多</option>
+          <option value="skipped">已标记跳过</option>
+          <option value="whitelist">白名单</option>
+        </select></label>
+        <label>我评他最少<input id="minimum-mine" type="number" min="0" step="1" placeholder="不限"></label>
+        <label>他评我最少<input id="minimum-theirs" type="number" min="0" step="1" placeholder="不限"></label>
+        <label>排序<select id="sort-order">
+          <option value="mineDesc">我评他从多到少</option>
+          <option value="theirsDesc">他评我从多到少</option>
+          <option value="mineAsc">我评他从少到多</option>
+          <option value="theirsAsc">他评我从少到多</option>
+        </select></label>
+      </form>
+
+      <div class="results-heading">
+        <p id="match-count" role="status"></p>
+        <p id="action-status" role="status"></p>
+      </div>
+      <div class="table-wrap">
+        <table aria-label="按作者查看双向评论统计">
+          <thead><tr><th scope="col">作者</th><th scope="col" id="mine-heading">我评他</th><th scope="col" id="theirs-heading">他评我</th><th scope="col">本地名单</th></tr></thead>
+          <tbody id="report-rows"></tbody>
+        </table>
+      </div>
+      <nav class="pagination" aria-label="报表分页">
+        <button id="previous-page" type="button" disabled>上一页</button>
+        <span id="page-number"></span>
+        <button id="next-page" type="button" disabled>下一页</button>
+      </nav>
+    </section>
+  </div>
+  <p class="report-footnote">白名单仅免除「为你推荐」的互动差值过滤。手动标记跳过、已回复等规则仍优先。</p>
+</main>
+<script src="interaction-report.js"></script>
+</body>
+</html>

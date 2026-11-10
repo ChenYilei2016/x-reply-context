@@ -71,15 +71,36 @@ document.querySelector('#run').onclick=async event=>{
   check('显示保守下限，历史不完整不误判NEW',core.classify(state,'me',id(30000)).personStats.theirCommentedPosts===3&&core.classify(state,'me',id(30000)).personStats.incomplete===true);
   core.ingest(state,{},'me',now+core.RETENTION_MS+40000);await storage.save(state);
   check('90天正文过期不清除互动累计',Object.keys(state.tweets).length===0&&state.people['1:2'].theirCommentedPosts===3);
-  const capTx=db.transaction(['interactionFacts','people','metadata'],'readwrite'),capDone=done(capTx),meta=await request(capTx.objectStore('metadata').get('state')),person=await request(capTx.objectStore('people').get('1:2'));
-  const previousCount=meta.value.statistics.factCount;
-  for(let n=previousCount;n<core.LIMIT;n++)capTx.objectStore('interactionFacts').put({key:`1:2:out:${id(100000+n)}`,accountId:'1',peerId:'2',direction:'out',rootId:id(100000+n),firstReplyId:'',seenAt:now});
-  person.value.myCommentedPosts+=core.LIMIT-previousCount;meta.value.statistics.factCount=core.LIMIT;
-  capTx.objectStore('people').put(person);capTx.objectStore('metadata').put(meta);await capDone;
-  state=await XReplyStorage.create().load();core.prepare(state);
+  async function fillLedger(limit,oldCap=false){
+   const tx=db.transaction(['interactionFacts','people','metadata','tweets'],'readwrite'),written=done(tx);
+   const meta=await request(tx.objectStore('metadata').get('state'));
+   const statistics=meta.value.statistics,previousCount=statistics.factCount;
+   for(let n=previousCount;n<limit;n++){
+    const peerId=String(100000+n),rootId=id(100000+n);
+    tx.objectStore('interactionFacts').put({key:`1:${peerId}:out:${rootId}`,accountId:'1',peerId,direction:'out',rootId,firstReplyId:'',seenAt:now});
+    tx.objectStore('people').put({key:`1:${peerId}`,value:{myCommentedPosts:1,theirCommentedPosts:0,firstCommentOnMyPostId:'',seenAt:now}});
+   }
+   statistics.factCount=limit;statistics.peopleCount+=limit-previousCount;statistics.atCapacity=true;
+   if(oldCap){
+    meta.value.interactionRulesVersion=1;
+    const seenAt=now+core.RETENTION_MS+40001;
+    for(const cached of [tweet(90000,'1'),tweet(90001,'2',90000,90000,'1')]){
+     tx.objectStore('tweets').put({key:cached.id,value:{...cached,seenAt}});
+    }
+   }
+   tx.objectStore('metadata').put(meta);await written;
+  }
+  await fillLedger(core.LIMIT,true);
+  storage=XReplyStorage.create();t=performance.now();state=await storage.load();core.prepare(state);metrics.expandAndReplayMs=performance.now()-t;
+  check('旧账本满2万后仍能补回缓存事实，清除当前满额提示并保留历史缺口',
+    (await count('interactionFacts'))===core.LIMIT+1&&state.people['1:2'].theirCommentedPosts===4&&state.statistics.incomplete&&!state.statistics.atCapacity);
+  check('用户资料过期后冷启动保留已核验的账号映射',!core.findAccount(state,'me')&&core.findOwnAccount(state,'me')?.id==='1');
+  await fillLedger(core.INTERACTION_LIMIT);
+  storage=XReplyStorage.create();t=performance.now();state=await storage.load();core.prepare(state);metrics.cold40kMs=performance.now()-t;
+  check('冷启动可读超过2万个人物汇总，事实表仍只计数',Object.keys(state.people).length>core.LIMIT&&factReads===0);
   const retained=state.people['1:2'].theirCommentedPosts;
-  core.ingest(state,{users:[{id:'1',handle:'me'},{id:'2',handle:'peer'}],tweets:[tweet(90000,'1'),tweet(90001,'2',90000,90000,'1')]},'me',now+core.RETENTION_MS+50000);await storage.save(state);
-  check('互动事实满2万不淘汰历史、不乱加数，明确标记容量不足',(await count('interactionFacts'))===core.LIMIT&&state.statistics.atCapacity&&state.people['1:2'].theirCommentedPosts===retained);
+  core.ingest(state,{tweets:[tweet(91000,'1'),tweet(91001,'2',91000,91000,'1')]},'me',now+core.RETENTION_MS+50000);await storage.save(state);
+  check('互动事实满4万保留原计数，明确标记容量不足',(await count('interactionFacts'))===core.INTERACTION_LIMIT&&state.statistics.atCapacity&&state.people['1:2'].theirCommentedPosts===retained);
   check('备份始终保持迁移前原样',(await read('backups','people:1:2')).record.value.theirCommentedPosts===1);
   output.dataset.result='passed';output.textContent=JSON.stringify({fixture:true,checks,metrics},null,2);
  }catch(error){output.dataset.result='failed';output.textContent=JSON.stringify({checks,error:error.message,stack:error.stack},null,2);}

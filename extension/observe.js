@@ -84,20 +84,33 @@
     });
   }
 
+  function minimalReplyEvidence(node,createdId,parentId) {
+    const legacy = node?.legacy || node;
+    if (!legacy || !createdId || createdId === parentId || legacy.retweeted_status || legacy.retweeted_status_result) return null;
+    const parent = Array.isArray(node.referenced_tweets) ? node.referenced_tweets.find(item => item?.type === "replied_to") : null;
+    if (core.id(legacy.in_reply_to_status_id_str || parent?.id) !== parentId) return null;
+    const authorId = core.id(legacy.user_id_str || node.core?.user_results?.result?.rest_id || node.author_id);
+    if (!authorId) return null;
+    return {id:createdId,authorId,parentId,conversationId:core.id(legacy.conversation_id_str || node.conversation_id),
+      recipientId:core.id(legacy.in_reply_to_user_id_str || node.in_reply_to_user_id)};
+  }
+
   async function replyResult(context,status,payload) {
     if (!REPLY_RESULTS[context.operation] || context.replyFinished) return;
     context.replyFinished = true;
     const parentId = await context.replyParent;
     if (!parentId || !context.account || context.account !== currentAccount()) return;
-    let batch;
+    let batch, replyEvidence;
     const warning=responseWarning(payload,context);
     if (payload) {
       const result = payload.data?.[REPLY_RESULTS[context.operation]]?.tweet_results?.result;
       const parsed = core.extract(payload);
-      const createdId = core.id(result?.rest_id || result?.tweet?.rest_id || result?.legacy?.id_str);
-      const tweet = parsed.tweets.find(item => item.id === createdId && item.parentId === parentId);
-      const user = tweet && parsed.users.find(item => item.id === tweet.authorId && item.handle === context.account);
-      if (!warning.hasErrors && tweet && user) {
+      const created = result?.tweet || result;
+      const createdId = core.id(created?.rest_id || created?.legacy?.id_str || created?.id);
+      const tweet = createdId !== parentId && parsed.tweets.find(item => item.id === createdId && item.parentId === parentId);
+      const evidence = tweet || minimalReplyEvidence(created,createdId,parentId);
+      const user = evidence && parsed.users.find(item => item.id === evidence.authorId);
+      if (!warning.hasErrors && tweet && user?.handle === context.account) {
         status = "sent";
         batch = {
           users:[user,...parsed.users.filter(item => item.id !== user.id)],
@@ -105,13 +118,18 @@
           likes:parsed.likes.map(like => ({ ...like,account:context.account,
             observedAt:context.observedAt,source:"snapshot" }))
         };
-      } else status = warning.hasErrors && !createdId ? "failed" : "unknown";
+      } else {
+        status = warning.hasErrors && !createdId ? "failed" : "unknown";
+        // Let the worker check the author ID for recording only. The reply flow still pauses on a partial receipt.
+        if (!warning.hasErrors && evidence && (!user || user.handle === context.account)) replyEvidence = evidence;
+      }
     }
     if (status!=="sent" || warning.present) {
       await interactionAlert(context,{payload,reason:status==="sent"?"warning":status});
     }
     window.postMessage({ channel:CHANNEL,type:"REPLY_RESULT",parentId,
       account:context.account,requestId:context.requestId,startedAt:context.observedAt,status,
+      replyEvidence,
       batch:batch && Object.fromEntries(Object.entries(batch).map(([name,items]) => [name,items.slice(0,500)])) },location.origin);
     return status === "sent" ? batch : null;
   }

@@ -8,6 +8,7 @@
   <p><a href="ai-settings.html" target="_blank" rel="noopener">AI 回复设置 · 多组 API ↗</a></p>
   <header><span class="logo">✓</span><div><h1>回过了</h1><p>X 通知助手</p></div></header>
   <p id="status" role="status">正在读取本地统计…</p>
+  <a id="interaction-report" class="secondary" hidden target="_blank" rel="noopener noreferrer">互动分析 ↗</a>
   <a id="history" class="primary" hidden target="_blank" rel="noopener noreferrer">补充我的历史回复</a>
   <a class="secondary" href="https://x.com/notifications" target="_blank" rel="noopener noreferrer">打开 X 通知</a>
   <form id="post-video-form" class="home-filter-setting">
@@ -68,6 +69,13 @@
     </details>
     <p id="home-filter-status" role="status"></p>
   </section>
+  <form id="recommended-interaction-skip" class="home-filter-setting">
+    <label><input name="enabled" type="checkbox" disabled>为你推荐 · 按互动差值跳过</label>
+    <label class="timed-number">我评他 − 他评我 &gt; <input name="gap" aria-label="互动差值阈值" type="number" min="0" max="40000" step="1" value="5" required disabled> 篇</label>
+    <p class="setting-hint">选下一条和换批时比较双向记录。可在「互动分析」管理白名单。</p>
+    <button type="submit" disabled>保存差值设置</button>
+    <p role="status"></p>
+  </form>
   <section class="home-filter-setting">
     <label><input id="auto-hide-like-notifications" type="checkbox" disabled aria-describedby="like-filter-help">通知自动隐藏点赞消息</label>
     <p id="like-filter-help" class="setting-hint">接收即过滤 · 不留占位 · 空批暂停翻页。</p>
@@ -101,7 +109,7 @@
   <details><summary>通知整理与回复框</summary>
   <p>所有已支持入口的回复框最底部显示「我评他／他评我」，按双方评论对方的不同原帖数统计；同篇多次只计1，只用本地记录，缺数据时显示待确认。通知回复框另外显示原帖、文字/红心状态和 NEW，计数不重复显示。「伴随主页」点击后打开一个原生主页窗口；同一个人只唤起，换人直接切换原窗口，不检查右侧草稿或编辑状态；左侧通知和草稿不动。重载扩展前请关闭伴随窗口；未确认账号时不可打开。</p>
   <p>通知标题栏的「自动整理」默认关闭并记住选择。开启隐藏规则后，主动操作后空闲10秒，只整理一轮阅读区下方较远的完成评论；补位、新数据和页面自行滚动不再续清，回复框和后台暂停。当前及上方卡片保留，按钮位置固定。</p>
-  <p>「整理列表」仅一次应用已加载评论的完成状态。「自动整理」仍为空闲10秒处理阅读区下方的完成评论；点赞、关注、转发由各自开关在接收时过滤，不再追加1px隐藏占位。空批提示使用独立浮层，不往列表顶部堆积空间。</p>
+  <p>「整理列表」应用已加载评论的完成状态。翻页暂停时，点击它还可放行下一批。「自动整理」在空闲 10 秒后处理阅读区下方的完成评论。</p>
   </details>
   <details><summary>异常提示与暂停</summary>
     <p>已监听的评论／点赞接口返回错误、限流、警告或无法确认结果时，顶部红色提示持续显示，并暂停本页发送、点赞、AI生成与连续处理；草稿保留，列表不挪动。不增加 X 请求。</p>
@@ -140,11 +148,11 @@
     <p>NEW 只标他首次评论你原帖的那条通知，且必须“我评他”为 0；后续评论不重复标新。点赞或你在自己原帖下回复他不影响 NEW；你评论过他的原帖后，不再标 NEW。</p>
     <p>点击「文-已回」或「红-已点」可查看同帖同人的回复或点赞依据。</p>
     <p>打开自己的“回复”页，向下浏览近期回复。已加载的回复会自动记住，新发送成功的回复也会记录。</p>
-    <p>正常浏览通知和帖子即可补充页面返回的红心状态。点赞成功后自动记录，取消点赞后更新对应记录。</p>
+    <p>翻通知或打开原帖可补录页面返回的评论和红心证据。确认对方评论的是你的原帖后，按对方与原帖记入「他评我」。</p>
     <p>「待定」或「待确认」表示本地证据不足。手机或其他浏览器里的操作，需要在此浏览器加载后才能识别。</p>
-    <p>所有数字和 NEW 均依据本地记录。确认原帖作者后补计，清理正文缓存不会减少累计。历史不完整时，数字是已知下限，悬停可看说明。到 2 万事实上限时保留旧数，提示部分新增未计入。</p>
+    <p>所有数字和 NEW 均依据本地记录。确认原帖作者后补计，清理正文缓存不会减少累计。历史不完整时，数字是已知下限，悬停可看说明。账本达到上限后保留已有计数。</p>
   </details>
-  <footer>互动统计仅本机保存 · 定时发送需手动开启<br>缓存保留90天、每类最多20,000条；互动累计独立保存，事实与人物各限20,000条</footer>
+  <footer>互动统计仅本机保存 · 定时发送需手动开启<br>浏览缓存保留90天、每类最多20,000条。互动事实和人物汇总分别最多40,000条。</footer>
   <script src="timed-replies.js"></script>
   <script src="reply-skip-authors.js"></script>
   <script src="popup.js"></script>

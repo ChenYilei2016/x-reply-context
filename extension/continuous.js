@@ -54,7 +54,14 @@
     return authorFromPostLink(article,id) || row?.authorHandle?.toLowerCase() || "";
   }
 
-  function allowedAuthor(skipped,article,id,row) {
+  function excludedByInteractionGap(row,gap,whitelist) {
+    if (!Number.isSafeInteger(gap) || !row?.authorId || whitelist?.has(row.authorId)) return false;
+    const {myCommentedPosts:mine,theirCommentedPosts:theirs} = row.personStats || {};
+    return mine > 0 && theirs > 0 && mine - theirs > gap;
+  }
+
+  function allowedAuthor(skipped,article,id,row,gap,whitelist) {
+    if (excludedByInteractionGap(row,gap,whitelist)) return false;
     if (!skipped?.size) return true;
     const author = candidateAuthor(article,id,row);
     return Boolean(author) && !skipped.has(author);
@@ -161,6 +168,16 @@
 
     function mountedCards(s) {
       return mountedArticles(s).map(article => [tweetId(article),article]).filter(([id]) => id);
+    }
+
+    function recommendedCandidates() {
+      return [...new Map(mountedCards({feed:"home"}).filter(([,article]) =>
+        availableArticle(article) && enabled(article.querySelector('[data-testid="reply"]'))))];
+    }
+
+    function selectionSignature(ids,recommended) {
+      const gap = recommended ? skipAuthors?.recommendedInteractionGap?.() : null;
+      return `${contextRevision}:${skipAuthors?.revision() || 0}:${gap ?? ""}:${ids.join(",")}`;
     }
 
     function cardPosition(cards,{id,article}) {
@@ -329,30 +346,45 @@
         if (!intent.switched && tabs.some(tab=>tab.getAttribute("aria-selected")==="true")) {intent.switched=true;tabs[0].click();}
         return "waiting";
       }
-      const candidates=[...new Map(articles({feed:"home"}).map(article=>[tweetId(article),article]))]
-        .filter(([id,article])=>id&&enabled(article.querySelector('[data-testid="reply"]'))).slice(0,100);
-      if (!candidates.length) return "waiting";
-      const signature=`${contextRevision}:${skipAuthors?.revision() || 0}:${candidates.map(([id])=>id).join(",")}`;
+      const ids = recommendedCandidates().map(([id]) => id);
+      if (!ids.length) return "waiting";
+      const signature = selectionSignature(ids,true);
       if (intent.lastCheck===signature) return "waiting";
       intent.lastCheck=signature;
-      const result=await message({type:"CLASSIFY",account:intent.account,ids:candidates.map(([id])=>id)});
-      if (!valid() || session || location.pathname!=="/home" || selectedHomeTab(primary)!==0) return "paused";
-      if (result.recognized===false) return "waiting";
-      const rows=new Map(result.rows.map(row=>[row.id,row]));
-      const skipped = skipAuthors?.authors(intent.account);
-      const next = candidates.find(([id,article]) => {
-        const row = rows.get(id);
-        return article.isConnected && tweetId(article) === id && row?.authorHandle && row.authorHandle !== intent.account &&
-          row.personStats && eligible(row) && allowedAuthor(skipped,article,id,row) && enabled(article.querySelector('[data-testid="reply"]'));
-      });
-      if (!next) return candidates.some(([id,article]) => {
-        const row = rows.get(id);
-        if (skipped?.size && skipped.has(candidateAuthor(article,id,row))) return false;
-        return !row?.authorHandle || row.authorHandle !== intent.account && !row.personStats;
-      }) ? "waiting" : "empty";
-      start(next[1],"home",{restoring:true});
-      if (!session || session.current.id!==next[0])return "paused";
-      session.phase="opening";openCurrent(session);return "opened";
+      let awaitingEvidence = false;
+      for (let offset = 0; offset < ids.length; offset += 100) {
+        const batch = ids.slice(offset,offset+100);
+        const result = await message({type:"CLASSIFY",account:intent.account,ids:batch});
+        if (!valid() || session || location.pathname !== "/home") return "paused";
+        const currentColumn = document.querySelector(PRIMARY_COLUMN);
+        if (selectedHomeTab(currentColumn) !== 0) {
+          return currentColumn?.querySelector('[role="tab"][aria-selected="true"]') ? "paused" : "waiting";
+        }
+        if (result.recognized === false) return "waiting";
+        const rows = new Map(result.rows.map(row => [row.id,row]));
+        const classified = new Set(batch);
+        const skipped = skipAuthors?.authors(intent.account);
+        const gap = skipAuthors?.recommendedInteractionGap?.();
+        const whitelist = gap == null ? undefined : skipAuthors?.whitelist(result.accountId);
+        // Match IDs to the current cards: X may replace or hide nodes during classification.
+        for (const [id,article] of recommendedCandidates()) {
+          if (!classified.has(id)) continue;
+          const row = rows.get(id);
+          const author = candidateAuthor(article,id,row);
+          if (author === intent.account || skipped?.has(author) || excludedByInteractionGap(row,gap,whitelist) || row && !eligible(row)) continue;
+          if (!author || !row?.personStats) { awaitingEvidence = true; continue; }
+          if (!valid()) return "paused";
+          start(article,"home",{restoring:true});
+          if (!session || session.current.id !== id) return "paused";
+          session.phase = "opening";
+          return openCurrent(session) ? "opened" : "paused";
+        }
+      }
+      if (signature !== selectionSignature(recommendedCandidates().map(([id]) => id),true)) {
+        requestRefresh();
+        return "waiting";
+      }
+      return awaitingEvidence ? "waiting" : "empty";
     }
 
     function replyPostId(editor) {
@@ -517,28 +549,39 @@
       try {
         if (skipAuthors && !await skipAuthors.ready()) throw new Error("跳过名单暂不可用，请刷新 X 后再试。");
         if (!canContinue()) return;
-        const skipVideos = isRecommended(s) && aiFillRecommendedEnabled();
+        const recommended = isRecommended(s);
+        const skipVideos = recommended && aiFillRecommendedEnabled();
         const canOpen = ([id,article]) => !s.handled.has(id) && availableArticle(article) &&
           enabled(article.querySelector('[data-testid="reply"]')) &&
           (!skipVideos || !globalThis.XReplyAIReplies?.videoOnlyArticle(article));
-        const ids = [...new Set(cardsAfter(mountedCards(s),s.current).filter(canOpen).map(([id]) => id))];
+        const nextIds = () => [...new Set(cardsAfter(mountedCards(s),s.current).filter(canOpen).map(([id]) => id))];
+        let ids = nextIds();
         let next;
         // Only inspect mounted cards; classify locally in bounded batches.
-        for (let offset = 0; offset < ids.length && !next; offset += 100) {
-          const result = await message({ type:"CLASSIFY",account:s.account,ids:ids.slice(offset,offset+100) });
-          if (!canContinue()) return;
-          if (s.afterReply?.timed && !s.afterReply.cancelled && !timedPageAllowed()) {
-            timedReplies?.pause("页面不在前台，返回后点击继续本轮");
-            return;
+        const signature = recommended ? selectionSignature(ids,true) : "";
+        for (let pass = 0; pass < 2 && !next; pass++) {
+          for (let offset = 0; offset < ids.length && !next; offset += 100) {
+            const result = await message({ type:"CLASSIFY",account:s.account,ids:ids.slice(offset,offset+100) });
+            if (!canContinue()) return;
+            if (s.afterReply?.timed && !s.afterReply.cancelled && !timedPageAllowed()) {
+              timedReplies?.pause("页面不在前台，返回后点击继续本轮");
+              return;
+            }
+            const byId = new Map(result.rows.map(row => [row.id,row]));
+            const skipped = skipAuthors?.authors(s.account);
+            const gap = recommended ? skipAuthors?.recommendedInteractionGap?.() : null;
+            const whitelist = gap == null ? undefined : skipAuthors?.whitelist(result.accountId);
+            const cards = mountedCards(s);
+            const match = cardsAfter(cards,s.current).find(([id,article]) => {
+              const row = byId.get(id);
+              return eligible(row) && canOpen([id,article]) && allowedAuthor(skipped,article,id,row,gap,whitelist);
+            });
+            if (match) next = replyTarget(match[0],match[1],cards);
           }
-          const byId = new Map(result.rows.map(row => [row.id,row]));
-          const skipped = skipAuthors?.authors(s.account);
-          const cards = mountedCards(s);
-          const match = cardsAfter(cards,s.current).find(([id,article]) => {
-            const row = byId.get(id);
-            return eligible(row) && canOpen([id,article]) && allowedAuthor(skipped,article,id,row);
-          });
-          if (match) next = replyTarget(match[0],match[1],cards);
+          if (next || !recommended || pass > 0) break;
+          // Catch cards, settings or evidence that changed during the read, without polling.
+          ids = nextIds();
+          if (selectionSignature(ids,true) === signature) break;
         }
         if (!next) {
           finish("当前位置之后没有符合条件的已加载帖子。向下浏览后，可以从任一条重新开始。");
@@ -558,7 +601,7 @@
     }
 
     function openCurrent(s) {
-      if (!currentSession(s)) return;
+      if (!currentSession(s)) return false;
       const article = currentArticle(s);
       const reply = article?.querySelector('[data-testid="reply"]');
       if (!enabled(reply)) {
@@ -566,7 +609,7 @@
         showNotice("这条内容已移出页面，可继续选择其他已加载内容。",{
           label:"继续下一条",run:() => selectNext(s)
         });
-        return;
+        return false;
       }
       clearNotice();
       openingId = s.current.id;
@@ -576,6 +619,7 @@
       s.timeout = setTimeout(() => {
         if (session === s && s.phase === "opening") finish("未能打开下一条，请从列表重新开始。");
       },8000);
+      return session === s;
     }
 
     const postReplyPhase = s => s && ["like-delay","liking"].includes(s.phase);
