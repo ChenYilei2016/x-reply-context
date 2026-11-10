@@ -32,13 +32,15 @@ test('自带API请求只发模型地址，模板/输出清理兼容，网页拿�
 test('生成把已加载的上下文作为素材发送，带图可选，改写只用正文和草稿',async()=>{
   const {request,calls}=setup(undefined,id=>id==='123'?{root:'本地原帖摘要'}:{});
   const context={postId:'123',comments:['直接评论1','直接评论2','直接评论3','不带第四条'],
-    image:'https://pbs.twimg.com/media/Example?format=jpg&name=small&token=test-token',imageFrom:'post'};
+    image:'https://pbs.twimg.com/media/Example?format=jpg&name=small&token=test-token',imageFrom:'post',imageRequested:true};
   const result=await request('with-context',{post:'本帖正文',context});
   assert.equal(result.ok,true);
   assert.equal(result.contextUsed.root,true);
   assert.equal(result.contextUsed.comments,3);
-  assert.equal(result.contextUsed.image,true);
+  assert.equal(result.contextUsed.imageRequested,true);
   const [system,user]=JSON.parse(calls[0][1].body).messages;
+  assert.equal(result.contextUsed.text,user.content[0].text);
+  assert.equal(result.contextUsed.image,user.content[1].image_url.url);
   assert.match(system.content,/post=见用户消息中的「当前帖子」/);
   assert.doesNotMatch(system.content,/本帖正文|本地原帖摘要|直接评论/);
   assert.match(user.content[0].text,/当前帖子\n本帖正文[\s\S]+原帖\n本地原帖摘要[\s\S]+直接评论3/);
@@ -97,7 +99,9 @@ test('超大响应和模型错误返回受控错误，不泄漏服务端正文',
   const large=setup(async()=>new Response('x'.repeat(1024*1024+1)));
   assert.match((await large.request('large')).error,/过大/);
   const rejected=setup(async()=>new Response('provider secret',{status:401}));
-  const result=await rejected.request('unauthorized');assert.equal(result.ok,false);assert.match(result.error,/Key/);assert.ok(!result.error.includes('provider secret'));
+  const result=await rejected.request('unauthorized',{context:{postId:'123'}});
+  assert.equal(result.ok,false);assert.match(result.error,/Key/);assert.ok(!result.error.includes('provider secret'));
+  assert.equal(result.contextUsed.text,JSON.parse(rejected.calls[0][1].body).messages[1].content);
 });
 
 test('自动补全默认关闭，独立开关不改接口配置或阻止手动生成',async()=>{

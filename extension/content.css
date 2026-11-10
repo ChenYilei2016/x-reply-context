@@ -73,6 +73,34 @@ article[data-xrc-notification-hidden],
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .xrc-main-labels > .xrc-user-counts { margin-inline-start: 2px; opacity: .75; }
+.xrc-inline-author {
+  display: inline-flex; align-items: center; align-self: center; flex: 0 1 auto; gap: 5px;
+  min-width: 0; max-width: 100%; height: 16px; margin-inline-start: 4px; vertical-align: middle;
+}
+[data-testid="UserCell"] div:has(> a:first-child + .xrc-inline-author:last-child) {
+  flex-direction: row; align-items: center;
+}
+[data-testid="UserCell"] .xrc-inline-author { flex-shrink: 0; }
+.xrc-inline-author-row {
+  display: flex; align-self: stretch; flex: 0 0 auto; gap: 8px; height: 18px; margin: 0 0 3px;
+}
+:is(.xrc-inline-author,.xrc-flow-people) > .xrc-user-counts {
+  min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; opacity: .75;
+}
+.xrc-inline-person-stats {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75;
+  font: 11px/1 system-ui,sans-serif; font-variant-numeric: tabular-nums;
+}
+.xrc-skip-author {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 16px; align-self: center;
+  box-sizing: border-box; width: 16px; height: 16px; padding: 0; margin: 0;
+  border: 1px solid #8293a460; border-radius: 50%; background: transparent; color: inherit;
+  font: 13px/1 system-ui,sans-serif; vertical-align: middle; opacity: .65; cursor: pointer;
+}
+.xrc-skip-author:hover,.xrc-skip-author[aria-pressed="true"] { opacity: 1; }
+.xrc-skip-author[aria-pressed="true"] { color: #e04730; border-color: currentColor; background: #e047301c; }
+.xrc-skip-author:focus-visible { outline: 2px solid #087ebd; outline-offset: 2px; }
+.xrc-skip-author:disabled { opacity: .45; cursor: wait; }
 .xrc-labels .xrc-origin, .xrc-labels .xrc-status, .xrc-labels .xrc-heart, .xrc-labels .xrc-person, .xrc-flow-people .xrc-person {
   padding: 2px 6px; border: 1px solid #8293a43b; border-radius: 5px;
   background: #8293a410; white-space: nowrap;
@@ -105,9 +133,23 @@ article[data-xrc-notification-hidden],
 .xrc-reply-tools { display:flex; flex:0 0 100%; min-width:0; align-items:center; gap:6px; height:34px; }
 .xrc-quick-replies { display: flex; flex: 1; align-items: center; gap: 4px; height: 30px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .xrc-ai-options { flex: 0 0 min(38%,122px); min-width: 0; display: flex; justify-content: flex-end; align-items: center; gap: 6px; white-space: nowrap; font-size: 11px; }
-.xrc-ai-options label { flex: none; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
-.xrc-ai-options input { width: 13px; height: 13px; margin: 0; accent-color: #087ebd; }
+.xrc-ai-picture-option { flex: none; display: inline-flex; align-items: center; gap: 3px; }
+.xrc-ai-options input { width: 13px; height: 13px; margin: 0; accent-color: #087ebd; cursor: pointer; }
+.xrc-ai-options .xrc-ai-context-toggle { padding: 0; border: 0; color: inherit; font-weight: inherit; text-decoration: underline dotted; text-underline-offset: 2px; }
+.xrc-ai-context-toggle:hover, .xrc-ai-context-toggle[aria-expanded="true"] { text-decoration-style: solid; }
 .xrc-ai-context-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; opacity: .8; }
+.xrc-ai-context-details { position: fixed; z-index: 2147483646; right: 12px; bottom: 12px; box-sizing: border-box;
+  width: min(420px, calc(100vw - 24px)); max-height: min(60vh, 460px); overflow: auto; overscroll-behavior: contain;
+  color-scheme: light dark; background: Canvas; color: CanvasText; border: 1px solid #8293a470;
+  border-radius: 12px; box-shadow: 0 6px 24px #0003; font: 13px/1.5 system-ui, sans-serif; }
+.xrc-ai-context-details > div:first-child { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 9px 12px; background: Canvas; border-bottom: 1px solid #8293a440; }
+.xrc-ai-context-details > div:last-child { padding: 10px 12px; }
+.xrc-ai-context-details button { padding: 3px 8px; border: 1px solid #8293a470; border-radius: 12px; background: transparent;
+  color: inherit; font: inherit; cursor: pointer; }
+.xrc-ai-context-details pre, .xrc-ai-context-details p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.xrc-ai-context-details p { margin-top: 8px; opacity: .8; font-size: 11px; }
+.xrc-ai-context-details canvas { display: block; max-width: 100%; height: auto; margin-top: 10px; border-radius: 6px; }
 .xrc-continuous .xrc-quick-reply { padding:4px 4px; font-size:12px; display:inline-flex; align-items:center; gap:4px; }
 .xrc-continuous kbd { font:10px/1 system-ui,sans-serif; opacity:.7; white-space:nowrap; }
 .xrc-flow-context {

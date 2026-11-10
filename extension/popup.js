@@ -28,12 +28,50 @@ void installCheckbox("#auto-hide-follow-notifications","autoHideFollowNotificati
 void installCheckbox("#auto-hide-repost-notifications","autoHideRepostNotifications","#repost-filter-status",
   "已开启，后续接收时过滤转发通知；带正文的引用帖保留。",false,"已关闭；刷新通知页可恢复此前被过滤的转发通知。");
 
+let popupAccount = "";
+const skipAuthors = globalThis.XReplySkipAuthors?.createClient(chrome.storage,renderSkipAuthors);
+
+function renderSkipAuthors() {
+  if (!popupAccount || !skipAuthors?.revision()) return;
+  const panel = document.querySelector("#reply-skip-authors");
+  const status = panel.querySelector('[role="status"]');
+  const authors = [...skipAuthors.authors(popupAccount)].sort();
+  panel.querySelector("summary").textContent = `自动跳过名单（${authors.length}）`;
+  status.textContent = authors.length ? `@${popupAccount} 的本地名单` : "当前账号没有标记跳过的作者。";
+  const items = authors.map(author => {
+    const row = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "恢复";
+    button.setAttribute("aria-label",`恢复 @${author}`);
+    button.addEventListener("click",async () => {
+      button.disabled = true;
+      try {
+        const result = await chrome.runtime.sendMessage({ type:"SET_REPLY_SKIP_AUTHOR",account:popupAccount,author,skipped:false });
+        if (!result?.ok) throw new Error(result?.error || "名单暂不可用，请重试。");
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
+    row.append(`@${author}`,button);
+    return row;
+  });
+  panel.querySelector("ul").replaceChildren(...items);
+}
+
 (async () => {
   const status = document.querySelector("#status");
   try {
     const [tab] = await chrome.tabs.query({ active:true,currentWindow:true });
     const { account } = await chrome.tabs.sendMessage(tab.id,{ type:"GET_ACCOUNT" });
     if (!account) throw new Error("请先打开已登录的 X 页面。");
+    popupAccount = account;
+    if (skipAuthors) void skipAuthors.ready().then(ready => {
+      if (ready) renderSkipAuthors();
+      else document.querySelector('#reply-skip-authors [role="status"]').textContent = "名单暂不可用，请重新打开扩展。";
+    });
     const summary = await chrome.runtime.sendMessage({ type:"SUMMARY",account });
     if (!summary?.ok) throw new Error(summary?.error || "本地记录暂不可用");
     status.textContent = `@${account}\n已记录 ${summary.replyCount} 组文字回复 · ${summary.likeCount} 条红心`;

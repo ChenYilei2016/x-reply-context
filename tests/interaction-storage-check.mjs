@@ -34,7 +34,7 @@ document.querySelector('#run').onclick=async event=>{
   const count=async store=>request(db.transaction(store,'readonly').objectStore(store).count());
   check('迁移前完整备份，迁移中断仍保留旧统计且无半份新事实',failed&&(await count('interactionFacts'))===0&&JSON.stringify((await read('backups','people:1:2')).record.value)===JSON.stringify(old.people['1:2'])&&(await read('people','1:2')).value.theirCommentedPosts===1);
   check('旧local快照也先备份，未混入API配置',(await read('backups','legacy')).value.people['1:2'].myCommentedPosts===7);
-  const storage=XReplyStorage.create();let t=performance.now(),state=await storage.load();core.prepare(state);metrics.migrationMs=performance.now()-t;
+  let storage=XReplyStorage.create();let t=performance.now(),state=await storage.load();core.prepare(state);metrics.migrationMs=performance.now()-t;
   check('重试迁移去重，历史下限不与事实重复相加',state.statistics.factCount===2&&state.people['1:2'].myCommentedPosts===1&&core.classify(state,'me',id(2)).personStats.myCommentedPosts===7&&state.statistics.incomplete);
   const before=[factWrites,peopleWrites];core.ingest(state,{tweets:[tweet(2,'2',1,1,'1'),tweet(6,'2',1,1,'1')]},'me',now+1);await storage.save(state);
   check('同帖多次与重复加载不改计数、不重写事实或汇总',state.people['1:2'].theirCommentedPosts===1&&factWrites===before[0]&&peopleWrites===before[1]);
@@ -43,13 +43,29 @@ document.querySelector('#run').onclick=async event=>{
   core.ingest(state,{tweets:[tweet(9,'1'),tweet(10,'2',9,9,'1')]},'me',now+3);abortStore='interactionFacts';failed=false;try{await storage.save(state);}catch{failed=true;}
   check('事实写入中断时计数不先增加',failed&&(await read('people','1:2')).value.theirCommentedPosts===2&&(await count('interactionFacts'))===3);
   await storage.save(state);check('失败后重试只补一次，不重复累计',(await count('interactionFacts'))===4&&state.people['1:2'].theirCommentedPosts===3);
+  const repairTx=db.transaction(['metadata','roots','tweets'],'readwrite'),repairDone=done(repairTx);
+  const repairMeta=await request(repairTx.objectStore('metadata').get('state'));
+  delete repairMeta.value.interactionRulesVersion;
+  repairTx.objectStore('metadata').put(repairMeta);
+  repairTx.objectStore('roots').put({key:id(11),value:{id:id(11),authorId:'1',seenAt:now}});
+  repairTx.objectStore('tweets').put({key:id(12),value:{...tweet(12,'3',11,11,'1'),conversationId:'',seenAt:now}});
+  await repairDone;
+  abortStore='interactionFacts';failed=false;try{await XReplyStorage.create().load();}catch{failed=true;}
+  check('升级补算失败时保留已有次数，完成标记可重试',failed&&(await count('interactionFacts'))===4&&
+    !(await read('metadata','state')).value.interactionRulesVersion);
+  storage=XReplyStorage.create();state=await storage.load();core.prepare(state);
+  check('补回缓存中可确认的一篇，旧事实不重复累加',state.people['1:3'].theirCommentedPosts===1&&
+    state.people['1:2'].theirCommentedPosts===3&&(await count('interactionFacts'))===5&&
+    Boolean((await read('metadata','state')).value.interactionRulesVersion));
   t=performance.now();for(let offset=0;offset<core.LIMIT;offset+=500){
    core.ingest(state,{tweets:Array.from({length:500},(_,i)=>tweet(1000+offset+i,'3'))},'me',now+4+offset);
   }
   metrics.fill20kCacheMs=performance.now()-t;await storage.save(state);
   check('仅一条自己的回复，2万条浏览淘汰原评论和原帖后人数计数不减少',Object.keys(state.replies).length===1&&!state.tweets[id(2)]&&!state.roots[id(3)]&&state.people['1:2'].theirCommentedPosts===3&&state.people['1:2'].myCommentedPosts===1);
+  const writesBeforeReopen=factWrites;
   t=performance.now();state=await XReplyStorage.create().load();core.prepare(state);metrics.coldReadMs=performance.now()-t;
-  check('重开恢复汇总而不全量加载事实',state.people['1:2'].theirCommentedPosts===3&&factReads===0);
+  check('重开恢复汇总，已完成补算不重复执行',state.people['1:2'].theirCommentedPosts===3&&
+    state.people['1:3'].theirCommentedPosts===1&&factReads===0&&factWrites===writesBeforeReopen);
   core.ingest(state,{users:[{id:'1',handle:'me'},{id:'2',handle:'peer'}],tweets:[tweet(30000,'2')]},'me',now+30000);await storage.save(state);
   const rows=Array.from({length:100},()=>id(30000));core.classifyBatch(state,'me',rows);t=performance.now();core.classifyBatch(state,'me',rows);metrics.warmClassify100Ms=performance.now()-t;
   check('显示保守下限，历史不完整不误判NEW',core.classify(state,'me',id(30000)).personStats.theirCommentedPosts===3&&core.classify(state,'me',id(30000)).personStats.incomplete===true);

@@ -1,8 +1,9 @@
-importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-context.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js","post-video.js","video-download.js");
+importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-context.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js","post-video.js","video-download.js","reply-skip-authors.js");
 let aiService;
 let companion;
 let refreshCycle;
 let videoDownload;
+let saveSkippedAuthor;
 const AWAKE_KEY = "timedAwakeTabs";
 const AWAKE_ALARM = "timedAwakeCleanup";
 let awakeQueue = Promise.resolve();
@@ -32,6 +33,7 @@ let urgentRun = 0;
 let savedRevision = "";
 let revision = 0;
 let revisionPending = false;
+let savePending = false;
 
 function cachedThread(postId) {
   const post = state?.tweets[postId];
@@ -44,7 +46,9 @@ function cachedThread(postId) {
 
 async function persist(changed = true) {
   revisionPending ||= changed;
+  savePending = true;
   const result=await storage.save(state);
+  savePending = false;
   revisionPending ||= result?.statsChanged===true;
   if (!revisionPending) return false;
   savedRevision = `${Date.now()}:${++revision}`;
@@ -131,12 +135,12 @@ async function handleMessage(message) {
     const changed = await persist(core.ingest(state,message.batch,account));
     return { ok:true,revision:savedRevision,changed };
   }
-  if (message.type === "CLASSIFY" || message.type === "SUMMARY") {
+  if (["PERSON_STATS","CLASSIFY","SUMMARY"].includes(message.type)) {
     const me = core.findAccount(state,account);
-    if (me && !state.accounts[me.id]) {
-      core.ingest(state,{},account);
-      await persist();
-    }
+    const registering = Boolean(me && !state.accounts[me.id]);
+    if (registering) core.ingest(state,{},account);
+    if (registering || savePending) await persist(registering);
+    if (message.type === "PERSON_STATS") return { ok:true,rows:core.personStatsBatch(state,account,message.authors) };
     const rows = message.type === "CLASSIFY" && Array.isArray(message.ids) ?
       core.classifyBatch(state,account,message.ids,message.authorHint) : [];
     if (message.includeRootText === true) {
@@ -154,6 +158,11 @@ async function handleMessage(message) {
 
 chrome.runtime.onMessage.addListener((message,sender,sendResponse) => {
   if (!allowedSender(sender) || !message || typeof message !== "object") return false;
+  if (message.type === "SET_REPLY_SKIP_AUTHOR") {
+    saveSkippedAuthor ||= globalThis.XReplySkipAuthors.createWriter(chrome.storage);
+    void saveSkippedAuthor(message).then(sendResponse,() => sendResponse({ ok:false,error:"跳过名单未保存，请重试。" }));
+    return true;
+  }
   if (message.type === "DOWNLOAD_POST_VIDEO") {
     if (sender.url !== chrome.runtime.getURL("popup.html")) return false;
     videoDownload ||= globalThis.XReplyVideoDownload.create(chrome);

@@ -17,15 +17,17 @@
     } catch { return ""; }
   }
 
-  function photoFromTweet(tweet,legacyAuthor) {
-    if (!tweet.legacy && legacyAuthor?.protected !== false) return "";
-    const legacy = tweet.legacy || tweet;
-    const media = legacy.extended_entities?.media ?? tweet.extended_entities?.media ?? legacy.entities?.media;
-    if (!Array.isArray(media)) return "";
-    const author = tweet.core?.user_results?.result;
-    if (author?.privacy?.protected === true || author?.legacy?.protected === true) return "";
-    for (const item of media.slice(0,4)) {
-      const url = item?.type === "photo" && photoUrl(item.media_url_https);
+  function photoFromArticle(article,postId) {
+    if (!article?.isConnected || !id(postId)) return "";
+    const author = article.querySelector('[data-testid="User-Name"]');
+    if (author?.querySelector('[data-testid="icon-lock"],[aria-label="Protected account"],[aria-label="受保护的账号"]')) return "";
+    for (const image of article.querySelectorAll('[data-testid="tweetPhoto"] img')) {
+      if (image.closest('article[data-testid="tweet"]') !== article ||
+          image.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]')) continue;
+      const href = image.closest('a[href]')?.getAttribute("href");
+      const owner = href?.match(/\/status\/(\d{1,25})\/photo\/\d+\/?(?:[?#]|$)/)?.[1];
+      if (owner !== postId) continue;
+      const url = photoUrl(image.getAttribute("src")) || photoUrl(image.currentSrc);
       if (url) return url;
     }
     return "";
@@ -39,32 +41,40 @@
       .filter(text => text && text !== parent && text !== root) : [];
     const image = photoUrl(raw?.image);
     const imageFrom = ["parent","root"].includes(raw?.imageFrom) ? raw.imageFrom : "post";
-    return { postId:id(raw?.postId),parent,root,comments,image,imageFrom };
+    return { postId:id(raw?.postId),parent,root,comments,image,imageFrom,imageRequested:raw?.imageRequested === true };
   }
 
   function create() {
     const posts = new Map();
     let owner = "";
 
+    function useAccount(account) {
+      if (!account || account === owner) return;
+      if (owner) posts.clear();
+      owner = account;
+    }
+
     function observe(account,record) {
       const postId = id(record?.id);
       if (!postId || (owner && !account)) return;
-      if (owner && account !== owner) posts.clear();
-      if (account) owner = account;
+      useAccount(account);
       const previous = posts.get(postId);
+      const photo = photoUrl(record.aiPhoto);
+      const photoBlocked = record.aiPhoto === null || (!photo && previous?.photoBlocked === true);
       posts.delete(postId);
       posts.set(postId,{
         parentId:id(record.parentId) || previous?.parentId || "",
         rootId:id(record.conversationId) || previous?.rootId || "",
         text:snippet(record.text) || previous?.text || "",
-        image:photoUrl(record.aiPhoto) || previous?.image || ""
+        image:photoBlocked ? "" : photo || previous?.image || "",
+        photoBlocked
       });
       if (posts.size > POST_LIMIT) posts.delete(posts.keys().next().value);
     }
 
-    function read(account,postId,includeImage) {
-      if (!account || (owner && account !== owner) || !id(postId)) return { postId };
-      owner ||= account;
+    function read(account,postId,includeImage,readTargetPhoto) {
+      if (!account || !id(postId)) return { postId };
+      useAccount(account);
       const post = posts.get(postId);
       const parent = post?.parentId !== postId && post?.parentId !== post?.rootId ? posts.get(post?.parentId) : null;
       const root = post?.rootId !== postId ? posts.get(post?.rootId) : null;
@@ -75,13 +85,14 @@
         comments.push(reply.text); seen.add(reply.text);
         if (comments.length === COMMENT_LIMIT) break;
       }
-      const image = includeImage ? post?.image || parent?.image || root?.image || "" : "";
-      const imageFrom = post?.image ? "post" : parent?.image ? "parent" : "root";
+      const targetPhoto = includeImage && !post?.photoBlocked ? post?.image || photoUrl(readTargetPhoto?.()) : "";
+      const image = includeImage ? targetPhoto || parent?.image || root?.image || "" : "";
+      const imageFrom = targetPhoto ? "post" : parent?.image ? "parent" : "root";
       return { postId,parent:parent?.text,root:root?.text,comments,image,imageFrom };
     }
 
     return { observe,read };
   }
 
-  globalThis.XReplyAIContext = { create,normalize,photoUrl,photoFromTweet };
+  globalThis.XReplyAIContext = { create,normalize,photoUrl,photoFromArticle };
 })();

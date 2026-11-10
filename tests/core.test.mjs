@@ -158,10 +158,14 @@ test("缓存和证据保留 90 天、上限 20000 条，清理后回到待确认
   assert.equal(Object.keys(state.tweets).length,core.LIMIT);
 });
 
-test("页面观察器保留原 fetch 行为，只读取成功的目标响应", async () => {
+test("页面观察器复用搜索作者的关粉数据并保留原 fetch 行为", async () => {
   const messages = [];
   const listeners = [];
-  let response = new Response(JSON.stringify({ data:{ result:graphql(demoTweets[2]) } }),
+  const result = graphql(demoTweets[2]);
+  const author = result.core.user_results.result;
+  author.relationship_counts = { followers:21800 };
+  author.legacy = { friends_count:0 };
+  const response = new Response(JSON.stringify({ data:{ result } }),
     { headers:{ "content-type":"application/json" } });
   const originalPromise = Promise.resolve(response);
   const location = { origin:"https://x.com",href:"https://x.com/notifications" };
@@ -180,12 +184,15 @@ test("页面观察器保留原 fetch 行为，只读取成功的目标响应", a
   for (const listener of listeners) listener({
     source:window,origin:location.origin,data:{ channel:"x-reply-context-v1",type:"READY" }
   });
-  const returned = window.fetch("https://x.com/i/api/graphql/hash/CreateTweet");
+  const returned = window.fetch("https://x.com/i/api/graphql/hash/SearchTimeline");
   assert.equal(returned,originalPromise);
   assert.equal((await returned).bodyUsed,false);
   await new Promise(resolve => setTimeout(resolve,300));
   const observed = messages.find(message => message.type === "OBSERVED");
   assert.equal(observed.batch.tweets[0].id,demoTweets[2].id);
+  const counts = messages.find(message => message.type === "USER_COUNTS");
+  assert.deepEqual(structuredClone(counts.users),[{id:"101",handle:"my_account",following:0,followers:21800}]);
+  assert.equal(observed.batch.users[0].followers,undefined);
   assert.equal(response.bodyUsed,false);
   messages.length = 0;
   window.fetch("https://x.com/i/api/graphql/hash/SendMessage");
@@ -522,6 +529,29 @@ test("我评他与他评我按对方的不同原帖数统计，同帖多次及�
   assert.deepEqual(core.classify(state,"other_account",aliceId).personStats,
     { myCommentedPosts:0,theirCommentedPosts:0 });
   assert.equal(core.classify(state,"other_account",aliceId).newPerson,false);
+});
+
+test("按作者批量读取本地互动统计，不需要当前帖子已有记录", () => {
+  const state = stateWith(demoTweets);
+  assert.deepEqual(core.personStatsBatch(state,"my_account",["Alice","alice","unknown","my_account"]),[
+    { authorHandle:"alice",authorId:"202",personStats:{ myCommentedPosts:1,theirCommentedPosts:2 } }
+  ]);
+  state.statistics = { incomplete:true };
+  assert.deepEqual(core.personStatsBatch(state,"my_account",["alice"])[0].personStats,
+    { myCommentedPosts:1,theirCommentedPosts:2,incomplete:true });
+  assert.deepEqual(core.personStatsBatch(state,"unknown",["alice"]),[]);
+});
+
+test("同一用户名留有两个账号时，按帖子作者 ID 读取互动，未缓存的帖子保持待确认", () => {
+  const state = core.createState();
+  core.ingest(state,{
+    users:[{id:"1",handle:"me"},{id:"2",handle:"reused"},{id:"3",handle:"reused"}],
+    tweets:[post("100","1","100"),post("101","2","100","100","1"),post("200","3","200")]
+  },"me");
+  const targets = ["101","200","999"].map(postId => ({postId,authorHandle:"reused"}));
+  assert.deepEqual(core.personStatsBatch(state,"me",targets).map(row => [row.postId,row.authorId,row.personStats.theirCommentedPosts]),
+    [["101","2",1],["200","3",0]]);
+  assert.deepEqual(core.personStatsBatch(state,"me",["reused"]),[]);
 });
 
 test("首次评论我的原帖且我评他为零才标新，自己帖下回话不取消，评论他的原帖后取消", () => {

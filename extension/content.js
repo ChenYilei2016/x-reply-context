@@ -8,10 +8,13 @@
   const PEOPLE_LIST_PATH = /^\/[a-z0-9_]{1,15}\/(?:following|followers|verified_followers)\/?$/i;
   const PROFILE_LINK = /^(?:https:\/\/(?:x|twitter)\.com)?\/([a-z0-9_]{1,15})\/?$/i;
   const PEOPLE_NAMES = '[data-testid="UserCell"] a[href] [dir="ltr"]';
-  const RECOMMENDED_NAMES = 'article[data-testid="tweet"] [data-testid="User-Name"]:not([role="link"]:not(a) *,[role="dialog"] *) a[href] [dir="ltr"]';
+  const TWEET_NAMES = 'article[data-testid="tweet"] [data-testid="User-Name"]:not([role="link"]:not(a) *,[role="dialog"] *) a[href] [dir="ltr"]';
   const userCounts = new Map();
+  const userCountHandles = new Map();
   let exactCount, compactCount;
   let inlineNames = "";
+  let inlineAuthorTools = new Map();
+  const inlinePersonStats = new Map();
   let timer;
   let running = false;
   let again = false;
@@ -48,6 +51,7 @@
   let networkStatus;
   let networkNotice;
   let disconnected = false;
+  const skipAuthors = globalThis.XReplySkipAuthors?.createClient(chrome.storage,() => schedule(0));
   const homeFilter = globalThis.XReplyHomeFilter.create({
     accountHandle,tweetId,message,holdLayout,enabled:() => hideCompletedHome
   });
@@ -190,7 +194,7 @@
     try {
       const reply = await chrome.runtime.sendMessage(payload);
       if (!connected()) throw new Error("扩展连接已失效，请刷新页面");
-      if (payload.type === "AI_REQUEST" && reply?.cancelled) return reply;
+      if (payload.type === "AI_REQUEST" && (reply?.cancelled || reply?.contextUsed)) return reply;
       if (!reply?.ok) throw new Error(reply?.error || "扩展连接已断开，请刷新页面");
       return reply;
     } catch (error) {
@@ -315,12 +319,15 @@
     let changed = false;
     const count = value => Number.isSafeInteger(value) && value >= 0 ? value : undefined;
     for (const user of users.slice(0,500)) {
+      const id = user?.id;
       const handle = user?.handle;
-      if (typeof handle !== "string" || !/^[a-z0-9_]{1,15}$/.test(handle)) continue;
-      const following = count(user.following), followers = count(user.followers);
+      if (typeof id !== "string" || !/^\d{1,25}$/.test(id) ||
+          typeof handle !== "string" || !/^[a-z0-9_]{1,15}$/.test(handle)) continue;
+      const previous = userCounts.get(id);
+      const following = count(user.following) ?? previous?.following;
+      const followers = count(user.followers) ?? previous?.followers;
       if (following === undefined && followers === undefined) continue;
-      const previous = userCounts.get(handle);
-      if (previous?.following === following && previous?.followers === followers) continue;
+      if (previous?.handle === handle && previous.following === following && previous.followers === followers) continue;
       exactCount ??= new Intl.NumberFormat("zh-CN");
       compactCount ??= new Intl.NumberFormat("zh-CN",{ notation:"compact",maximumFractionDigits:1 });
       const counts = [
@@ -329,20 +336,28 @@
       ].filter(({value}) => value !== undefined);
       const title = counts.map(({label,value}) => `${label} ${exactCount.format(value)}`).join(" · ");
       const text = counts.map(({shortLabel,value}) => `${shortLabel} ${(value < 10000 ? exactCount : compactCount).format(value)}`).join(" · ");
-      userCounts.delete(handle);
-      userCounts.set(handle,{ following,followers,text,title });
+      userCounts.delete(id);
+      userCounts.set(id,{ handle,following,followers,text,title });
       if (userCounts.size > 1000) userCounts.delete(userCounts.keys().next().value);
       changed = true;
     }
     if (changed) {
+      userCountHandles.clear();
+      for (const [id,{handle}] of userCounts) {
+        userCountHandles.set(handle,userCountHandles.has(handle) ? "" : id);
+      }
       lastSignature = "";
       if (!document.hidden) schedule();
     }
   }
 
-  function renderUserCounts(host,handle) {
+  function countsFor(handle,authorId) {
+    return userCounts.get(authorId || userCountHandles.get(handle));
+  }
+
+  function renderUserCounts(host,handle,authorId) {
     if (!host) return;
-    const counts = userCounts.get(handle);
+    const counts = countsFor(handle,authorId);
     const existing = host.querySelector(":scope > .xrc-user-counts");
     if (!counts) { existing?.remove(); return; }
     if (existing?.title === counts.title) return;
@@ -353,20 +368,133 @@
     if (!existing) host.append(badge);
   }
 
-  function renderInlineUserCounts() {
+  const profileHandle = anchor => anchor?.getAttribute("href")?.match(PROFILE_LINK)?.[1]?.toLowerCase() || "";
+
+  function isSkipAuthorLink(anchor,handle) {
+    if (PEOPLE_LIST_PATH.test(location.pathname)) return Boolean(anchor?.closest('[data-testid="UserCell"]'));
+    const article = anchor?.closest('article[data-testid="tweet"]');
+    return Boolean(article && !article.closest('[role="dialog"]') && globalThis.XReplyContinuous?.authorFromPostLink?.(article) === handle);
+  }
+
+  function renderAuthorTools(anchor,account,handle,skipped,body) {
+    let tools = body ? body.previousElementSibling : anchor.nextElementSibling;
+    if (!tools?.matches(".xrc-inline-author")) {
+      tools = document.createElement("span");
+      tools.className = "xrc-inline-author";
+      if (body) body.before(tools);
+      else anchor.after(tools);
+    }
+    tools.classList.toggle("xrc-inline-author-row",Boolean(body));
+    let button = tools.querySelector(".xrc-skip-author");
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "xrc-skip-author";
+      button.textContent = "⊘";
+      tools.append(button);
+    }
+    if (tools.dataset.account !== account) tools.dataset.account = account;
+    if (tools.dataset.author !== handle) {
+      tools.dataset.author = handle;
+      button.setAttribute("aria-label",`自动下一条时跳过 @${handle}`);
+    }
+    if (button.getAttribute("aria-pressed") !== String(skipped)) button.setAttribute("aria-pressed",String(skipped));
+    const title = skipped ? `已跳过 @${handle}。点击恢复。` : `自动下一条时跳过 @${handle}。`;
+    if (button.title !== title) button.title = title;
+    return tools;
+  }
+
+  function renderInlinePersonStats(tools,stats) {
+    let badge = tools.querySelector(".xrc-inline-person-stats");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "xrc-inline-person-stats";
+      tools.append(badge);
+    }
+    const myCount = displayPersonCount(stats?.myCommentedPosts,"—");
+    const theirCount = displayPersonCount(stats?.theirCommentedPosts,"—");
+    const text = `我评他 ${myCount} · 他评我 ${theirCount}`;
+    if (badge.textContent !== text) badge.textContent = text;
+    const hint = stats?.incomplete ? "历史不完整，数字是本地已知下限。" : "";
+    const title = `双方各评论过对方的几篇原帖，同帖只计一次。— 表示本机暂无可确认记录。${hint}`;
+    if (badge.title !== title) badge.title = title;
+  }
+
+  function renderInlinePeople(account) {
     const recommended = globalThis.XReplyHomeFilter.column?.();
-    const names = recommended ? RECOMMENDED_NAMES : PEOPLE_LIST_PATH.test(location.pathname) ? PEOPLE_NAMES : "";
-    if (inlineNames && inlineNames !== names) {
+    const peopleList = PEOPLE_LIST_PATH.test(location.pathname);
+    const countsNames = recommended ? TWEET_NAMES : peopleList ? PEOPLE_NAMES :
+      /^\/compose(?:\/|$)/.test(location.pathname) ? inlineNames : "";
+    if (inlineNames && inlineNames !== countsNames) {
       document.querySelectorAll(`${inlineNames} > .xrc-user-counts`).forEach(node => node.remove());
     }
-    inlineNames = names;
-    if (!names || !userCounts.size) return;
-    const column = recommended || document.querySelector('[data-testid="primaryColumn"]');
-    for (const name of column?.querySelectorAll(names) || []) {
-      const handle = name.closest("a")?.getAttribute("href")?.match(PROFILE_LINK)?.[1]?.toLowerCase();
-      const username = name.firstChild?.textContent?.trim().toLowerCase();
-      if (handle && username === `@${handle}`) renderUserCounts(name,handle);
-      else name.querySelector(":scope > .xrc-user-counts")?.remove();
+    inlineNames = countsNames;
+    const showCounts = Boolean(countsNames && userCounts.size);
+    const showSkip = Boolean(account && skipAuthors?.revision());
+    const visibleTools = new Map(), targets = new Map();
+    if (showCounts || showSkip) {
+      const names = peopleList ? PEOPLE_NAMES : TWEET_NAMES;
+      const column = recommended || document.querySelector('[data-testid="primaryColumn"]');
+      const showStats = !peopleList && !column?.matches?.(NOTIFICATION_COLUMN);
+      const skipped = skipAuthors?.authors(account);
+      for (const name of column?.querySelectorAll(names) || []) {
+        const anchor = name.closest("a");
+        const handle = profileHandle(anchor);
+        const username = name.firstChild?.textContent?.trim().toLowerCase();
+        if (!handle || username !== `@${handle}`) {
+          if (showCounts) name.querySelector(":scope > .xrc-user-counts")?.remove();
+          continue;
+        }
+        const withTools = showSkip && handle !== account && isSkipAuthorLink(anchor,handle);
+        if (showCounts) renderUserCounts(name,withTools && showStats ? "" : handle);
+        if (withTools) {
+          const article = showStats ? anchor.closest('article[data-testid="tweet"]') : null;
+          const postId = article ? tweetId(article) : "";
+          const body = article && article.querySelector('[data-testid="tweetText"]:not([role="link"] *)');
+          const tools = renderAuthorTools(anchor,account,handle,skipped.has(handle),body);
+          visibleTools.set(tools,{anchor,postId});
+          const cached = inlinePersonStats.get(postId);
+          if (showStats) {
+            if (postId) targets.set(postId,{postId,authorHandle:handle});
+            renderInlinePersonStats(tools,cached?.stats);
+          } else tools.querySelector(".xrc-inline-person-stats")?.remove();
+          renderUserCounts(tools,showStats ? handle : "",cached?.authorId);
+        }
+      }
+    }
+    for (const tools of inlineAuthorTools.keys()) if (!visibleTools.has(tools)) tools.remove();
+    inlineAuthorTools = visibleTools;
+    return targets;
+  }
+
+  async function loadInlinePersonStats(account,targets) {
+    const revision = annotationRevision;
+    const missing = [...targets.values()].filter(({postId}) => inlinePersonStats.get(postId)?.revision !== revision);
+    if (!missing.length) return;
+    try {
+      for (let offset = 0; offset < missing.length; offset += 100) {
+        const batch = missing.slice(offset,offset+100);
+        const result = await message({ type:"PERSON_STATS",account,authors:batch });
+        if (revision !== annotationRevision || accountHandle() !== account) return;
+        const rows = new Map(result.rows.map(row => [row.postId,row]));
+        for (const {postId} of batch) {
+          const row = rows.get(postId);
+          inlinePersonStats.set(postId,{revision,stats:row?.personStats,authorId:row?.authorId});
+        }
+      }
+      for (const [tools,{anchor,postId}] of inlineAuthorTools) {
+        if (!targets.has(postId) || !tools.isConnected || !anchor.isConnected || tools.dataset.account !== account ||
+            profileHandle(anchor) !== tools.dataset.author) continue;
+        const article = anchor.closest('article[data-testid="tweet"]');
+        if (article && tweetId(article) === postId) {
+          const cached = inlinePersonStats.get(postId);
+          renderInlinePersonStats(tools,cached?.stats);
+          renderUserCounts(tools,tools.dataset.author,cached?.authorId);
+        }
+      }
+      while (inlinePersonStats.size > 1000) inlinePersonStats.delete(inlinePersonStats.keys().next().value);
+    } catch (error) {
+      console.warn("回过了：",error.message);
     }
   }
 
@@ -389,7 +517,11 @@
       anchor.before(bar);
     }
     renderLabels(bar,result);
-    if (userCounts.size) renderUserCounts(bar.querySelector(".xrc-main-labels"),result.authorHandle);
+    if (userCounts.size) renderUserCounts(bar.querySelector(".xrc-main-labels"),result.authorHandle,result.authorId);
+  }
+
+  function displayPersonCount(count,fallback) {
+    return count > 0 ? count : fallback;
   }
 
   function personBadges(stats,compact = false) {
@@ -400,18 +532,19 @@
     ].map(([label,count,description]) => {
       const badge = document.createElement("span");
       badge.className = "xrc-person";
-      const known = stats?.incomplete ? count > 0 : count != null;
-      badge.textContent = `${label} ${known ? count : pendingLabel}`;
+      badge.textContent = `${label} ${displayPersonCount(count,pendingLabel)}`;
       badge.title = `${description}。同一篇下多次评论（含楼中楼）只算 1 篇。统计来自本地记录。${stats?.incomplete ? "历史不完整，显示的数字是本地已知下限。" : ""}`;
       return badge;
     });
   }
 
-  function renderPersonStats(bar,stats) {
-    const signature = JSON.stringify([stats?.myCommentedPosts,stats?.theirCommentedPosts,stats?.incomplete]);
+  function renderPersonStats(bar,stats,authorHandle,authorId) {
+    const counts = countsFor(authorHandle,authorId);
+    const signature = JSON.stringify([stats?.myCommentedPosts,stats?.theirCommentedPosts,stats?.incomplete,counts?.title]);
     if (bar.dataset.signature === signature) return;
     bar.dataset.signature = signature;
     bar.replaceChildren(...personBadges(stats));
+    if (counts) renderUserCounts(bar,authorHandle,authorId);
   }
 
   function renderLabels(bar,result,includePersonStats = true) {
@@ -468,21 +601,24 @@
     running = true;
     urgentRefresh = false;
     try {
-      if (userCounts.size || inlineNames) renderInlineUserCounts();
       const account = accountHandle();
-      if (!account) { homeFilter.reset(); notificationFilter.reset(); return; }
-      if (account !== lastAccount) {
+      if (account && account !== lastAccount) {
         // The composer owns its labels; initial account detection must not erase an already-open footer.
         document.querySelectorAll('article[data-testid="tweet"] .xrc-labels').forEach(node => node.remove());
         lastAccount = account;
+        inlinePersonStats.clear();
         invalidateAnnotations();
         // The first composer read may predate account detection; don't wait for another DOM event.
         scheduleControls();
         homeFilter.reset();
         notificationFilter.reset();
       }
+      const targets = userCounts.size || inlineNames || skipAuthors?.revision() || inlineAuthorTools.size ? renderInlinePeople(account) : null;
+      if (!account) { homeFilter.reset(); notificationFilter.reset(); return; }
+      const statsReady = targets?.size ? loadInlinePersonStats(account,targets) : null;
       await homeFilter.refresh();
       await notificationFilter.refresh();
+      if (statsReady) await statsReady;
       renderNetworkNotice();
       // Fixed label slots let counts refresh behind a composer without moving rows.
       if (!/^\/notifications(?:\/|$)/.test(location.pathname) && !holdLayout()) {
@@ -527,11 +663,13 @@
     onPause:()=>{timedReplies?.stop("收到异常提醒，已停止");aiReplies?.pause();continuous?.pauseForAlert();refreshCycle?.cancel();},
     onRelease:()=>continuous?.stop()});
   aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,tweetId,requestRefresh:scheduleControls,interactionBlocked:()=>interactionAlert?.blocked()===true,
-    readContext:(account,postId,includeImage)=>aiContext?.read(account,postId,includeImage) || { postId },
+    readContext:(account,postId,includeImage,readTargetPhoto)=>aiContext?.read(account,postId,includeImage,readTargetPhoto) || { postId },
     replyPostId:editor=>continuous?.replyPostId(editor),
+    replyArticle:editor=>continuous?.replyArticle(editor),
     rootOwnership:editor=>continuous?.rootOwnership(editor) || "unknown",
     recommendedReply:editor=>continuous?.recommendedReply(editor),
     canAutoFillUnfocused:editor=>continuous?.canAutoFillUnfocused(editor)===true,
+    skipVideo:editor=>continuous?.skipVideo(editor)===true,
     onAutoFillBlocked:(editor,reason)=>{if(continuous?.recommendedReply(editor))timedReplies?.stop(reason);}});
   refreshCycle = globalThis.XReplyRefreshCycle?.create({storage:chrome.storage,message,accountHandle,requestRefresh:scheduleControls,getTimed:()=>timedReplies,
     resume:(intent,valid)=>continuous.resumeRecommended(intent,valid),notify:text=>continuous?.notify(text)});
@@ -539,9 +677,33 @@
     trigger:state=>continuous?.timedSend(state),requestRefresh:scheduleControls,keepAwake,
     onContinue:state=>aiReplies?.resumeAutomatic(state.editor)||"",
     onInterrupt:reason=>{aiReplies?.pause();continuous?.cancelTimedFollowup(reason);},cancelRefresh:id=>refreshCycle?.cancel(id)});
-  continuous = globalThis.XReplyContinuous?.create({refreshCycle,timedReplies,randomSkipLikeEnabled:()=>randomSkipReplyLike,interactionBlocked:()=>interactionAlert?.blocked()===true, accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels:(bar,row) => renderLabels(bar,row,false),renderPersonStats,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor),aiPhase:editor => aiReplies?.phase(editor) || "",
+  continuous = globalThis.XReplyContinuous?.create({refreshCycle,timedReplies,skipAuthors,randomSkipLikeEnabled:()=>randomSkipReplyLike,interactionBlocked:()=>interactionAlert?.blocked()===true, accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels:(bar,row) => renderLabels(bar,row,false),renderPersonStats,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor),aiPhase:editor => aiReplies?.phase(editor) || "",
     renderAiOptions:(tools,editor) => aiReplies?.renderOptions(tools,editor),
     aiFillRecommendedEnabled:()=>aiReplies?.fillRecommendedEnabled() === true});
+
+  document.addEventListener("click",async event => {
+    const button = event.target?.closest?.(".xrc-skip-author");
+    const tools = button?.closest(".xrc-inline-author");
+    const anchor = inlineAuthorTools.get(tools)?.anchor;
+    if (!anchor?.isConnected) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (button.disabled || !connected()) return;
+    const account = accountHandle();
+    const author = profileHandle(anchor);
+    if (!account || account !== tools.dataset.account || !author || author !== tools.dataset.author || !isSkipAuthorLink(anchor,author)) {
+      schedule(0);
+      return;
+    }
+    button.disabled = true;
+    try {
+      await message({ type:"SET_REPLY_SKIP_AUTHOR",account,author,skipped:!skipAuthors.authors(account).has(author) });
+    } catch (error) {
+      continuous?.notify(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  },true);
 
   window.addEventListener("message", event => {
     if (event.source !== window || event.origin !== location.origin ||
@@ -669,7 +831,7 @@
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
     if (!connected()) return;
-    const owned = ".xrc-labels,.xrc-user-counts,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice,.xrc-interaction-alert";
+    const owned = ".xrc-labels,.xrc-user-counts,.xrc-inline-author,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice,.xrc-interaction-alert";
     const relevant = '[data-testid="primaryColumn"],[role="dialog"],[aria-modal="true"],a[data-testid="AppTabBar_Profile_Link"]';
     if (records.some(record => !record.target.closest?.(owned) &&
         (record.target.closest?.(relevant) || [...(record.addedNodes || []),...(record.removedNodes || [])]

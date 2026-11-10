@@ -27,6 +27,11 @@ footer { margin-top: 8px; font-size: 11px; opacity: .65; }
 .home-filter-setting [role="status"] { font-size: 12px; margin: 6px 0 0; }
 .home-filter-setting [role="status"]:empty { display: none; }
 summary:focus-visible { outline: 2px solid #087ebd; outline-offset: 3px; }
+#reply-skip-authors ul { list-style: none; max-height: 132px; overflow: auto; padding: 0; }
+#reply-skip-authors ul:empty { display: none; }
+#reply-skip-authors li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 0; }
+#reply-skip-authors button { border: 1px solid #8293a480; border-radius: 14px; padding: 3px 9px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+#reply-skip-authors button:disabled { opacity: .55; cursor: wait; }
 
 .post-video-controls { display: flex; gap: 6px; margin-top: 6px; }
 .post-video-controls input,.post-video-controls button { border: 1px solid #8293a480; border-radius: 7px; padding: 5px 8px; font: inherit; color: inherit; }

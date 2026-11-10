@@ -44,7 +44,7 @@ async function reset(options={}){
  flow.stop();dialog()?.remove();account='me';randomSkipLike=options.randomSkipLike===true;history.replaceState(null,'','/home');
  const current=run={events:[],liked:new Set(options.liked?['100']:[]),replied:new Set(),mode:options.mode||'success',saveDelay:options.saveDelay||0,replyMode:options.replyMode||'success',replySaveDelay:options.replySaveDelay||0,replyDelay:options.replyDelay||30};
  document.querySelector('#cards').replaceChildren();
- for(const id of ['100','200']){
+ for(const id of options.ids || ['100','200']){
   const article=document.createElement('article');article.dataset.testid='tweet';article.dataset.id=id;
   article.innerHTML='<a href="/peer/status/'+id+'"><time>帖子 '+id+'</time></a><p data-testid="tweetText">虚构帖子</p><button data-testid="reply">打开 '+id+'</button><button data-testid="'+(current.liked.has(id)?'unlike':'like')+'">红心（仅计数）</button>';
   article.querySelector('[data-testid=reply]').onclick=()=>open(id,current);
@@ -63,7 +63,7 @@ async function reset(options={}){
   };
   document.querySelector('#cards').append(article);
  }
- document.querySelector('[data-testid=reply]').click();await wait(()=>dialog()?.querySelector('.xrc-flow-send'));
+ document.querySelector(`article[data-id="${options.startAt || '100'}"] [data-testid=reply]`).click();await wait(()=>dialog()?.querySelector('.xrc-flow-send'));
  editor().textContent='只用于本地检查';editor().dispatchEvent(new InputEvent('input',{bubbles:true}));schedule();await sleep(40);
  return current;
 }
@@ -81,6 +81,11 @@ document.querySelector('#run').onclick=async event=>{
   check('评论成功保存后至少等待300ms才点赞，点赞保存后进入下一条，连点不重复',
    actions.filter(e=>e.kind==='send').length===1&&actions.filter(e=>e.kind==='like').length===1&&
    actions[0].kind==='send'&&liked.at-replySaved.at>=290&&likeSaved.at>=liked.at&&current.liked.has('100'));
+  const startAtThird={ids:['100','200','300','400'],startAt:'300'};
+  current=await reset(startAtThird);send();await wait(()=>dialog()?.dataset.target==='400');
+  check('从第三条评论点赞后打开第四条',current.replied.has('300')&&current.liked.has('300'));
+  document.querySelector('.xrc-flow-skip').click();await wait(()=>notice().includes('当前位置之后'));
+  check('已到末尾时结束，不绕回前两条',!dialog()&&current.events.filter(e=>e.kind==='send').length===1);
   current=await reset({liked:true});send();await wait(()=>dialog()?.dataset.target==='200');
   check('已点赞不重复点击，更不取消点赞',current.events.every(e=>e.kind!=='like')&&current.events.filter(e=>e.kind==='send').length===1);
   current=await reset({replyMode:'failed'});send();await wait(()=>document.querySelector('.xrc-flow-status')?.textContent.includes('发送失败'));await sleep(800);
@@ -93,9 +98,9 @@ document.querySelector('#run').onclick=async event=>{
   check('手动关闭后晚到评论回执不点赞或续开',current.events.filter(e=>e.kind==='send').length===1&&!current.events.some(e=>e.kind==='like')&&!dialog());
   current=await reset();send();await wait(()=>notice().includes('稍候点赞'));account='other';schedule();await sleep(800);
   check('发送后换账号不点赞新账号或打开下一条',current.events.filter(e=>e.kind==='send').length===1&&!current.events.some(e=>e.kind==='like')&&!dialog());
-  current=await reset();send();await wait(()=>notice().includes('稍候点赞'));
-  document.querySelector('article[data-id="100"]').remove();await wait(()=>dialog()?.dataset.target==='200');
-  check('原卡片移出列表时略过点赞进入下一条，不误点其他帖也不补造红心',current.replied.has('100')&&!current.liked.has('100')&&!current.events.some(e=>e.kind==='like')&&current.events.filter(e=>e.kind==='send').length===1);
+  current=await reset(startAtThird);send();await wait(()=>notice().includes('稍候点赞'));
+  document.querySelector('article[data-id="300"]').remove();await wait(()=>dialog()?.dataset.target==='400');
+  check('当前卡片移出列表时略过点赞，仍从原位置继续',current.replied.has('300')&&!current.liked.has('300')&&!current.events.some(e=>e.kind==='like')&&current.events.filter(e=>e.kind==='send').length===1);
   for(const unavailable of ['disabled','missing']) {
     current=await reset();send();await wait(()=>notice().includes('稍候点赞'));
     const heart=document.querySelector('article[data-id="100"] [data-testid=like]');

@@ -1,8 +1,7 @@
 (() => {
   "use strict";
   const core = globalThis.XReplyContext;
-  const postVideo = globalThis.XReplyPostVideo;
-  const aiContext = globalThis.XReplyAIContext;
+  const media = globalThis.XReplyObserveMedia;
   const CHANNEL = "x-reply-context-v1";
   const MAX_BYTES = 8 * 1024 * 1024;
   const REPLY_RESULTS = { CreateTweet:"create_tweet",CreateNoteTweet:"notetweet_create" };
@@ -142,12 +141,13 @@
 
   const count = value => Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 
-  function rememberUserCounts(handle,node) {
+  function rememberUserCounts({id,handle},node) {
     const legacy = node.legacy || node;
-    const following = count(node.relationship_counts?.following ?? legacy.friends_count);
-    const followers = count(node.relationship_counts?.followers ?? legacy.followers_count);
+    const following = count(node.relationship_counts?.following) ?? count(legacy.friends_count);
+    const followers = count(node.relationship_counts?.followers) ?? count(legacy.followers_count);
     if (following === undefined && followers === undefined) return;
-    pendingUserCounts.set(handle,{ handle,following,followers });
+    const previous = pendingUserCounts.get(id);
+    pendingUserCounts.set(id,{ id,handle,following:following ?? previous?.following,followers:followers ?? previous?.followers });
     if (pendingUserCounts.size > 500) pendingUserCounts.delete(pendingUserCounts.keys().next().value);
   }
 
@@ -160,8 +160,9 @@
         const item = entry?.content?.itemContent;
         if (item?.itemType !== "TimelineUser") continue;
         const user = item.user_results?.result;
+        const id = core.id(user?.rest_id || user?.legacy?.id_str);
         const handle = core.handle(user?.core?.screen_name || user?.legacy?.screen_name);
-        if (handle) rememberUserCounts(handle,user);
+        if (id && handle) rememberUserCounts({id,handle},user);
       }
     }
   }
@@ -210,21 +211,21 @@
         if (saved) batch = Object.fromEntries(Object.entries(saved).map(([name,items]) => [name,items.slice(500)]));
         else if (payload?.errors?.length || await context.replyParent) return;
       }
-      const includeCounts = ["HomeTimeline","NotificationsTimeline","Notifications"].includes(context.operation);
-      const post = location.pathname?.includes("/status/") && postVideo?.parsePostLink(location.href);
+      const includeCounts = !context.reaction && !REPLY_RESULTS[context.operation];
+      const postId = location.pathname?.match(/^\/(?:i\/web|[a-z0-9_]{1,15})\/status\/(\d{1,25})(?:\/(?:video|photo)\/\d+)?\/?$/i)?.[1];
       const aiAccount = context.account || currentAccount();
       const legacyObjects = payload?.globalObjects;
       let mp4, photos;
-      batch ||= core.extract(payload,includeCounts ? (user,node) => rememberUserCounts(user.handle,node) : undefined,
-        post || aiContext ? (tweet,node) => {
-          if (post && tweet.id === post.id && !mp4) mp4 = postVideo.selectMp4(node);
+      batch ||= core.extract(payload,includeCounts ? rememberUserCounts : undefined,
+        media ? (tweet,node) => {
+          if (tweet.id === postId && !mp4) mp4 = media.selectMp4(node);
           const legacyAuthor = legacyObjects?.tweets?.[tweet.id] === node ? legacyObjects.users?.[tweet.authorId] : undefined;
-          const photo = aiContext?.photoFromTweet(node,legacyAuthor);
-          if (photo) (photos ||= new Map()).set(tweet.id,photo);
+          const photo = media.photoFromTweet(node,legacyAuthor);
+          if (photo || photo === null) (photos ||= new Map()).set(tweet.id,photo);
         } : undefined);
       if (includeCounts) flushUserCounts();
       if (mp4 || mp4 === "" && context.operation === "TweetDetail") {
-        pendingPostVideo = { id:post.id,url:mp4 };
+        pendingPostVideo = { id:postId,url:mp4 };
         flushPostVideo();
       }
       let likes = batch.likes;
@@ -258,7 +259,7 @@
         for (const [field,value] of Object.entries(tweet)) if (value !== "") merged[field] = value;
         merged.aiAccount = aiAccount;
         const photo = photos?.get(tweet.id);
-        if (photo) merged.aiPhoto = photo;
+        if (photo !== undefined) merged.aiPhoto = photo;
         pendingTweets.set(tweet.id,merged);
         if (ready && pendingTweets.size >= 500) flush();
       }

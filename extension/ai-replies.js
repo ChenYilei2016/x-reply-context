@@ -1,9 +1,52 @@
 (() => {
   "use strict";
   const EDITOR = '[role="dialog"] [contenteditable="true"][data-testid="tweetTextarea_0"]';
-  function create({accountHandle,connected,message,requestRefresh,tweetId,replyPostId=()=>"",rootOwnership=()=>"unknown",recommendedReply=()=>null,canAutoFillUnfocused=()=>false,onAutoFillBlocked=()=>{},interactionBlocked=()=>false,readContext=(_account,postId)=>({postId})}) {
+  // X adds one trailing media link per photo and may split the protocol onto its own line.
+  const MEDIA_LINKS_AT_END = /(?:^|\s)(?:https?:\/\/\s*)?pic\.x\.com\/[a-z0-9]+(?:\s+(?:https?:\/\/\s*)?pic\.x\.com\/[a-z0-9]+)*\s*$/i;
+  const VIDEO = '[data-testid="videoPlayer"],[data-testid="videoComponent"],video';
+  const postText = value => (value || "").replace(MEDIA_LINKS_AT_END, "").trim();
+
+  function videoOnlyArticle(article) {
+    if (!article?.isConnected || !article.querySelector(VIDEO)) return false;
+    const ownVideo = [...article.querySelectorAll(VIDEO)].some(node => {
+      const quote = node.closest('[role="link"]:not(a)');
+      return node.closest('article[data-testid="tweet"]') === article && (!quote || !article.contains(quote));
+    });
+    if (!ownVideo || [...article.querySelectorAll('[data-testid="tweetText"]')].some(node => postText(node.textContent))) return false;
+    return ![...article.querySelectorAll('[data-testid="tweetPhoto"]')].some(photo => {
+      const href = photo.closest('a[href]')?.getAttribute("href") || "";
+      return !photo.closest(VIDEO) && !photo.querySelector(VIDEO) && !/\/status\/\d+\/video\/\d+(?:[/?#]|$)/.test(href);
+    });
+  }
+
+  function loadedPhotoPreview(url) {
+    const origin = "https://pbs.twimg.com/media/";
+    if (!url.startsWith(origin)) return null;
+    const photoPath = value => new URL(value).pathname.replace(/\.[a-z]+$/i, "");
+    const path = photoPath(url);
+    for (const image of document.images) {
+      if (!image.complete || !image.naturalWidth || !image.naturalHeight ||
+          !image.currentSrc.startsWith(origin) || photoPath(image.currentSrc) !== path) continue;
+      const scale = Math.min(1, 480 / image.naturalWidth, 240 / image.naturalHeight);
+      const preview = document.createElement("canvas");
+      preview.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      preview.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      preview.setAttribute("role", "img");
+      preview.setAttribute("aria-label", "已发送照片的预览");
+      const painter = preview.getContext("2d");
+      if (!painter) return null;
+      // Draw pixels from a loaded element without assigning any new image URL.
+      try { painter.drawImage(image, 0, 0, preview.width, preview.height); }
+      catch { return null; }
+      return preview;
+    }
+    return null;
+  }
+
+  function create({accountHandle,connected,message,requestRefresh,tweetId,replyPostId=()=>"",replyArticle=()=>null,rootOwnership=()=>"unknown",recommendedReply=()=>null,canAutoFillUnfocused=()=>false,onAutoFillBlocked=()=>{},skipVideo=()=>false,interactionBlocked=()=>false,readContext=(_account,postId)=>({postId})}) {
     const edit = globalThis.XReplyEditor;
     let enabled = false, autoComplete = false, current, target, notice, configEpoch = 0;
+    let details;
     let fillRecommended = false;
     let includeImage = false, imageReady = false, savingImage = false, imageRevision = 0;
     const autoPreparations = new WeakMap();
@@ -28,16 +71,92 @@
       }
       notice.querySelector("span").textContent = text; notice.hidden = false;
     }
+    function closeDetails() {
+      if (!details) return;
+      details.events.abort();
+      details.trigger.setAttribute("aria-expanded", "false");
+      details.panel.remove();
+      details = undefined;
+    }
+    function renderDetails(used) {
+      if (details.used === used) return;
+      details.used = used;
+      const body = details.body;
+      const text = document.createElement("pre");
+      text.textContent = used?.text || "收到 AI 响应后，这里会显示实际发送的素材。";
+      body.replaceChildren(text);
+      if (!used) return;
+      if (!used.image) {
+        const status = document.createElement("p");
+        status.textContent = used.imageRequested ? "未附图 · 没有取得可用的照片地址" : "未附图 · 生成时未勾选带图";
+        body.append(status);
+        return;
+      }
+      const preview = loadedPhotoPreview(used.image);
+      if (preview) body.append(preview);
+      const address = document.createElement("p");
+      address.textContent = `${preview ? "发送的图片地址" : "页面无可预览的照片，发送的图片地址"}\n${used.image}`;
+      body.append(address);
+    }
+    function toggleDetails(trigger) {
+      const wasOpen = details?.trigger === trigger;
+      closeDetails();
+      if (wasOpen) return;
+      const panel = document.createElement("aside");
+      panel.id = "xrc-ai-context-details";
+      panel.className = "xrc-ai-context-details";
+      panel.setAttribute("aria-label", "最近一次发给 AI 的素材");
+      panel.addEventListener("click", event => event.stopPropagation());
+      const header = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = "最近一次发给 AI 的素材";
+      const close = document.createElement("button");
+      close.type = "button";
+      close.textContent = "关闭";
+      close.addEventListener("mousedown", event => event.preventDefault());
+      close.addEventListener("click", closeDetails);
+      const body = document.createElement("div");
+      header.append(title, close);
+      panel.append(header, body);
+      const events = new AbortController();
+      details = { trigger, panel, body, events };
+      trigger.setAttribute("aria-expanded", "true");
+      renderDetails(current?.dialog.contains(trigger) && valid(current) ? current.contextUsed || null : null);
+      document.body.append(panel);
+      const options = { capture:true,signal:events.signal };
+      document.addEventListener("pointerdown", event => {
+        if (!panel.contains(event.target) && !trigger.contains(event.target)) closeDetails();
+      }, options);
+      document.addEventListener("keydown", event => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        closeDetails();
+      }, options);
+    }
     function renderOptions(tools,editor) {
       let options = tools.querySelector(".xrc-ai-options");
       if (!options) {
         options = document.createElement("div"); options.className = "xrc-ai-options";
         const summary = document.createElement("span"); summary.className = "xrc-ai-context-summary";
         summary.setAttribute("aria-live","polite");
-        const label = document.createElement("label");
-        label.title = "手动推荐和自动生成共用此选项。开启后最多带一张已加载照片，需要模型支持图片输入。";
+        const picture = document.createElement("span");
+        picture.className = "xrc-ai-picture-option";
         const checkbox = document.createElement("input"); checkbox.type = "checkbox";
-        label.append(checkbox,"带图"); options.append(summary,label); tools.append(options);
+        checkbox.setAttribute("aria-label", "生成时带图");
+        checkbox.title = "开启后最多带一张已加载照片，需要模型支持图片输入。";
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "xrc-ai-context-toggle";
+        toggle.textContent = "带图";
+        toggle.title = "查看发给 AI 的素材";
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.setAttribute("aria-controls", "xrc-ai-context-details");
+        toggle.addEventListener("mousedown", event => event.preventDefault());
+        toggle.addEventListener("click", () => toggleDetails(toggle));
+        picture.append(checkbox, toggle);
+        options.append(summary, picture);
+        tools.append(options);
         checkbox.addEventListener("change",async () => {
           const previous = includeImage;
           const revision = ++imageRevision;
@@ -54,7 +173,8 @@
       const disabled = !imageReady || savingImage;
       if (checkbox.disabled !== disabled) checkbox.disabled = disabled;
       if (checkbox.checked !== includeImage) checkbox.checked = includeImage;
-      const used = current && current.editor === editor ? current.contextUsed : null;
+      const used = current && current.editor === editor ? current.contextUsed || null : null;
+      if (details && options.contains(details.trigger)) renderDetails(used);
       const labels = used ? [used.parent ? "上级" : used.root ? "原帖" : "",
         used.comments ? `评 ${used.comments}` : "",used.image ? "图 1" : ""].filter(Boolean) : [];
       const summary = options.querySelector(".xrc-ai-context-summary");
@@ -74,9 +194,10 @@
       void message({type:"AI_CANCEL",ids}).catch(()=>{});
     }
     function stop() {
+      closeDetails();
       const old = current; current = undefined;
       if (old) {
-        previews.set(old.editor,{account:old.account,post:old.post,targetId:old.targetId,quote:old.quote,epoch:old.epoch,
+        previews.set(old.editor,{account:old.account,post:old.post,targetId:old.targetId,targetCard:old.targetCard,quote:old.quote,epoch:old.epoch,
           candidates:[...old.candidates],index:old.index,contextUsed:old.contextUsed,
           retry:!old.candidates.length && old.pending.size > 0,error:old.error});
         cancelRequests(old);hidePreview(old);clearTimeout(old.timer);old.wake?.();
@@ -160,27 +281,45 @@
       if (draft) {const prefix=document.createElement("span");prefix.textContent=draft;prefix.style.color="transparent";s.ghost.append(prefix);}
       s.ghost.append(document.createTextNode(label));s.drawn=signature;
     }
-    async function request(s,kind,draft = "",context) {
+    async function request(s,kind,draft = "",generation) {
       if(!valid(s))return {ok:false,cancelled:true};
       const id = crypto.randomUUID();s.pending.add(id);requestRefresh();
-      try {return await message({type:"AI_REQUEST",id,kind,post:s.post,draft,rootOwnership:rootOwnership(s.editor),...(context ? {context} : {})});}
+      try {
+        return await message({type:"AI_REQUEST",id,kind,post:generation?.post ?? s.post,draft,rootOwnership:rootOwnership(s.editor),
+          ...(generation ? {context:generation.context} : {})});
+      }
       catch(error) {return {ok:false,error:error.message};}
       finally {s.pending.delete(id);requestRefresh();}
     }
-    const generationContext = s => readContext(s.account,s.targetId || replyPostId(s.editor),includeImage);
-    const hasGenerationMaterial = (s,context) => s.post || (context?.imageFrom === "post" && context.image);
+    function targetArticle(s,postId) {
+      const captured = s.targetCard?.article;
+      return captured?.isConnected && tweetId(captured) === postId ? captured : replyArticle(s.editor);
+    }
+    function generationInput(s) {
+      const postId = s.targetId || replyPostId(s.editor);
+      const context = readContext(s.account,postId,includeImage,() => {
+        if (s.targetCard?.photo) return s.targetCard.photo;
+        return globalThis.XReplyAIContext?.photoFromArticle(targetArticle(s,postId),postId);
+      });
+      const post = postText(s.post);
+      return {post,context:{...context,imageRequested:includeImage}};
+    }
+    const hasGenerationMaterial = ({post,context}) => post || (context.imageFrom === "post" && context.image);
 
-    function generate(s,context) {
+    function generate(s,input) {
       if (!autoComplete || s.autoReply || !valid(s) || edit.read(s.editor) || s.pending.size >= 3) return;
-      context ??= generationContext(s);
-      if (!hasGenerationMaterial(s,context)) return;
-      void request(s,"generate","",context).then(result => {
-        if (!valid(s) || edit.read(s.editor) || s.writing || s.rewriting || s.recommending) return;
+      input ??= generationInput(s);
+      if (!hasGenerationMaterial(input)) return;
+      void request(s,"generate","",input).then(result => {
+        if (!valid(s) || s.writing || s.rewriting || s.recommending) return;
+        if (result.contextUsed) {
+          s.contextUsed = result.contextUsed;
+          requestRefresh();
+        }
+        if (edit.read(s.editor)) return;
         if (result.ok) {
           s.candidates.push(result.text);
           if (s.candidates.length > 32) {s.candidates.shift();s.index=Math.max(0,s.index-1);}
-          s.contextUsed = result.contextUsed;
-          requestRefresh();
         } else if (!result.cancelled) s.error=result.error;
         if (!s.pending.size && !s.candidates.length && s.error) toast(`AI：${s.error}`);
         draw(s);
@@ -188,6 +327,7 @@
       draw(s);
     }
     function refresh() {
+      if (details && !details.trigger.isConnected) closeDetails();
       if (interactionBlocked()) {pause();return;}
       if (!enabled || !connected() || document.hidden) return;
       const editor = document.querySelector(EDITOR);
@@ -218,15 +358,17 @@
         (liveId ? cached.targetId === liveId : cached.quote === quote);
       const targetId = liveId || (reuse ? cached.targetId : "");
       if (!post && !targetId) return;
-      const s = current = {editor,dialog,root,post,account,targetId,quote,quoteText:quote?.textContent,epoch:configEpoch,pending:new Set(),
+      const clickedTarget = target?.account === account && target.id === targetId ? target : null;
+      const targetCard = clickedTarget || (reuse ? cached.targetCard : undefined);
+      const s = current = {editor,dialog,root,post,account,targetId,targetCard,quote,quoteText:quote?.textContent,epoch:configEpoch,pending:new Set(),
         candidates:reuse?[...cached.candidates]:[],index:reuse?cached.index:0,contextUsed:reuse?cached.contextUsed:undefined,
         version:0,writing:false,rewriting:false,composing:false};
       target=undefined;
       if(pausedEditors.has(editor))return; // Acknowledgement alone must not restart generation in the old composer.
       if (prepareAutomatic(s)) return;
       if (autoComplete && !edit.read(editor) && (!reuse || cached.retry)) {
-        const context = generationContext(s);
-        for (let index=0;index<3;index++) generate(s,context);
+        const input = generationInput(s);
+        for (let index=0;index<3;index++) generate(s,input);
       }
       else {draw(s);if(reuse && cached.error && !s.candidates.length)toast(`AI：${cached.error}`);}
     }
@@ -254,9 +396,20 @@
       if(!valid(s))return;
       const {editor}=s;
       if (s.writing || s.rewriting || s.recommending || s.composing || edit.busy(editor)) return;
-      const context = generationContext(s);
-      if (!hasGenerationMaterial(s,context)) {
-        const reason = includeImage ? "本帖缺少可用于生成的文字或图片。" : "本帖缺少文字，可勾选「带图」后重试。";
+      const input = generationInput(s);
+      if (!hasGenerationMaterial(input)) {
+        const article = targetArticle(s,s.targetId || replyPostId(editor));
+        const videoOnly = article ? videoOnlyArticle(article) : s.targetCard?.videoOnly === true;
+        if (automatic && videoOnly) {
+          // Let an explicit timed resume take effect before closing its current editor.
+          s.recommending = true;
+          await Promise.resolve();
+          s.recommending = false;
+          if (!valid(s)) return;
+          if (canAutoFill(s) && !s.composing && !edit.busy(editor) && !edit.read(editor).trim() && skipVideo(editor)) return;
+        }
+        const reason = videoOnly ? "这条只有视频，可点「跳过」继续。" :
+          includeImage ? "本帖暂未取得可用文字或照片，可点「跳过」继续。" : "本帖缺少文字，可勾选「带图」重试，或点「跳过」。";
         if (automatic) autoFillBlocked(s,reason);
         else toast(reason);
         return;
@@ -265,8 +418,9 @@
       s.contextUsed = undefined;
       s.recommending=true;cancelRequests(s);hidePreview(s);requestRefresh();
       try {
-        const result=await request(s,"generate","",context);
+        const result=await request(s,"generate","",input);
         if (!valid(s)) return;
+        s.contextUsed = result.contextUsed;
         if(automatic && !canAutoFill(s)){
           autoFillBlocked(s,"AI 已返回，但当前焦点或回复条件不允许填入；请核对后手动继续。");return;
         }
@@ -279,7 +433,6 @@
           if(!result.cancelled){const text=`AI：${result.error}`;if(automatic)autoFillBlocked(s,text);else toast(text);}
           return;
         }
-        s.contextUsed = result.contextUsed;
         s.writing=true;
         requestRefresh();
         if (automatic) {
@@ -337,7 +490,7 @@
       finally {s.writing=false;s.rewriting=false;requestRefresh();}
     }
     document.addEventListener("click",event=>{
-      if (!enabled || interactionBlocked()) return;
+      if (interactionBlocked()) return;
       const node=event.target instanceof Element?event.target:event.target?.parentElement;
       const article=node?.closest('[data-testid="reply"]')?.closest('article[data-testid="tweet"]');
       if (node?.closest('[data-testid="tweetButton"]') && current && (current.writing || current.rewriting || current.recommending)) {
@@ -346,9 +499,12 @@
       if (article && !article.closest('[role="dialog"]')) {
         const editor=document.querySelector(EDITOR);if(editor)pausedEditors.delete(editor);
         if (current) stop(); // A new reply action invalidates even a reused editor with identical text.
-        target={id:tweetId(article),account:accountHandle()};
+        const id = tweetId(article);
+        // X can unmount the timeline card before the reply editor is ready.
+        const photo = includeImage || !imageReady ? globalThis.XReplyAIContext?.photoFromArticle(article,id) : "";
+        target = {id,account:accountHandle(),article,photo,videoOnly:videoOnlyArticle(article)};
       }
-      if (node?.closest('[data-testid="app-bar-close"]') && current) stop();
+      if (node?.closest('[data-testid="app-bar-close"]') && (current || target)) stop();
     },true);
     document.addEventListener("input",event=>{
       const s=current;if(!s || event.target!==s.editor)return;
@@ -420,5 +576,5 @@
       return current.recommending || current.pending.size ? "generating" : paused?"paused":"";
     },busy:editor=>Boolean(current && current.editor===editor&&(current.writing||current.rewriting||current.recommending))};
   }
-  globalThis.XReplyAIReplies={create};
+  globalThis.XReplyAIReplies={create,videoOnlyArticle};
 })();

@@ -43,6 +43,14 @@ test('根作者未知不乱计；根作者晚到才产出事实，重复读取�
  core.ingest(state,{tweets:[tweet('102','2','100','101','3')]},'me',now+2);
  assert.equal(core.interactionChanges(state).facts.size,0);
 });
+test('评论缺原帖 ID 时可复用本地已确认的原帖索引',()=>{
+ const state=core.createState();state.statistics={version:2};
+ core.ingest(state,{users:[{id:'1',handle:'me'}],tweets:[tweet('101','3','100','100','1')]},'me',now);
+ assert.equal(state.tweets['100'],undefined);
+ core.saved(state);
+ core.ingest(state,{tweets:[tweet('102','2','','100','1')]},'me',now+1);
+ assert.deepEqual([...core.interactionChanges(state).facts.keys()],['1:2:in:100']);
+});
 test('统计模式在缓存清理前捕获事实，不清理人物汇总；账号与方向独立',()=>{
  const state=initial(),plan=ledger.migrationPlan(state,null,now);Object.assign(state,{people:plan.people,statistics:plan.statistics});core.primeInteractions(state);core.saved(state);
  core.ingest(state,{tweets:[tweet('202','1','200','200','2'),tweet('103','2','100','100','1')]},'me',now+1);

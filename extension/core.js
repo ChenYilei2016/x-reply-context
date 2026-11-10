@@ -137,7 +137,10 @@
     const cache = cacheFor(state);
     if (!cache.users) {
       cache.users = new Map();
-      for (const user of Object.values(state.users)) if (!cache.users.has(user.handle)) cache.users.set(user.handle,user);
+      for (const user of Object.values(state.users)) {
+        // A reused handle can refer to two IDs in the local cache.
+        cache.users.set(user.handle,cache.users.has(user.handle) ? null : user);
+      }
     }
     return cache.users.get(name) || null;
   }
@@ -148,7 +151,9 @@
       if (tweet.conversationId) return tweet.conversationId;
       if (!tweet.parentId || seen.has(tweet.id)) return "";
       seen.add(tweet.id);
-      tweet = state.tweets[tweet.parentId];
+      const parent = state.tweets[tweet.parentId];
+      if (!parent?.conversationId && !parent?.parentId && state.roots?.[tweet.parentId]?.authorId) return tweet.parentId;
+      tweet = parent;
     }
     return "";
   }
@@ -160,7 +165,7 @@
       const parent = state.tweets[tweet.parentId];
       const recipientId = tweet.recipientId || parent?.authorId;
       const rootAuthor = tweet.id === rootId ? tweet.authorId :
-        tweet.parentId === rootId ? recipientId : "";
+        tweet.parentId === rootId ? parent?.authorId || state.roots[rootId]?.authorId || recipientId : "";
       if (rootAuthor) {
         put(state,"roots",rootId,{
           id: rootId, authorId: rootAuthor,
@@ -446,6 +451,28 @@
     };
   }
 
+  function personStatsBatch(state,accountHandle,targets) {
+    const me = findAccount(state,accountHandle);
+    if (!me || !Array.isArray(targets)) return [];
+    const rows = [];
+    const seen = new Set();
+    for (const target of targets.slice(0,100)) {
+      const postId = id(target?.postId);
+      const authorHandle = handle(typeof target === "string" ? target : target?.authorHandle);
+      if (!postId && !authorHandle) continue;
+      const key = postId ? `post:${postId}` : `author:${authorHandle}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const authorId = state.tweets[postId]?.authorId || findAccount(state,authorHandle)?.id;
+      if (!authorId || authorId === me.id) continue;
+      const person = state.people?.[`${me.id}:${authorId}`];
+      const row = { authorHandle,authorId,personStats:summarizePerson(state,person) };
+      if (postId) row.postId = postId;
+      rows.push(row);
+    }
+    return rows;
+  }
+
   function classifyWith(state, me, tweetId, lookup, authorHint) {
     const tweet = state.tweets[id(tweetId)];
     const result = {
@@ -458,10 +485,14 @@
       if (result.id && authorHint) {
         result.authorHandle = authorHint;
         const author = me && findAccount(state,authorHint);
-        if (author) result.personStats = summarizePerson(state,state.people?.[`${me.id}:${author.id}`]);
+        if (author) {
+          result.authorId = author.id;
+          result.personStats = summarizePerson(state,state.people?.[`${me.id}:${author.id}`]);
+        }
       }
       return result;
     }
+    result.authorId = tweet.authorId;
     result.authorHandle = state.users[tweet.authorId]?.handle || authorHint;
     const original = !tweet.parentId && tweet.conversationId === tweet.id;
     if (!original && me && tweet.authorId === me.id) return { ...result, status: "self" };
@@ -537,5 +568,5 @@
     }
   }
 
-  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, findAccount, id, handle, RETENTION_MS, LIMIT, changes, saved, prepare, interactionFacts, interactionChanges, primeInteractions:collectInteractionFacts };
+  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, personStatsBatch, findAccount, id, handle, RETENTION_MS, LIMIT, changes, saved, prepare, interactionFacts, interactionChanges, primeInteractions:collectInteractionFacts };
 })();

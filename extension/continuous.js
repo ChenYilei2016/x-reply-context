@@ -4,6 +4,8 @@
   const EDITOR = '[contenteditable="true"][data-testid="tweetTextarea_0"]';
   const SEND = '[data-testid="tweetButton"]';
   const CLOSE = '[data-testid="app-bar-close"]';
+  const NEXT_NOTE = "从当前帖往下选择，略过已回复。";
+  const MAX_AUTO_VIDEO_SKIPS = 3;
   const SEND_KEY_GAP_MS = 500;
   const QUICK_REPLIES = [
     { label:"一起加油",phrases:[
@@ -44,11 +46,21 @@
     try {
       const url = new URL(href,location.href);
       const match = url.pathname.match(/^\/([a-z0-9_]{1,15})\/status\/(\d+)\/?$/i);
-      return url.origin === location.origin && match?.[2] === id ? match[1].toLowerCase() : "";
+      return url.origin === location.origin && match && (id === undefined || match[2] === id) ? match[1].toLowerCase() : "";
     } catch { return ""; }
   }
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,renderPersonStats = () => {},requestRefresh,refreshCycle,timedReplies,randomSkipLikeEnabled = () => false,interactionBlocked = () => false,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "",aiFillRecommendedEnabled = () => false,renderAiOptions }) {
+  function candidateAuthor(article,id,row) {
+    return authorFromPostLink(article,id) || row?.authorHandle?.toLowerCase() || "";
+  }
+
+  function allowedAuthor(skipped,article,id,row) {
+    if (!skipped?.size) return true;
+    const author = candidateAuthor(article,id,row);
+    return Boolean(author) && !skipped.has(author);
+  }
+
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,renderPersonStats = () => {},requestRefresh,refreshCycle,timedReplies,skipAuthors,randomSkipLikeEnabled = () => false,interactionBlocked = () => false,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "",aiFillRecommendedEnabled = () => false,renderAiOptions }) {
     let session;
     let notice;
     let noticeTimer;
@@ -64,6 +76,10 @@
     function composer() {
       return Array.from(document.querySelectorAll(COMPOSER))
         .find(node => visible(node) && node.querySelector(EDITOR) && node.querySelector(SEND));
+    }
+
+    function closeConfirmation() {
+      return [...document.querySelectorAll('[data-testid="confirmationSheetDialog"],[role="alertdialog"]')].some(visible);
     }
 
     function feedColumn(s) {
@@ -132,19 +148,43 @@
         item.tab.getAttribute("aria-selected") === "true") ? key : "";
     }
 
-    function articles(s) {
+    function mountedArticles(s) {
       const column = feedColumn(s);
       return Array.from(column?.querySelectorAll('article[data-testid="tweet"]') || [])
-        .filter(article => !article.closest(COMPOSER) &&
-          !article.hasAttribute("data-xrc-home-hidden") && !article.hasAttribute("data-xrc-notification-hidden"));
+        .filter(article => !article.closest(COMPOSER));
+    }
+
+    const availableArticle = article => !article.hasAttribute("data-xrc-home-hidden") &&
+      !article.hasAttribute("data-xrc-notification-hidden");
+
+    function articles(s) { return mountedArticles(s).filter(availableArticle); }
+
+    function mountedCards(s) {
+      return mountedArticles(s).map(article => [tweetId(article),article]).filter(([id]) => id);
+    }
+
+    function cardPosition(cards,{id,article}) {
+      const position = cards.findIndex(([key,node]) => key === id && node === article);
+      return position >= 0 ? position : cards.findIndex(([key]) => key === id);
+    }
+
+    function replyTarget(id,article,cards) {
+      const position = cardPosition(cards,{id,article});
+      const followingIds = new Set(position >= 0 ? cards.slice(position+1).map(([key]) => key) : []);
+      return {id,article,authorHint:authorFromPostLink(article,id),followingIds};
+    }
+
+    function cardsAfter(cards,target) {
+      const position = cardPosition(cards,target);
+      // If X unmounts the current post, only continue with cards known to follow it.
+      return position >= 0 ? cards.slice(position+1) : cards.filter(([id]) => target.followingIds.has(id));
     }
 
     function currentArticle(s) {
       const cached = s.current.article;
       const primary = feedColumn(s);
       if (cached?.isConnected && primary?.contains(cached) && tweetId(cached) === s.current.id &&
-          !cached.closest(COMPOSER) && !cached.hasAttribute("data-xrc-home-hidden") &&
-          !cached.hasAttribute("data-xrc-notification-hidden")) return cached;
+          !cached.closest(COMPOSER) && availableArticle(cached)) return cached;
       // X can replace or reuse virtual cards. Revalidate identity before touching a native control.
       return s.current.article = articles(s).find(node => tweetId(node) === s.current.id);
     }
@@ -271,13 +311,15 @@
       session = {
         profile,searchKey:search,
         account,feed,homeTabIndex:feed === "home" ? selectedHomeTab(document.querySelector(PRIMARY_COLUMN)) : -1,
-        handled:new Set(),current:{ id,article,authorHint:authorFromPostLink(article,id) },phase:"ready",
-        note:"从当前页选择，略过已回复。",attempt:null
+        handled:new Set(),current:replyTarget(id,article,mountedCards({feed})),phase:"ready",
+        note:NEXT_NOTE,attempt:null
       };
       refresh();
     }
 
     async function resumeRecommended(intent,valid) {
+      if (interactionBlocked() || !valid() || session || location.pathname !== "/home") return "paused";
+      if (skipAuthors && !await skipAuthors.ready()) throw new Error("跳过名单暂不可用，请刷新 X 后再试。");
       if (interactionBlocked() || !valid() || session || location.pathname !== "/home") return "paused";
       const primary=document.querySelector(PRIMARY_COLUMN);
       const tabs=Array.from(primary?.querySelectorAll('[role="tab"]') || []);
@@ -290,18 +332,24 @@
       const candidates=[...new Map(articles({feed:"home"}).map(article=>[tweetId(article),article]))]
         .filter(([id,article])=>id&&enabled(article.querySelector('[data-testid="reply"]'))).slice(0,100);
       if (!candidates.length) return "waiting";
-      const signature=contextRevision+":"+candidates.map(([id])=>id).join(",");
+      const signature=`${contextRevision}:${skipAuthors?.revision() || 0}:${candidates.map(([id])=>id).join(",")}`;
       if (intent.lastCheck===signature) return "waiting";
       intent.lastCheck=signature;
       const result=await message({type:"CLASSIFY",account:intent.account,ids:candidates.map(([id])=>id)});
       if (!valid() || session || location.pathname!=="/home" || selectedHomeTab(primary)!==0) return "paused";
       if (result.recognized===false) return "waiting";
       const rows=new Map(result.rows.map(row=>[row.id,row]));
-      const next=candidates.find(([id,article])=>article.isConnected&&tweetId(article)===id&&
-        rows.get(id)?.authorHandle && rows.get(id).authorHandle!==intent.account && rows.get(id).personStats &&
-        eligible(rows.get(id))&&enabled(article.querySelector('[data-testid="reply"]')));
-      if (!next) return candidates.some(([id])=>!rows.get(id)?.authorHandle ||
-        rows.get(id).authorHandle!==intent.account && !rows.get(id).personStats)?"waiting":"empty";
+      const skipped = skipAuthors?.authors(intent.account);
+      const next = candidates.find(([id,article]) => {
+        const row = rows.get(id);
+        return article.isConnected && tweetId(article) === id && row?.authorHandle && row.authorHandle !== intent.account &&
+          row.personStats && eligible(row) && allowedAuthor(skipped,article,id,row) && enabled(article.querySelector('[data-testid="reply"]'));
+      });
+      if (!next) return candidates.some(([id,article]) => {
+        const row = rows.get(id);
+        if (skipped?.size && skipped.has(candidateAuthor(article,id,row))) return false;
+        return !row?.authorHandle || row.authorHandle !== intent.account && !row.personStats;
+      }) ? "waiting" : "empty";
       start(next[1],"home",{restoring:true});
       if (!session || session.current.id!==next[0])return "paused";
       session.phase="opening";openCurrent(session);return "opened";
@@ -311,6 +359,10 @@
       const s=session;
       if (!editor || !s || s.current.dialog?.querySelector(EDITOR) !== editor || !currentSession(s)) return "";
       return s.current.id;
+    }
+
+    function replyArticle(editor) {
+      return replyPostId(editor) ? currentArticle(session) : null;
     }
 
     function rootOwnership(editor) {
@@ -340,6 +392,18 @@
       return Boolean(dialog.querySelector(EDITOR)?.innerText.trim()) || hasAttachments(dialog);
     }
 
+    function autoSkipAllowed() {
+      return timedPageAllowed() && !timedReplies?.isPaused?.() && !timedReplies?.isFinishing?.();
+    }
+
+    function skipVideo(editor) {
+      const s = session;
+      const target = recommendedReply(editor);
+      if (!target || composer() !== target.dialog || target.dialog.querySelector(EDITOR) !== editor ||
+          target.heartPending || !autoSkipAllowed() || (s.videoSkips || 0) >= MAX_AUTO_VIDEO_SKIPS) return false;
+      return closeForNext(s,{autoVideo:true});
+    }
+
     function draftBusy(s) {
       const editor = s.current.dialog?.querySelector(EDITOR);
       if (s.current.fillingText !== undefined && editor?.innerText.replace(/\n$/,"") === s.current.fillingText) {
@@ -358,24 +422,40 @@
         (visible(rewrite) && /^改写中/.test(rewrite.innerText.trim()));
     }
 
-    function closeForNext(s) {
-      if (!currentSession(s)) return;
-      if (draftBusy(s) || s.current.quickPending) { render(s); return; }
+    function closeForNext(s,{autoVideo=false}={}) {
+      if (!currentSession(s)) return false;
+      if (draftBusy(s) || s.current.quickPending) { render(s); return false; }
       const dialog = s.current.dialog;
       const close = dialog?.querySelector(CLOSE);
       if (!enabled(close)) {
         s.note = "未找到关闭按钮，请手动关闭回复框后重新开始。";
         render(s);
-        return;
+        return false;
       }
       s.hadDraft = hasDraft(dialog);
+      if (autoVideo && s.hadDraft) return false;
       s.saveClicked = false;
+      s.current.autoSkippedVideo = autoVideo;
+      if (autoVideo) s.videoSkips = (s.videoSkips || 0)+1;
       s.phase = "closing";
-      s.note = s.hadDraft ? "正在保存 X 草稿并跳过…" : "正在进入下一条…";
+      s.note = autoVideo ? "正在跳过纯视频…" : s.hadDraft ? "正在保存 X 草稿并跳过…" : "正在进入下一条…";
       render(s);
       internalClose = true;
       try { close.click(); } finally { internalClose = false; }
       refresh();
+      if (autoVideo && session === s && s.phase === "closing") {
+        s.timeout = setTimeout(() => {
+          if (!currentSession(s) || s.phase !== "closing") return;
+          const note = "X 未确认关闭回复框，请手动处理后继续。";
+          if (composer() !== dialog) { finish(note); return; }
+          s.current.autoSkippedVideo = false;
+          s.phase = "ready";
+          s.note = note;
+          timedReplies?.stop(s.note);
+          render(s);
+        },2000);
+      }
+      return true;
     }
 
     function saveDraftIfAsked(s) {
@@ -400,7 +480,8 @@
       if (interactionBlocked() || !currentSession(s) || s.phase === "advancing") return;
       if (s.phase === "refreshing") return;
       s.handled.add(s.current.id);
-      if (refreshCycle?.due(s) && !timedReplies?.isPaused() && !timedReplies?.isFinishing?.()) {
+      if (!s.current.autoSkippedVideo) s.videoSkips = 0;
+      if (!s.current.autoSkippedVideo && refreshCycle?.due(s) && !timedReplies?.isPaused() && !timedReplies?.isFinishing?.()) {
         const refreshToken = s.refreshToken = {};
         s.phase="refreshing";clearNotice();
         const valid=()=>currentSession(s)&&s.phase==="refreshing"&&s.refreshToken===refreshToken;
@@ -421,36 +502,52 @@
       s.phase = "advancing";
       const selection = s.selection = {};
       const valid = () => currentSession(s) && s.phase==="advancing" && s.selection===selection;
+      const canContinue = () => {
+        if (!valid()) return false;
+        if (s.current.autoSkippedVideo && (!autoSkipAllowed() || composer() || closeConfirmation())) {
+          finish("页面状态已变化，已停止自动跳过。");
+          return false;
+        }
+        return true;
+      };
       clearTimeout(s.timeout);
       s.attempt = null;
       s.current.dialog?.querySelector(".xrc-continuous")?.remove();
       clearNotice();
       try {
-        const candidates = [...new Map(articles(s).map(article => [tweetId(article),article]))]
-          .filter(([id,article]) => id && !s.handled.has(id) && enabled(article.querySelector('[data-testid="reply"]')));
-        let nextId = "";
+        if (skipAuthors && !await skipAuthors.ready()) throw new Error("跳过名单暂不可用，请刷新 X 后再试。");
+        if (!canContinue()) return;
+        const skipVideos = isRecommended(s) && aiFillRecommendedEnabled();
+        const canOpen = ([id,article]) => !s.handled.has(id) && availableArticle(article) &&
+          enabled(article.querySelector('[data-testid="reply"]')) &&
+          (!skipVideos || !globalThis.XReplyAIReplies?.videoOnlyArticle(article));
+        const ids = [...new Set(cardsAfter(mountedCards(s),s.current).filter(canOpen).map(([id]) => id))];
+        let next;
         // Only inspect mounted cards; classify locally in bounded batches.
-        for (let offset = 0; offset < candidates.length && !nextId; offset += 100) {
-          const batch = candidates.slice(offset,offset+100);
-          const result = await message({ type:"CLASSIFY",account:s.account,ids:batch.map(([id]) => id) });
-          if (!valid()) return;
+        for (let offset = 0; offset < ids.length && !next; offset += 100) {
+          const result = await message({ type:"CLASSIFY",account:s.account,ids:ids.slice(offset,offset+100) });
+          if (!canContinue()) return;
           if (s.afterReply?.timed && !s.afterReply.cancelled && !timedPageAllowed()) {
             timedReplies?.pause("页面不在前台，返回后点击继续本轮");
             return;
           }
           const byId = new Map(result.rows.map(row => [row.id,row]));
-          nextId = batch.find(([id,article]) => article.isConnected && tweetId(article) === id &&
-            eligible(byId.get(id)) && enabled(article.querySelector('[data-testid="reply"]')))?.[0] || "";
+          const skipped = skipAuthors?.authors(s.account);
+          const cards = mountedCards(s);
+          const match = cardsAfter(cards,s.current).find(([id,article]) => {
+            const row = byId.get(id);
+            return eligible(row) && canOpen([id,article]) && allowedAuthor(skipped,article,id,row);
+          });
+          if (match) next = replyTarget(match[0],match[1],cards);
         }
-        if (!nextId) {
-          finish(`当前已加载的${s.feed === "notifications" ? "通知" : s.feed === "search" ? "搜索结果" : "主页帖子"}处理完成。加载更多后，从任一条继续。`);
+        if (!next) {
+          finish("当前位置之后没有符合条件的已加载帖子。向下浏览后，可以从任一条重新开始。");
           return;
         }
         s.afterReply=null;
-        const article = candidates.find(([id]) => id === nextId)?.[1];
-        s.current = { id:nextId,article,authorHint:authorFromPostLink(article,nextId) };
+        s.current = next;
         s.phase = "opening";
-        s.note = s.saveClicked ? "上一条已保存到 X 草稿。" : "从当前页选择，略过已回复。";
+        s.note = s.saveClicked ? "上一条已保存到 X 草稿。" : NEXT_NOTE;
         openCurrent(s);
       } catch (error) {
         if (valid()) {
@@ -645,7 +742,6 @@
     }
 
     function updateContext(context,row) {
-      renderPersonStats(context.parentElement.querySelector(".xrc-flow-people"),row.personStats);
       const labels = context.querySelector(".xrc-labels");
       if (labels) renderLabels(labels,row);
       const preview = context.parentElement.querySelector(".xrc-flow-root");
@@ -717,13 +813,14 @@
         people = document.createElement("div");
         people.className = "xrc-flow-people";
         people.setAttribute("aria-label","当前回复对象 · 本地互动原帖数");
-        renderPersonStats(people,null);
         bar.append(people);
       }
       const current = s.current;
-      if (current.context && (current.renderedContext !== context || current.renderedRow !== current.context)) {
-        updateContext(context,current.context);
-        current.renderedContext = context; current.renderedRow = current.context;
+      const row = current.context;
+      renderPersonStats(people,row?.personStats,row?.authorHandle,row?.authorId);
+      if (row && (current.renderedContext !== context || current.renderedRow !== row)) {
+        updateContext(context,row);
+        current.renderedContext = context; current.renderedRow = row;
       }
       const revision = contextRevision;
       refreshCycle?.render(s,bar);
@@ -763,7 +860,7 @@
           valid:() => currentSession(s) && s.current === current && !current.composing && !draftBusy(s)
         });
         if (!inserted) s.note = "快捷填入未完成，请直接在回复框输入。";
-        else if (s.note === "快捷填入未完成，请直接在回复框输入。") s.note = "从当前页选择，略过已回复。";
+        else if (s.note === "快捷填入未完成，请直接在回复框输入。") s.note = NEXT_NOTE;
       } catch {s.note = "快捷填入未完成，请直接在回复框输入。";}
       finally {current.quickPending = false;requestRefresh();}
     }
@@ -897,8 +994,7 @@
       if (!currentSession(s)) { finish(); return; }
       const dialog = composer();
       if (s.phase === "closing") {
-        const savingDraft = saveDraftIfAsked(s);
-        if (savingDraft) return;
+        if (s.current.autoSkippedVideo ? closeConfirmation() : saveDraftIfAsked(s)) return;
         if (!dialog) {
           if (s.hadDraft && !s.saveClicked) {
             s.phase = "draft-check";
@@ -1088,8 +1184,8 @@
         requestAnimationFrame(() => { if (session === s && !composer()) finish(); });
       }
     },true);
-    return { refresh,canAutoFillUnfocused,timedState,timedSend,cancelTimedFollowup,pauseForAlert,receiveReply,receiveLike,resumeRecommended,replyPostId,rootOwnership,recommendedReply,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
+    return { refresh,canAutoFillUnfocused,timedState,timedSend,cancelTimedFollowup,pauseForAlert,receiveReply,receiveLike,resumeRecommended,replyPostId,replyArticle,rootOwnership,recommendedReply,skipVideo,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
   }
 
-  globalThis.XReplyContinuous = { create };
+  globalThis.XReplyContinuous = { create,authorFromPostLink };
 })();

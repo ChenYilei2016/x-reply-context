@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import '../extension/core.js';
 import '../extension/post-video.js';
+import '../extension/observe-media.js';
 import '../extension/video-download.js';
 
 const mediaUrl = name => `https://video.twimg.com/ext_tw_video/111/pu/vid/${name}`;
@@ -11,7 +12,8 @@ const low = mediaUrl('480x270/low.mp4?tag=12');
 const high = mediaUrl('1280x720/high.mp4?tag=12');
 const variant = (url,bitrate,content_type = 'video/mp4') => ({url,bitrate,content_type});
 const media = (variants,allow = true) => ({type:'video',video_info:{variants},allow_download_status:{allow_download:allow}});
-const { parsePostLink,selectMp4 } = globalThis.XReplyPostVideo;
+const { parsePostLink } = globalThis.XReplyPostVideo;
+const { selectMp4 } = globalThis.XReplyObserveMedia;
 
 test('帖子链接去掉分享参数，只接受 X 帖子，MP4 只取 X 媒体域中最高码率',()=>{
   assert.deepEqual(parsePostLink('https://twitter.com/i/web/status/123/video/1?s=20'),{id:'123',url:'https://x.com/i/status/123'});
@@ -39,7 +41,7 @@ test('从原帖正常响应提取指定帖子的视频，忽略回复和引用�
     fetch:async()=>new Response(JSON.stringify(payload),{headers:{'content-type':'application/json'}}),
     postMessage:message=>messages.push(message),addEventListener:(_name,listener)=>listeners.push(listener)
   };
-  const scope = vm.createContext({XReplyContext:globalThis.XReplyContext,XReplyPostVideo:globalThis.XReplyPostVideo,
+  const scope = vm.createContext({XReplyContext:globalThis.XReplyContext,XReplyObserveMedia:globalThis.XReplyObserveMedia,
     XMLHttpRequest:class {open(){} send(){}},window,location,URL,Request,TextDecoder,document:{querySelector:()=>null},
     setTimeout:()=>1,clearTimeout:()=>{}});
   vm.runInContext(await readFile(new URL('../extension/observe.js',import.meta.url),'utf8'),scope);

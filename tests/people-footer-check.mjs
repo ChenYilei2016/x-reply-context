@@ -12,6 +12,7 @@ export async function checkPeopleFooter() {
  const close=()=>document.querySelector('.demo-composer [data-testid="app-bar-close"]')?.click();
  const notification=location.pathname==='/notifications';
  const alice=notification?'2112500000000000004':'2112500000000000006';
+ const nextAuthor=notification?'bob':'carol';
  output.dataset.result='running';
  try {
   change('delayed');open(alice);await wait(()=>footer());
@@ -34,7 +35,7 @@ export async function checkPeopleFooter() {
   check('缺少互动数据不会显示0且保持高度',footer().getBoundingClientRect().height===height);
   change('normal');await wait(()=>footer().textContent==='我评他 1他评我 2');
   document.querySelector('.xrc-flow-skip').click();
-  await wait(()=>document.querySelector('.xrc-flow-profile')?.getAttribute('href')==='https://x.com/carol' && footer()?.textContent==='我评他 0他评我 1');
+  await wait(()=>document.querySelector('.xrc-flow-profile')?.getAttribute('href')===`https://x.com/${nextAuthor}` && footer()?.textContent==='我评他 待确认他评我 1');
   check('下一条绑定当前作者，不沿用上个人计数',(!footer().nextElementSibling || footer().nextElementSibling.classList.contains('xrc-refresh-cycle')));
   close();change('failed');open(alice);
   await wait(()=>document.querySelector('.xrc-flow-profile')?.title.includes('读取失败'));

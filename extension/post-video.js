@@ -23,23 +23,5 @@
     } catch { return ""; }
   }
 
-  function selectMp4(tweet) {
-    const media = tweet.legacy?.extended_entities?.media ?? tweet.extended_entities?.media ?? tweet.legacy?.entities?.media;
-    if (!Array.isArray(media)) return "";
-    for (const item of media.slice(0,4)) {
-      const variants = item?.video_info?.variants;
-      if (item?.type !== "video" || item.allow_download_status?.allow_download === false || !Array.isArray(variants)) continue;
-      let selected = "", highestBitrate = -1;
-      for (const variant of variants.slice(0,20)) {
-        if (variant?.content_type !== "video/mp4") continue;
-        const url = mp4Url(variant.url);
-        const bitrate = Number.isFinite(variant.bitrate) && variant.bitrate >= 0 ? variant.bitrate : 0;
-        if (url && bitrate > highestBitrate) { selected = url; highestBitrate = bitrate; }
-      }
-      if (selected) return selected;
-    }
-    return "";
-  }
-
-  globalThis.XReplyPostVideo = { parsePostLink,mp4Url,selectMp4 };
+  globalThis.XReplyPostVideo = { parsePostLink,mp4Url };
 })();

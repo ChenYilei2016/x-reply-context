@@ -2,6 +2,7 @@
   "use strict";
   const COLLECTIONS=["users","tweets","roots","replies","likes","people"];
   const DATABASE="x-reply-context-records";
+  const INTERACTION_RULES_VERSION=1;
   function create() {
     let opening;
     const core=globalThis.XReplyContext;
@@ -47,7 +48,8 @@
       return opening;
     }
     function sameRecord(a,b){return a===b||Boolean(a&&Object.keys(a).length===Object.keys(b).length&&Object.keys(a).every(key=>a[key]===b[key]));}
-    const metadata=state=>({version:state.version,accounts:state.accounts,likeSnapshotFloors:state.likeSnapshotFloors||{},updatedAt:state.updatedAt,initialized:true,statistics:state.statistics});
+    const metadata=state=>({version:state.version,accounts:state.accounts,likeSnapshotFloors:state.likeSnapshotFloors||{},updatedAt:state.updatedAt,
+      initialized:true,statistics:state.statistics,interactionRulesVersion:INTERACTION_RULES_VERSION});
     async function save(state) {
       const db=await database(),dirty=core.changes(state),changes=[];
       for(const name of COLLECTIONS){
@@ -68,8 +70,10 @@
         let result;
         try {
           result=await ledger.apply(transaction,facts.slice(offset,offset+500),pending.overflow);
-          const previous=await request(transaction.objectStore("metadata").get("state"));
-          transaction.objectStore("metadata").put({key:"state",value:{...previous.value,statistics:result.statistics}});
+          if(result.statsChanged){
+            const previous=await request(transaction.objectStore("metadata").get("state"));
+            transaction.objectStore("metadata").put({key:"state",value:{...previous.value,statistics:result.statistics}});
+          }
           await done;
         }catch(error){try{transaction.abort();}catch{}await done.catch(()=>{});throw error;}
         for(const [key,value] of result.people){state.people[key]=value;snapshots.get("people").set(key,value);}
@@ -110,9 +114,11 @@
       let state={version:meta?.value?.version||1,accounts:meta?.value?.accounts||{},likeSnapshotFloors:meta?.value?.likeSnapshotFloors||{},updatedAt:meta?.value?.updatedAt||0};
       COLLECTIONS.forEach((name,i)=>{state[name]=Object.fromEntries(rows[i].map(row=>[row.key,row.value]));});
       bounded(state);
+      let replayCachedFacts=false;
       if(meta?.value?.statistics?.version===2){
         state.statistics=meta.value.statistics;
         if(factCount!==state.statistics.factCount || rows[5].length!==state.statistics.peopleCount)throw Error("互动事实和汇总数量不一致，请保留备份后检查");
+        replayCachedFacts=(meta.value.interactionRulesVersion || 0)<INTERACTION_RULES_VERSION;
       }else{
         const legacy=(await chrome.storage.local.get("replyContext")).replyContext;
         if(legacy){bounded(legacy);await backupLegacy(db,legacy);}
@@ -135,7 +141,10 @@
         state=next;
       }
       for(const name of COLLECTIONS)snapshots.set(name,new Map(Object.entries(state[name])));
-      core.primeInteractions(state);core.saved(state);
+      core.primeInteractions(state);
+      // Persist recovered facts before marking the rule upgrade complete. Retrying is safe by fact key.
+      if(replayCachedFacts)await save(state);
+      else core.saved(state);
       return state;
     }
     return {load,save};

@@ -60,3 +60,25 @@ test('互动越过后台排队批次，保持单写入与冷启动账号依赖',
   release(); await Promise.all([busy,bootstrap,receipt]);
   assert.equal(state.likes['2:8'].liked,true);
 });
+
+test('人物统计首次读取补记先到评论，保存失败时下次读取重试',async()=>{
+  const state=core.createState();state.statistics={version:2,incomplete:false};
+  core.ingest(state,{users:[{id:'1',handle:'me'},{id:'2',handle:'peer'}],
+    tweets:[{id:'100',authorId:'1',conversationId:'100'},{id:'101',authorId:'2',conversationId:'100',parentId:'100',recipientId:'1'}]},'');
+  core.saved(state);
+  let listener,saves=0;
+  const context=vm.createContext({URL,console,setTimeout,importScripts(){},XReplyContext:core,
+    XReplyStorage:{create:()=>({load:async()=>state,save:async()=>{
+      if(++saves===1)throw Error('模拟保存中断');
+      assert.deepEqual([...core.interactionChanges(state).facts.keys()],['1:2:in:100']);
+      state.people['1:2']={myCommentedPosts:0,theirCommentedPosts:1};
+      core.saved(state);
+    }})},chrome:{runtime:{id:'test',getURL:p=>`chrome-extension://test${p}`,onMessage:{addListener:f=>{listener=f;}}},storage:{local:{set:async()=>{}}}}});
+  vm.runInContext(await readFile(new URL('../extension/background.js',import.meta.url),'utf8'),context);
+  const read=()=>new Promise(resolve=>listener({type:'PERSON_STATS',account:'me',authors:['peer']},
+    {id:'test',url:'https://x.com/home'},resolve));
+  assert.equal((await read()).ok,false);
+  assert.equal((await read()).rows[0].personStats.theirCommentedPosts,1);
+  assert.equal((await read()).rows[0].personStats.theirCommentedPosts,1);
+  assert.equal(saves,2);
+});
