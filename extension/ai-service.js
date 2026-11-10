@@ -5,7 +5,8 @@
   const outputError = (code,message) => Object.assign(new Error(message),{code});
   function output(text,maxLength) {
     const match = text.match(/<reply>([\s\S]*?)<\/reply>/i);
-    const clean = (match ? match[1] : text.replace(/<\/?[a-z][a-z0-9-]*>/gi,"")).trim().replace(/。+$/,"");
+    const reply = match ? match[1] : text.replace(/<\/?[a-z][a-z0-9-]*>/gi,"");
+    const clean = reply.replaceAll("<|reply|>","").trim().replace(/。+$/,"");
     if (!clean) throw outputError("EMPTY_AI_OUTPUT","模型返回了空内容。");
     if (clean.length > maxLength) {
       throw outputError("AI_OUTPUT_TOO_LONG",`模型返回 ${clean.length} 个字符，超过设置的 ${maxLength} 个字符上限。`);

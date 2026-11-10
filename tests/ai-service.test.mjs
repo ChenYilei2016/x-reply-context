@@ -79,6 +79,16 @@ test('模型空回复和超过自设字符上限分别返回可识别的原因',
  assert.equal((await request('at-limit')).text,'一二三四五');
  assert.throws(()=>scope.XReplyAIConfig.normalizeProfiles({...config,maxReplyLength:12001}),/最大字符数/);
 });
+test('模型回复标记在写入草稿和判断字符数前移除',async()=>{
+  let content='一起加油😂<|reply|>';
+  const {request,chrome}=setup(async()=>new Response(JSON.stringify({choices:[{message:{content}}]})));
+  assert.equal((await request('reply-marker')).text,'一起加油😂');
+  await chrome.storage.local.set({aiConfig:{...config,maxReplyLength:4}});
+  content='<reply>继续加油<|reply|></reply>';
+  assert.equal((await request('wrapped-marker',{kind:'rewrite',draft:'加油'})).text,'继续加油');
+  content='<|reply|>';
+  assert.equal((await request('marker-only')).code,'EMPTY_AI_OUTPUT');
+});
 test('全局最多3个模型请求，取消排队和在途任务，隔离不同标签页',async()=>{
   const {request,service,sender,calls}=setup((_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('cancelled','AbortError')),{once:true})));
   const pending=Array.from({length:8},(_,i)=>request(`r-${i}`));
