@@ -34,6 +34,8 @@
   }
 
   function normalize(raw) {
+    const postId = id(raw?.postId);
+    const pageAuthor = postId && (raw?.pageAuthor === "我" || raw?.pageAuthor === "对方") ? raw.pageAuthor : "";
     const parent = snippet(raw?.parent);
     const rootText = snippet(raw?.root);
     const root = rootText === parent ? "" : rootText;
@@ -41,7 +43,7 @@
       .filter(text => text && text !== parent && text !== root) : [];
     const image = photoUrl(raw?.image);
     const imageFrom = ["parent","root"].includes(raw?.imageFrom) ? raw.imageFrom : "post";
-    return { postId:id(raw?.postId),parent,root,comments,image,imageFrom,imageRequested:raw?.imageRequested === true };
+    return { postId,pageAuthor,parent,root,comments,image,imageFrom,imageRequested:raw?.imageRequested === true };
   }
 
   function create() {

@@ -20,7 +20,7 @@ test('自带API请求只发模型地址，模板/输出清理兼容，网页拿�
   const {service,sender,request,calls,chrome,scope}=setup();
   const result=await request('one');assert.equal(result.text,'你好');
   assert.equal(calls[0][0],'https://model.example/v1/chat/completions');
-  const sent=JSON.parse(calls[0][1].body);assert.equal(sent.messages[0].content,'post=一条帖子');assert.equal(sent.stream,true);
+  const sent=JSON.parse(calls[0][1].body);assert.ok(sent.messages[0].content.endsWith('\n\npost=一条帖子'));assert.equal(sent.stream,true);
   assert.equal(calls[0][1].redirect,'error');
   assert.equal((await service.handle({type:'AI_CONFIG_GET'},sender)).ok,false);
   const status=await service.handle({type:'AI_STATUS'},sender);assert.equal(status.apiKey,undefined);
@@ -29,11 +29,110 @@ test('自带API请求只发模型地址，模板/输出清理兼容，网页拿�
   await chrome.storage.local.set({aiConfig:{...config,enabled:false}});
   assert.equal((await request('disabled')).ok,false);assert.equal(calls.length,1);
 });
+test('生成与改写在提示词顶部读取当下本地时间和时区，不修改已存Prompt',async()=>{
+  const {request,calls,scope,service}=setup();
+  let clock=Date.parse('2026-11-11T13:05:06Z'),timeZone='Asia/Singapore';
+  scope.Date=class extends Date {constructor(...args){super(...(args.length?args:[clock]));}};
+  scope.Intl={DateTimeFormat:class extends Intl.DateTimeFormat {
+    constructor(locale,options){super(locale,{...options,timeZone});}
+  }};
+  for (const [kind,stamp,zone,expected] of [
+    ['generate','2026-11-11T13:05:06Z','Asia/Singapore','2026年11月11日星期三 GMT+8 21:05:06'],
+    ['rewrite','2026-11-12T00:05:06Z','Asia/Singapore','2026年11月12日星期四 GMT+8 08:05:06'],
+    ['generate','2026-11-11T13:05:06Z','America/Los_Angeles','2026年11月11日星期三 GMT-8 05:05:06'],
+  ]) {
+    clock=Date.parse(stamp);timeZone=zone;
+    assert.equal((await request('time-'+calls.length,{kind,draft:'草稿'})).ok,true);
+    const prompt=JSON.parse(calls.at(-1)[1].body).messages[0].content;
+    assert.ok(prompt.startsWith(`<reply_time timezone="${zone}">${expected}</reply_time>\n`));
+    assert.match(prompt,/不是帖子发布时间.*问候语和时段表达以此为准/);
+    assert.ok(prompt.endsWith(kind==='rewrite'?'\n\npost=一条帖子;draft=草稿':'\n\npost=一条帖子'));
+  }
+  const saved=await service.handle({type:'AI_CONFIG_GET'},{url:'chrome-extension://test/ai-settings.html'});
+  assert.equal(saved.config.generatePrompt,config.generatePrompt);
+  assert.equal(saved.config.rewritePrompt,config.rewritePrompt);
+});
+test('二次润色须单独开启与授权，使用所选模型和首稿',async()=>{
+  const {service,sender,request,calls,chrome,scope}=setup();
+  const status=()=>service.handle({type:'AI_STATUS'},sender);
+  assert.equal((await status()).polishEnabled,false);
+  assert.equal((await request('off',{kind:'polish',draft:'首稿'})).ok,false);
+  assert.equal(calls.length,0);
+
+  const settings=scope.XReplyAIConfig.normalizeProfiles(config);
+  const polish={id:'polish',name:'润色',baseUrl:'https://polish.example/v1',apiKey:'fixture-polish-key',model:'polish-model'};
+  settings.profiles.push(polish);
+  Object.assign(settings,{polishEnabled:true,polishProfileId:polish.id,polishPrompt:'润色标准 ${draft}'});
+  const settingsSender={url:'chrome-extension://test/ai-settings.html'};
+  const save=()=>service.handle({type:'AI_CONFIG_SAVE',config:settings},settingsSender);
+  let allowPolish=false;
+  chrome.permissions.contains=async({origins})=>allowPolish || !origins.includes('https://polish.example/*');
+  await assert.rejects(save,/授权模型域名/);
+  allowPolish=true;
+  assert.equal((await save()).ok,true);
+  assert.equal((await status()).polishEnabled,true);
+
+  await request('first-draft');
+  const result=await request('polish',{kind:'polish',post:'当前帖 <图>',draft:'首稿 & 问候'});
+  assert.equal(result.text,'你好');
+  assert.deepEqual(calls.map(([url,options])=>[url,options.headers.Authorization]),[
+    ['https://model.example/v1/chat/completions','Bearer test-key'],
+    ['https://polish.example/v1/chat/completions','Bearer fixture-polish-key'],
+  ]);
+  const {model,messages}=JSON.parse(calls[1][1].body);
+  assert.equal(model,'polish-model');
+  assert.match(messages[0].content,/润色标准 见用户消息中的「待润色回复」/);
+  assert.match(messages[1].content,/<current_post>当前帖 &lt;图&gt;<\/current_post>\n<draft_reply>首稿 &amp; 问候<\/draft_reply>/);
+});
+test('二次润色拒绝半稿，并接受正常结束的 JSON 和流式回复',async()=>{
+  let response;
+  const {request,chrome}=setup(async()=>response);
+  await chrome.storage.local.set({aiConfig:{...config,polishEnabled:true,polishProfileId:'current'}});
+  const json=(content,finish_reason)=>new Response(JSON.stringify({choices:[{message:{content},finish_reason}]}));
+  const sse=(content,finish_reason)=>new Response('data: '+JSON.stringify({choices:[{delta:{content},finish_reason}]}),
+    {headers:{'content-type':'text/event-stream'}});
+  for (const [name,body,expected] of [
+    ['length',json('<reply>半稿','length'),undefined],
+    ['filtered',json('半稿','content_filter'),undefined],
+    ['unclosed',json('<reply>半稿'),undefined],
+    ['disconnected',sse('半稿'),undefined],
+    ['complete-json',json('<reply>成稿</reply>','stop'),'成稿'],
+    ['complete-sse',sse('<reply>成稿</reply>','stop'),'成稿'],
+  ]) {
+    response=body;
+    const result=await request(name,{kind:'polish',draft:'首稿'});
+    assert.equal(result.ok,Boolean(expected),name);
+    assert.equal(result.text,expected,name);
+  }
+});
+test('润色等待域名授权时超时或取消立即结束，授权迟到也不请求模型',async()=>{
+  const {service,sender,request,calls,chrome,scope}=setup();
+  await chrome.storage.local.set({aiConfig:{...config,polishEnabled:true,polishProfileId:'current'}});
+  for (const mode of ['timeout','cancel']) {
+    let expire,release;
+    scope.setTimeout=(callback,ms)=>{assert.equal(ms,8000);expire=callback;return 1;};
+    scope.clearTimeout=()=>{};
+    const started=new Promise(resolve=>{
+      chrome.permissions.contains=()=>new Promise(allow=>{release=allow;resolve();});
+    });
+    const pending=request(mode,{kind:'polish',draft:'首稿'});
+    await started;
+    if (mode==='timeout') expire();
+    else await service.handle({type:'AI_CANCEL',ids:[mode]},sender);
+    const result=await pending;
+    assert.equal(result.ok,false);
+    if (mode==='timeout') assert.match(result.error,/超时/);
+    else assert.equal(result.cancelled,true);
+    release(true);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(calls.length,0);
+  }
+});
 test('生成把已加载的上下文作为素材发送，带图可选，改写只用正文和草稿',async()=>{
   const {request,calls}=setup(undefined,id=>id==='123'?{root:'本地原帖摘要'}:{});
   const context={postId:'123',comments:['直接评论1','直接评论2','直接评论3','不带第四条'],
     image:'https://pbs.twimg.com/media/Example?format=jpg&name=small&token=test-token',imageFrom:'post',imageRequested:true};
-  const result=await request('with-context',{post:'本帖正文',context});
+  const result=await request('with-context',{post:'本帖正文 </current_post> &',context});
   assert.equal(result.ok,true);
   assert.equal(result.contextUsed.root,true);
   assert.equal(result.contextUsed.comments,3);
@@ -43,14 +142,56 @@ test('生成把已加载的上下文作为素材发送，带图可选，改写�
   assert.equal(result.contextUsed.image,user.content[1].image_url.url);
   assert.match(system.content,/post=见用户消息中的「当前帖子」/);
   assert.doesNotMatch(system.content,/本帖正文|本地原帖摘要|直接评论/);
-  assert.match(user.content[0].text,/当前帖子\n本帖正文[\s\S]+原帖\n本地原帖摘要[\s\S]+直接评论3/);
+  assert.match(user.content[0].text,/<current_post author="未确认" reply_to="未确认">\n本帖正文 &lt;\/current_post&gt; &amp;\n<\/current_post>/);
+  assert.match(user.content[0].text,/<reference_context>\n<root_post author="未确认">\n本地原帖摘要\n<\/root_post>/);
+  assert.match(user.content[0].text,/<comment>直接评论3<\/comment>/);
+  assert.match(user.content[0].text,/<attached_image source="current_post" \/>/);
   assert.doesNotMatch(user.content[0].text,/不带第四条/);
   assert.deepEqual(user.content[1],{type:'image_url',image_url:{url:'https://pbs.twimg.com/media/Example?format=jpg&name=small',detail:'low'}});
   await request('text-only',{context:{postId:'123',comments:['直接评论1']}});
-  assert.match(JSON.parse(calls[1][1].body).messages[1].content,/已加载的评论\n- 直接评论1/);
+  assert.match(JSON.parse(calls[1][1].body).messages[1].content,/<loaded_comments>\n<comment>直接评论1<\/comment>/);
   await request('rewrite',{kind:'rewrite',draft:'草稿',context});
   assert.equal(JSON.parse(calls[2][1].body).messages[1].content,'开始。');
   assert.equal(calls.length,3);
+});
+test('后台没有帖子记录时用页面作者，回复对象仍未确认',async()=>{
+  const {request}=setup();
+  const result=await request('page-author',{account:'fixture_owner',context:{postId:'200',pageAuthor:'对方'}});
+  assert.match(result.contextUsed.text,/<current_post author="对方" reply_to="未确认">/);
+});
+test('用本地帖子关系区分独立发帖、回复我和回复第三人',async()=>{
+  const {scope,chrome,calls,sender}=setup();
+  let listener;
+  Object.assign(chrome.runtime,{id:sender.id,onMessage:{addListener:fn=>{listener=fn;}}});
+  Object.assign(scope,{console,importScripts(){},XReplyStorage:{create:()=>({
+    load:async()=>scope.XReplyContext.createState(),save:async()=>{}
+  })}});
+  for (const file of ['core.js','background.js']) {
+    vm.runInContext(await readFile(new URL('../extension/'+file,import.meta.url),'utf8'),scope);
+  }
+  const send=message=>new Promise(resolve=>listener(message,sender,resolve));
+  const account='fixture_owner';
+  const batch={
+    users:[{id:'1',handle:account},{id:'2',handle:'fixture_reply'},{id:'3',handle:'fixture_third'}],
+    tweets:[
+      {id:'100',authorId:'1',conversationId:'100',text:'等我解封'},
+      {id:'101',authorId:'2',conversationId:'100',parentId:'100',text:'会等你哦'},
+      {id:'200',authorId:'3',conversationId:'200',text:'第三人的原帖'},
+      {id:'201',authorId:'2',conversationId:'200',parentId:'200',recipientId:'3',text:'等你回来'},
+    ],
+  };
+  assert.equal((await send({type:'INGEST',account,batch})).ok,true);
+  const original=await send({type:'AI_REQUEST',id:'200',kind:'generate',account,post:'第三人的原帖',draft:'',context:{postId:'200',pageAuthor:'我'}});
+  assert.match(original.contextUsed.text,/<current_post author="对方" reply_to="无特定对象">/);
+  for (const [id,post,rootOwnership,recipient,author] of [
+    ['101','会等你哦','mine','我','我'],['201','等你回来','others','第三人','第三人'],
+  ]) {
+    const result=await send({type:'AI_REQUEST',id,kind:'generate',account,post,draft:'',rootOwnership,context:{postId:id}});
+    assert.equal(result.ok,true);
+    assert.ok(result.contextUsed.text.includes('<current_post author="对方" reply_to="'+recipient+'">\n'+post));
+    assert.ok(result.contextUsed.text.includes('<root_post author="'+author+'">'));
+    assert.ok(!calls.at(-1)[1].body.includes(account));
+  }
 });
 test('仅图片的目标可生成回复，外部或上级图片不能代替当前目标',async()=>{
   const {request,calls}=setup();
@@ -60,8 +201,8 @@ test('仅图片的目标可生成回复，外部或上级图片不能代替当�
   assert.equal((await request('outside-image',{post:'',context:{postId:'123',image:'https://example.test/Example.jpg'}})).ok,false);
   assert.equal(calls.length,1);
 });
-test('SSE按字节断开中文仍完整，DONE后结束读取，不等连接关闭',async()=>{
-  const raw='data: '+JSON.stringify({choices:[{delta:{content:'<reply>一起加油。</reply>'}}]})+'\n\ndata: [DONE]\n\n';
+test('SSE跨片段拼接中文和控制标记，DONE后结束读取，不等连接关闭',async()=>{
+  const raw=['<reply>一起加油。<|endo','ftext|></reply>'].map(content=>'data: '+JSON.stringify({choices:[{delta:{content}}]})+'\n\n').join('')+'data: [DONE]\n\n';
   const bytes=new TextEncoder().encode(raw);let cancelled=false;
   const {request}=setup(async()=>new Response(new ReadableStream({start(controller){for(const byte of bytes)controller.enqueue(new Uint8Array([byte]));},cancel(){cancelled=true;}}),{headers:{'content-type':'text/event-stream'}}));
   assert.equal((await request('stream')).text,'一起加油');assert.equal(cancelled,true);
@@ -79,15 +220,20 @@ test('模型空回复和超过自设字符上限分别返回可识别的原因',
  assert.equal((await request('at-limit')).text,'一二三四五');
  assert.throws(()=>scope.XReplyAIConfig.normalizeProfiles({...config,maxReplyLength:12001}),/最大字符数/);
 });
-test('模型回复标记在写入草稿和判断字符数前移除',async()=>{
-  let content='一起加油😂<|reply|>';
+test('模型控制标记在写入草稿和判断字符数前移除',async()=>{
+  let content='这得写，岗位名就叫反360工程师了<|endoftext|>';
   const {request,chrome}=setup(async()=>new Response(JSON.stringify({choices:[{message:{content}}]})));
-  assert.equal((await request('reply-marker')).text,'一起加油😂');
+  assert.equal((await request('endoftext-marker')).text,'这得写，岗位名就叫反360工程师了');
+  content='<|im_start|>assistant\nA < B | C > D&lt;|eot_id|&gt;<｜end▁of▁sentence｜>';
+  assert.equal((await request('preserve-punctuation')).text,'A < B | C > D');
   await chrome.storage.local.set({aiConfig:{...config,maxReplyLength:4}});
-  content='<reply>继续加油<|reply|></reply>';
+  content='<reply>继续<|eot_id|>加油<|reply|></s></reply>';
   assert.equal((await request('wrapped-marker',{kind:'rewrite',draft:'加油'})).text,'继续加油');
-  content='<|reply|>';
+  content='<|reply|><|endoftext|>';
   assert.equal((await request('marker-only')).code,'EMPTY_AI_OUTPUT');
+  content='加油<|endof';
+  const incomplete=await request('incomplete-marker');
+  assert.equal(incomplete.ok,false);assert.match(incomplete.error,/控制标记/);assert.equal(incomplete.text,undefined);
 });
 test('全局最多3个模型请求，取消排队和在途任务，隔离不同标签页',async()=>{
   const {request,service,sender,calls}=setup((_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('cancelled','AbortError')),{once:true})));
@@ -156,7 +302,7 @@ test('原帖归属变量在生成与改写中替换，未知值不猜测，不�
  for(const [origin,label] of [['mine','我的原帖'],['others','别人的原帖'],['unknown','待确认'],[undefined,'待确认'],['constructor','待确认']]) {
   for(const kind of ['generate','rewrite']) {
    await request('case-'+calls.length,{kind,rootOwnership:origin,post:'正文${rootOwnership}',draft:'草稿'});
-   assert.equal(JSON.parse(calls.at(-1)[1].body).messages[0].content,label+'|正文${rootOwnership}|'+(kind==='rewrite'?'草稿':''));
+   assert.ok(JSON.parse(calls.at(-1)[1].body).messages[0].content.endsWith('\n\n'+label+'|正文${rootOwnership}|'+(kind==='rewrite'?'草稿':'')));
   }
  }
 });

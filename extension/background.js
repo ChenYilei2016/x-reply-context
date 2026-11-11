@@ -37,12 +37,25 @@ let revision = 0;
 let revisionPending = false;
 let savePending = false;
 
-function cachedThread(postId) {
+function cachedThread(postId,account) {
   const post = state?.tweets[postId];
   if (!post) return {};
+  const directParent = post.parentId !== postId ? state.tweets[post.parentId] : null;
+  const parent = post.parentId !== post.conversationId ? directParent : null;
+  const root = post.conversationId !== postId ? state.tweets[post.conversationId] : null;
+  const me = core.findOwnAccount(state,account);
+  function role(authorId) {
+    if (!me || !authorId) return "";
+    if (authorId === me.id) return "我";
+    return authorId === post.authorId ? "对方" : "第三人";
+  }
+  const standalone = post.conversationId === postId && !post.parentId && !post.recipientId;
   return {
-    parent:post.parentId !== postId && post.parentId !== post.conversationId ? state.tweets[post.parentId]?.text : "",
-    root:post.conversationId !== postId ? state.tweets[post.conversationId]?.text : ""
+    parent:parent?.text,root:root?.text,
+    postAuthor:role(post.authorId),
+    replyTo:standalone ? "无特定对象" : role(post.recipientId || directParent?.authorId || state.roots?.[post.parentId]?.authorId),
+    parentAuthor:role(parent?.authorId),
+    rootAuthor:role(root?.authorId || state.roots?.[post.conversationId]?.authorId)
   };
 }
 

@@ -6,6 +6,12 @@
   const VIDEO = '[data-testid="videoPlayer"],[data-testid="videoComponent"],video';
   const postText = value => (value || "").replace(MEDIA_LINKS_AT_END, "").trim();
 
+  function authorRoleFromArticle(article,postId,account) {
+    if (!postId || !account) return "";
+    const author = globalThis.XReplyContinuous?.authorFromPostLink?.(article,postId);
+    return author ? (author === account ? "我" : "对方") : "";
+  }
+
   function videoOnlyArticle(article) {
     if (!article?.isConnected || !article.querySelector(VIDEO)) return false;
     const ownVideo = [...article.querySelectorAll(VIDEO)].some(node => {
@@ -47,7 +53,7 @@
     const edit = globalThis.XReplyEditor;
     let enabled = false, autoComplete = false, current, target, notice, configEpoch = 0;
     let details;
-    let fillRecommended = false;
+    let fillRecommended = false, polishEnabled = false;
     let includeImage = false, imageReady = false, savingImage = false, imageRevision = 0;
     const autoPreparations = new WeakMap();
     const attachment = '[data-testid="attachments"],[data-testid="mediaPreview"],[data-testid="pollOption_0"]';
@@ -103,13 +109,14 @@
       closeDetails();
       if (wasOpen) return;
       const panel = document.createElement("aside");
+      const label = "生成回复时发给 AI 的素材";
       panel.id = "xrc-ai-context-details";
       panel.className = "xrc-ai-context-details";
-      panel.setAttribute("aria-label", "最近一次发给 AI 的素材");
+      panel.setAttribute("aria-label", label);
       panel.addEventListener("click", event => event.stopPropagation());
       const header = document.createElement("div");
       const title = document.createElement("strong");
-      title.textContent = "最近一次发给 AI 的素材";
+      title.textContent = label;
       const close = document.createElement("button");
       close.type = "button";
       close.textContent = "关闭";
@@ -173,14 +180,16 @@
       const disabled = !imageReady || savingImage;
       if (checkbox.disabled !== disabled) checkbox.disabled = disabled;
       if (checkbox.checked !== includeImage) checkbox.checked = includeImage;
-      const used = current && current.editor === editor ? current.contextUsed || null : null;
+      const reply = current?.editor === editor ? current : null;
+      const used = reply?.contextUsed || null;
       if (details && options.contains(details.trigger)) renderDetails(used);
       const labels = used ? [used.parent ? "上级" : used.root ? "原帖" : "",
         used.comments ? `评 ${used.comments}` : "",used.image ? "图 1" : ""].filter(Boolean) : [];
       const summary = options.querySelector(".xrc-ai-context-summary");
-      const text = used ? labels.join(" · ") || "仅本帖" : "";
+      const materials = used ? labels.join(" · ") || "仅本帖" : "";
+      const text = [reply?.polishOutcome,materials].filter(Boolean).join(" · ");
       if (summary.textContent !== text) summary.textContent = text;
-      const title = text ? `上次生成携带 ${text}` : "";
+      const title = [reply?.polishOutcome,materials && `上次生成携带 ${materials}`].filter(Boolean).join(" · ");
       if (summary.title !== title) summary.title = title;
     }
     function valid(s) {
@@ -286,7 +295,7 @@
       const id = crypto.randomUUID();s.pending.add(id);requestRefresh();
       try {
         return await message({type:"AI_REQUEST",id,kind,post:generation?.post ?? s.post,draft,rootOwnership:rootOwnership(s.editor),
-          ...(generation ? {context:generation.context} : {})});
+          ...(generation ? {account:s.account,context:generation.context} : {})});
       }
       catch(error) {return {ok:false,error:error.message};}
       finally {s.pending.delete(id);requestRefresh();}
@@ -301,8 +310,9 @@
         if (s.targetCard?.photo) return s.targetCard.photo;
         return globalThis.XReplyAIContext?.photoFromArticle(targetArticle(s,postId),postId);
       });
+      const pageAuthor = s.targetCard?.pageAuthor || authorRoleFromArticle(targetArticle(s,postId),postId,s.account);
       const post = postText(s.post);
-      return {post,context:{...context,imageRequested:includeImage}};
+      return {post,context:{...context,pageAuthor,imageRequested:includeImage}};
     }
     const hasGenerationMaterial = ({post,context}) => post || (context.imageFrom === "post" && context.image);
 
@@ -392,6 +402,17 @@
       if (!s || s.editor!==editor || !valid(s)) {toast("未找到当前回复对象，请从帖子重新打开回复框。");return;}
       await applyRecommendation(s,false);
     }
+    function recommendationReady(s,automatic,before,version) {
+      if (!valid(s)) return false;
+      if (automatic && !canAutoFill(s)) {
+        autoFillBlocked(s,"AI 已返回，但当前焦点或回复条件不允许填入；请核对后手动继续。");
+        return false;
+      }
+      if (!s.composing && s.version===version && edit.read(s.editor)===before) return true;
+      const text="草稿已变化，保留你的新内容；本次推荐未填入。";
+      if(automatic)autoFillBlocked(s,text);else toast(text);
+      return false;
+    }
     async function applyRecommendation(s,automatic) {
       if(!valid(s))return;
       const {editor}=s;
@@ -416,6 +437,7 @@
       }
       const before=edit.read(editor), version=s.version;
       s.contextUsed = undefined;
+      s.polishOutcome = "";
       s.recommending=true;cancelRequests(s);hidePreview(s);requestRefresh();
       try {
         let result = await request(s,"generate","",input);
@@ -425,16 +447,8 @@
           retried = true;
           result = await request(s,"generate","",input);
         }
-        if (!valid(s)) return;
         s.contextUsed = result.contextUsed;
-        if(automatic && !canAutoFill(s)){
-          autoFillBlocked(s,"AI 已返回，但当前焦点或回复条件不允许填入；请核对后手动继续。");return;
-        }
-        if (s.version!==version || edit.read(editor)!==before) {
-          const text="草稿已变化，保留你的新内容；本次推荐未填入。";
-          if(automatic)autoFillBlocked(s,text);else toast(text);
-          return;
-        }
+        if (!recommendationReady(s,automatic,before,version)) return;
         if (!result.ok) {
           if (!result.cancelled) {
             const recoverable = result.code === "EMPTY_AI_OUTPUT" || result.code === "AI_OUTPUT_TOO_LONG";
@@ -444,19 +458,28 @@
           }
           return;
         }
+        let text = result.text;
+        if (polishEnabled) {
+          s.polishing = true;
+          const polished = await request(s,"polish",text,{post:input.post});
+          s.polishing = false;
+          if (!recommendationReady(s,automatic,before,version) || polished.cancelled) return;
+          if (polished.ok) text = polished.text;
+          s.polishOutcome = polished.ok ? "已润色" : "已用首稿";
+        }
         s.writing=true;
         requestRefresh();
         if (automatic) {
-          s.autoExpected=before+result.text;
-          const complete=await typeDraft(s,result.text,before,{automatic:true});
+          s.autoExpected=before+text;
+          const complete=await typeDraft(s,text,before,{automatic:true});
           if(!complete && valid(s))autoFillBlocked(s,"AI 填入未完成，已保留当前文字；请检查后手动继续，不会自动重试。");
           return;
         }
-        const value=(before && !/\s$/.test(before)?" ":"")+result.text;
+        const value=(before && !/\s$/.test(before)?" ":"")+text;
         const ok=await edit.write(editor,value,{expected:before,valid:()=>valid(s)&&s.version===version&&!s.composing});
         if (!ok && valid(s)) toast("推荐未完整填入，请核对草稿；不会自动重试。");
       } catch {if(valid(s)){const text="推荐未填入，请检查草稿后重试。";if(automatic)autoFillBlocked(s,text);else toast(text);}}
-      finally {s.autoExpected=undefined;s.writing=false;s.recommending=false;requestRefresh();}
+      finally {s.autoExpected=undefined;s.writing=false;s.recommending=false;s.polishing=false;requestRefresh();}
     }
     async function adopt(s) {
       if (!valid(s) || s.writing || s.rewriting || s.recommending || s.composing) return;
@@ -510,16 +533,17 @@
       if (article && !article.closest('[role="dialog"]')) {
         const editor=document.querySelector(EDITOR);if(editor)pausedEditors.delete(editor);
         if (current) stop(); // A new reply action invalidates even a reused editor with identical text.
-        const id = tweetId(article);
+        const id = tweetId(article), account = accountHandle();
         // X can unmount the timeline card before the reply editor is ready.
         const photo = includeImage || !imageReady ? globalThis.XReplyAIContext?.photoFromArticle(article,id) : "";
-        target = {id,account:accountHandle(),article,photo,videoOnly:videoOnlyArticle(article)};
+        target = {id,account,article,photo,pageAuthor:authorRoleFromArticle(article,id,account),videoOnly:videoOnlyArticle(article)};
       }
       if (node?.closest('[data-testid="app-bar-close"]') && (current || target)) stop();
     },true);
     document.addEventListener("input",event=>{
       const s=current;if(!s || event.target!==s.editor)return;
       s.version++;
+      if (s.polishing) cancelRequests(s);
       if (s.writing || s.rewriting || s.recommending) return;
       if(edit.read(s.editor))cancelRequests(s);
       draw(s);
@@ -560,6 +584,7 @@
         const status=await message({type:"AI_STATUS"});
         if(epoch===configEpoch){
           enabled=status.enabled===true;autoComplete=status.autoComplete===true;fillRecommended=status.fillRecommended===true;
+          polishEnabled=status.polishEnabled===true;
           if (revision === imageRevision) includeImage = status.includeImage === true;
           imageReady = true;
           typingDelayMin=status.typingDelayMin ?? 35;typingDelayMax=status.typingDelayMax ?? 100;
@@ -584,6 +609,7 @@
       if (!current || current.editor!==editor) return paused?"paused":"";
       if (current.writing) return "writing";
       if (current.rewriting) return "rewriting";
+      if (current.polishing) return "polishing";
       return current.recommending || current.pending.size ? "generating" : paused?"paused":"";
     },busy:editor=>Boolean(current && current.editor===editor&&(current.writing||current.rewriting||current.recommending))};
   }

@@ -1,7 +1,7 @@
 (() => {
   const profileFields=["baseUrl","apiKey","model","serviceTier","reasoningEffort"];
   const numericFields=["typingDelayMin","typingDelayMax","maxReplyLength"];
-  const promptFields=["generatePrompt","rewritePrompt"];
+  const promptFields=["generatePrompt","rewritePrompt","polishPrompt"];
   const get=id=>document.getElementById(id);
   const status=get("status");
   let config,selectedId,dirty=false,saving=false;
@@ -21,10 +21,11 @@
     get("openaiMode").hidden=!supported;get("serviceTier").disabled=!supported||saving;get("reasoningEffort").disabled=!supported||saving;
   }
   function renderProfiles() {
-    get("profile").replaceChildren(...config.profiles.map(profile=>{
-      const option=document.createElement("option");option.value=profile.id;
-      option.textContent=profile.name || "未命名配置";return option;
-    }));
+    const profileOptions = () => config.profiles.map(profile=>new Option(profile.name || "未命名配置",profile.id));
+    const polish = get("polishProfile"), polishId = polish.value;
+    polish.replaceChildren(new Option("请选择 API 配置",""),...profileOptions());
+    polish.value = config.profiles.some(profile=>profile.id===polishId) ? polishId : "";
+    get("profile").replaceChildren(...profileOptions());
     get("profile").value=selectedId;
     const profile=config.profiles.find(item=>item.id===selectedId);
     get("profileName").value=profile.name;
@@ -36,15 +37,18 @@
   function changed(text="修改尚未保存，点击保存后应用。") {dirty=true;status.textContent=text;}
   function applied(value) {
     const selected=value.profiles.find(item=>item.id===value.activeProfileId);
-    get("activeProfile").textContent=`已保存的当前配置：${selected.name} · AI ${value.enabled?"已开启":"已关闭"}`;
+    const polish=XReplyAIConfig.polishProfile(value);
+    get("activeProfile").textContent=`已保存的当前配置 ${selected.name} · AI ${value.enabled?"已开启":"已关闭"}${polish ? ` · 润色 ${polish.name}` : ""}`;
   }
   void send({type:"AI_CONFIG_GET"}).then(({config:value})=>{
     config=value;selectedId=value.activeProfileId;
     for(const field of promptFields)get(field).value=config[field];
     for(const field of numericFields)get(field).value=config[field];
     get("enabled").checked=config.enabled;
+    get("polishEnabled").checked=config.polishEnabled;
+    get("polishSettings").open=config.polishEnabled;
     for(const id of ["save","profile","addProfile","openaiProfile","removeProfile"])get(id).disabled=false;
-    renderProfiles();applied(config);status.textContent="";
+    renderProfiles();get("polishProfile").value=config.polishProfileId;applied(config);status.textContent="";
   }).catch(error=>{status.textContent=error.message;});
   get("settings").addEventListener("input",()=>{if(config){changed();renderProcessing();}});
   for(const field of ["serviceTier","reasoningEffort"])get(field).addEventListener("change",()=>{if(config)changed();});
@@ -81,10 +85,11 @@
     controls.forEach(control=>{control.disabled=true;});
     try {
       const next=XReplyAIConfig.normalizeProfiles({...config,enabled:get("enabled").checked,activeProfileId:selectedId,
+        polishEnabled:get("polishEnabled").checked,polishProfileId:get("polishProfile").value,
         ...Object.fromEntries(promptFields.map(field=>[field,get(field).value])),
         ...Object.fromEntries(numericFields.map(field=>[field,get(field).valueAsNumber]))});
-      const active=XReplyAIConfig.activeConfig(next);
-      if(active.enabled && !await chrome.permissions.request({origins:[XReplyAIConfig.originPattern(XReplyAIConfig.endpoint(active.baseUrl))]}))throw new Error("域名未授权，设置未保存；原配置仍然生效。");
+      const origins=XReplyAIConfig.requiredOrigins(next);
+      if(origins.length && !await chrome.permissions.request({origins}))throw new Error("域名未授权，设置未保存；原配置仍然生效。");
       await send({type:"AI_CONFIG_SAVE",config:next});
       config=next;dirty=false;applied(config);status.textContent="已保存并切换，旧配置的生成任务已取消。";
     } catch(error){status.textContent=error.message;}

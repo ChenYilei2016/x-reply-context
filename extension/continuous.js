@@ -7,6 +7,7 @@
   const NEXT_NOTE = "从当前帖往下选择，略过已回复。";
   const MAX_AUTO_VIDEO_SKIPS = 3;
   const SEND_KEY_GAP_MS = 500;
+  const FEED_LABELS = {profile:"个人主页",search:"搜索",detail:"帖子详情"};
   const QUICK_REPLIES = [
     { label:"一起加油",phrases:[
       "一起加油好兄弟","一起加油鸭","一起加油🦆","一起加油",
@@ -155,6 +156,10 @@
         item.tab.getAttribute("aria-selected") === "true") ? key : "";
     }
 
+    function detailPostId(path) {
+      return path.match(/^\/(?:i\/web|[a-z0-9_]{1,15})\/status\/(\d{1,25})\/?$/i)?.[1] || "";
+    }
+
     function mountedArticles(s) {
       const column = feedColumn(s);
       return Array.from(column?.querySelectorAll('article[data-testid="tweet"]') || [])
@@ -279,10 +284,17 @@
     }
 
     function currentSession(s) {
-      if (interactionBlocked() || !connected() || session !== s || accountHandle() !== s.account || !feedColumn(s)) return false;
+      if (interactionBlocked() || !connected() || session !== s || accountHandle() !== s.account) return false;
+      const column = feedColumn(s);
+      if (!column) return false;
+      if (s.feed === "detail") {
+        const path = location.pathname;
+        return column === s.detailColumn &&
+          (detailPostId(path) === s.detailId || /^\/compose(?:\/|$)/.test(path));
+      }
       if (s.feed === "home") {
         if (!/^\/(?:home|compose)(?:\/|$)/.test(location.pathname)) return false;
-        const tabs = [...feedColumn(s).querySelectorAll('[role="tab"]')];
+        const tabs = [...column.querySelectorAll('[role="tab"]')];
         const selected = tabs.find(tab => tab.getAttribute("aria-selected") === "true");
         return tabs.length > 0 && (!selected || selected === tabs[s.homeTabIndex]);
       }
@@ -290,14 +302,14 @@
         if (location.pathname === "/search" || location.pathname.startsWith("/hashtag/")) {
           if (searchKey(location.href) !== s.searchKey) return false;
         } else if (!/^\/compose(?:\/|$)/.test(location.pathname)) return false;
-        const tabs = searchTabs(feedColumn(s));
+        const tabs = searchTabs(column);
         const selected = tabs.find(item => item.tab.getAttribute("aria-selected") === "true");
         return tabs.some(item => item.key === s.searchKey) && (!selected || selected.key === s.searchKey);
       }
       if (s.feed === "profile") {
         const path = location.pathname.replace(/\/$/,"").toLowerCase();
         if (path !== s.profile.path && !/^\/compose(?:\/|$)/.test(path)) return false;
-        const tabs = profileTabs(feedColumn(s),s.profile.root);
+        const tabs = profileTabs(column,s.profile.root);
         const selected = tabs.find(tab => tab.getAttribute("aria-selected") === "true");
         return tabs.length > 0 && (!selected || tabPath(selected) === s.profile.path);
       }
@@ -310,6 +322,7 @@
       const primary = document.querySelector(PRIMARY_COLUMN);
       if (!primary?.contains(article)) return "";
       if (/^\/home\/?$/.test(location.pathname) && selectedHomeTab(primary) >= 0) return "home";
+      if (detailPostId(location.pathname)) return "detail";
       if (searchEntry(primary)) return "search";
       return profileEntry(primary) ? "profile" : "";
     }
@@ -323,14 +336,20 @@
       if (feed === "profile" && !profile) return;
       const search = feed === "search" ? searchEntry(document.querySelector(PRIMARY_COLUMN)) : "";
       if (feed === "search" && !search) return;
+      const detailId = feed === "detail" ? detailPostId(location.pathname) : "";
+      const detailColumn = detailId ? article.closest(PRIMARY_COLUMN) : null;
+      if (feed === "detail" && (!detailColumn || composer())) return;
       if(!restoring)refreshCycle?.cancel();
       finish("",{preserveTimed:restoring});
-      session = {
-        profile,searchKey:search,
+      const s = session = {
+        profile,searchKey:search,detailId,detailColumn,
         account,feed,homeTabIndex:feed === "home" ? selectedHomeTab(document.querySelector(PRIMARY_COLUMN)) : -1,
-        handled:new Set(),current:replyTarget(id,article,mountedCards({feed})),phase:"ready",
+        handled:new Set(),current:replyTarget(id,article,mountedCards({feed})),phase:detailId ? "opening" : "ready",
         note:NEXT_NOTE,attempt:null
       };
+      if (detailId) s.timeout = setTimeout(() => {
+        if (session === s && s.phase === "opening") finish();
+      },8000);
       refresh();
     }
 
@@ -572,9 +591,11 @@
             const gap = recommended ? skipAuthors?.recommendedInteractionGap?.() : null;
             const whitelist = gap == null ? undefined : skipAuthors?.whitelist(result.accountId);
             const cards = mountedCards(s);
+            const detailRoot = s.feed === "detail" ? s.current.context?.rootId || s.detailId : "";
             const match = cardsAfter(cards,s.current).find(([id,article]) => {
               const row = byId.get(id);
-              return eligible(row) && canOpen([id,article]) && allowedAuthor(skipped,article,id,row,gap,whitelist);
+              return eligible(row) && (!detailRoot || row.rootId === detailRoot) &&
+                canOpen([id,article]) && allowedAuthor(skipped,article,id,row,gap,whitelist);
             });
             if (match) next = replyTarget(match[0],match[1],cards);
           }
@@ -984,7 +1005,7 @@
       const editor = dialog.querySelector(EDITOR);
       if (renderAiOptions) renderAiOptions(bar.querySelector(".xrc-reply-tools"),editor);
       const phase = aiPhase(editor);
-      const aiLabels={generating:"生成中…",rewriting:"改写中…",writing:"填入中…"};
+      const aiLabels={generating:"生成中…",polishing:"润色中…",rewriting:"改写中…",writing:"填入中…"};
       const aiButton=bar.querySelector(".xrc-ai-recommend");
       if (aiButton) {
         const caption=aiButton.querySelector(".xrc-ai-caption"),label=aiLabels[phase] || "推荐评论";
@@ -993,7 +1014,9 @@
         if (aiButton.getAttribute("aria-busy")!==active) aiButton.setAttribute("aria-busy",active);
       }
       const busy = draftBusy(s) || s.current.quickPending === true;
-      const statusText = `${s.feed === "home" ? `${s.homeTabIndex === 1 ? "正在关注" : "为你推荐"} · ` : s.feed === "profile" ? "个人主页 · " : s.feed === "search" ? "搜索 · " : ""}已处理 ${s.handled.size} 条 · ${phase==="paused" ? (timedReplies?.isPaused?.()?"AI 自动填入已暂停，可手动推荐或继续本轮。":"AI 自动填入已暂停，可点击推荐评论。") : phase ? `AI ${aiLabels[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
+      const source = s.feed === "home" ? (s.homeTabIndex === 1 ? "正在关注" : "为你推荐") :
+        FEED_LABELS[s.feed];
+      const statusText = `${source ? source+" · " : ""}已处理 ${s.handled.size} 条 · ${phase==="paused" ? (timedReplies?.isPaused?.()?"AI 自动填入已暂停，可手动推荐或继续本轮。":"AI 自动填入已暂停，可点击推荐评论。") : phase ? `AI ${aiLabels[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;
       const active=String(Boolean(phase&&phase!=="paused"));
@@ -1051,6 +1074,11 @@
       }
       if (s.phase === "advancing" || s.phase === "paused" || s.phase === "draft-check" || s.phase === "refreshing") return;
       if (dialog && !s.current.dialog) {
+        if (s.feed === "detail") {
+          const previewId = tweetId(dialog);
+          if (previewId ? previewId !== s.current.id :
+            !dialog.querySelector('[data-testid="tweetText"],[data-testid="tweetPhoto"],[data-testid="videoPlayer"],[data-testid="videoComponent"]')) return;
+        }
         s.current.dialog = dialog;
         if (s.phase === "opening") { clearTimeout(s.timeout); s.phase = "ready"; }
       } else if (!dialog && s.current.dialog) {

@@ -11,7 +11,7 @@ body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding
 <p id="activeProfile" class="hint" role="status"></p>
 <label for="profile">API 配置</label><select id="profile" disabled></select>
 <div><button id="addProfile" type="button" disabled>新增配置</button><button id="openaiProfile" type="button" disabled>OpenAI 预设</button><button id="removeProfile" type="button" disabled>删除此配置</button></div>
-<div class="hint">最多10组。选择后点「保存并使用此配置」才切换生效；切换列表会保留本页尚未保存的编辑。两套 Prompt 由所有配置共用。</div>
+<div class="hint">最多10组。选择后点「保存并使用此配置」切换生成所用的 API。切换列表时会保留本页编辑，二次润色可单独选择 API。</div>
 <label for="profileName">配置名称</label><input id="profileName" maxlength="60" autocomplete="off" placeholder="例如：主用 API、备用 API">
 <label for="baseUrl">Base URL</label><input id="baseUrl" type="url" placeholder="https://api.example.com/v1" autocomplete="off"><div class="hint">自动追加 /chat/completions，支持 HTTPS 或 localhost / 127.0.0.1 HTTP 服务。</div>
 <label for="apiKey">API Key</label><input id="apiKey" type="password" autocomplete="off" spellcheck="false">
@@ -25,6 +25,13 @@ body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding
 <select id="reasoningEffort"><option value="auto">跟随模型默认（不传参）</option><option value="none">无 · none</option><option value="minimal">极低 · minimal</option><option value="low">低 · low</option><option value="medium">中 · medium</option><option value="high">高 · high</option><option value="xhigh">极高 · xhigh</option><option value="max">最高 · max</option></select>
 <div class="hint">每组 API 独立保存，仅向 OpenAI 官方地址传 reasoning_effort。强度越高通常耗时和推理用量越多；模型支持的档位不同，不支持时显示错误，不自动重试。已有配置默认不传参。</div>
 </div>
+<details id="polishSettings" style="margin-top:18px">
+<summary>二次润色</summary>
+<label><input id="polishEnabled" type="checkbox"> 推荐后再润色一次</label>
+<label for="polishProfile">润色 API</label><select id="polishProfile"></select>
+<label for="polishPrompt">润色 Prompt</label><textarea id="polishPrompt" spellcheck="false" maxlength="16000"></textarea>
+<div class="hint">润色 API 接收当前帖正文和刚生成的回复。润色成功后填入结果，超时或失败时填入首稿。</div>
+</details>
 <label>AI 逐字填入间隔（毫秒，所有 API 共用）</label>
 <div style="display:flex;gap:12px;align-items:center">
 <input id="typingDelayMin" type="number" min="0" max="1000" step="1" required aria-label="逐字间隔最小值（毫秒）" style="width:110px"><span>～</span>
