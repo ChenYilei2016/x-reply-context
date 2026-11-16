@@ -165,6 +165,26 @@
       }));
     }
 
+    /**
+     * 逐条改写素材（用于迁移）。transform 返回新对象则更新、返回 null 则删除、原样返回则不动。
+     * 单个事务内用游标处理，不把整个库读入内存。
+     */
+    function rewrite(transform) {
+      return write(MATERIALS, transaction => new Promise((resolve, reject) => {
+        let updated = 0, deleted = 0;
+        const cursor = transaction.objectStore(MATERIALS).openCursor();
+        cursor.onerror = () => reject(cursor.error);
+        cursor.onsuccess = () => {
+          const row = cursor.result;
+          if (!row) { resolve({ updated, deleted }); return; }
+          const next = transform(row.value);
+          if (next === null) { row.delete(); deleted++; }
+          else if (next !== row.value) { row.update(next); updated++; }
+          row.continue();
+        };
+      }));
+    }
+
     async function channelStates() {
       const rows = await read(CHANNEL_STATES, store => request(store.getAll()));
       return Object.fromEntries(rows.map(row => [row.channelId, row]));
@@ -174,13 +194,17 @@
       transaction.objectStore(CHANNEL_STATES).put(state);
     });
 
+    const deleteChannelState = channelId => write(CHANNEL_STATES, async transaction => {
+      transaction.objectStore(CHANNEL_STATES).delete(channelId);
+    });
+
     async function close() {
       const db = await opening?.catch(() => undefined);
       db?.close();
       opening = undefined;
     }
 
-    return { upsertMany, get, count, recent, setMark, prune, channelStates, saveChannelState, close };
+    return { upsertMany, get, count, recent, setMark, prune, rewrite, channelStates, saveChannelState, deleteChannelState, close };
   }
 
   globalThis.XReplyMaterialDB = Object.freeze({ create, DATABASE });

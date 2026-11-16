@@ -18,12 +18,11 @@
   const PREFERENCES_KEY = "creationRadarPreferences";
   /** 页面重新可见时，数据超过这个时间就重新读取。 */
   const STALE_AFTER = 2 * 60 * 1000;
-  const X_CHANNEL_NAME = "X 浏览";
 
   const $ = id => document.getElementById(id);
   const state = {
     view: RadarView.ALL, category: "all", kind: "all", windowHours: 48, sort: RadarSort.COMPOSITE, query: "", page: 1,
-    topics: [], materials: new Map(), channelNames: { "x-observed": X_CHANNEL_NAME }, basket: [], activeTopicId: null, loadedAt: 0, busy: false
+    topics: [], materials: new Map(), channelNames: {}, basket: [], activeTopicId: null, loadedAt: 0, busy: false
   };
 
   // ---------- 数据 ----------

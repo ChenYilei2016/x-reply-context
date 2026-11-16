@@ -1,4 +1,4 @@
-// 扩展冒烟检查：在无头 Chrome 中真实加载 extension/，验证后台启动、渠道注册、渠道页渲染与素材入库链路。
+// 扩展冒烟检查：在无头 Chrome 中真实加载 extension/，验证后台启动、渠道注册、渠道页与雷达渲染、升级迁移。
 // 用法：node scripts/extension-check.mjs
 // 主机权限的授权弹窗无法在无头模式下确认，渠道实拉需在真实 Chrome 中授权后验证。
 import path from "node:path";
@@ -27,29 +27,37 @@ try {
     .catch(error => error.message);
   check("安装后创建 5 分钟周期的定时器", alarm === 5, alarm);
 
-  const posts = JSON.stringify([
-    { id: "x:9001", kind: "x_post", url: "https://x.com/alice/status/9001", text: "OpenAI 发布新模型", coverage: "full",
-      publishedAt: new Date(Date.now() - 3600_000).toISOString(), author: { handle: "alice", followers: 1000 },
-      metrics: { views: 50000, likes: 900, observedAt: new Date().toISOString() } },
-    { id: "x:9002", kind: "x_post", url: "https://x.com/me/status/9002", text: "我的帖子", coverage: "full",
-      publishedAt: new Date().toISOString(), author: { handle: "me" } }
-  ]);
-  const ingest = await chrome.evaluate(worker,
-    `creationService().handle({ type: "CREATION_INGEST_X", account: "me", posts: ${posts} }, { frameId: 0, url: "https://x.com/home" })`);
-  check("X 浏览采集写入真实 IndexedDB", ingest.ok && ingest.stored === 2, JSON.stringify(ingest));
-
   const { targetId } = await chrome.send("Target.createTarget", { url: `chrome-extension://${id}/creation/channels.html` });
   const page = await chrome.attach(target => target.targetId === targetId);
   const summary = await waitFor(async () => {
     const text = await chrome.evaluate(page, "document.getElementById('summary')?.textContent || ''");
     return text.startsWith("素材库") && text;
   }, 10000, "渠道页未渲染").catch(error => error.message);
-  check("渠道页渲染并读到素材总数", /素材库共 2 条/.test(summary), summary);
+  check("渠道页渲染并读到素材总数", /素材库共 0 条/.test(summary), summary);
   const cards = await chrome.evaluate(page, "document.querySelectorAll('.channel').length");
   check("渠道页列出 10 个渠道", cards === 10, cards);
-  const capture = await chrome.evaluate(page, "document.getElementById('x-capture-state').textContent");
-  check("X 浏览采集显示累计入库", /累计新增 2 条/.test(capture), capture);
 
+  // 升级迁移：0.27～0.28 X 浏览采集留下的素材在安装/更新时清除，多来源素材保留其他来源。
+  await chrome.evaluate(worker, `(async () => {
+    const now = Date.now();
+    const db = XReplyMaterialDB.create();
+    const base = { kind: "x_post", title: "", text: "旧采集", coverage: "full", lang: "", author: null, publishedAt: now, firstSeenAt: now, lastSeenAt: now,
+      metrics: { views: 10 }, metricsSource: "x_observed", metricsAt: now, snapshots: [], media: [], tags: [], note: "", own: false, marks: {}, category: "other" };
+    await db.upsertMany([
+      { ...base, id: "x:1", url: "https://x.com/a/status/1", channelIds: ["x-observed"] },
+      { ...base, id: "x:2", url: "https://x.com/a/status/2", channelIds: ["x-observed", "bot-feed"] }
+    ]);
+  })()`);
+  await chrome.evaluate(worker, "chrome.storage.local.set({ creationXCaptureEnabled: true, creationVelocityBadge: true })");
+  await chrome.evaluate(worker, "creationService().handleInstalled()");
+  const migrated = await chrome.evaluate(worker, `(async () => {
+    const db = XReplyMaterialDB.create();
+    const settings = await chrome.storage.local.get(["creationXCaptureEnabled", "creationVelocityBadge"]);
+    const kept = await db.get("x:2");
+    return { removed: !(await db.get("x:1")), kept: kept?.channelIds.join(","), source: kept?.metricsSource, settings: Object.keys(settings).length };
+  })()`);
+  check("升级时清除 X 浏览采集的素材与设置", migrated.removed && migrated.kept === "bot-feed" && migrated.source === "channel_reported" && migrated.settings === 0,
+    JSON.stringify(migrated));
 
   // 选题雷达：同一事件跨热榜、新闻和 X 帖子合并为一个话题，详情与选材可用。
   const { targetId: radarTarget } = await chrome.send("Target.createTarget", { url: `chrome-extension://${id}/creation/radar.html` });
@@ -57,12 +65,12 @@ try {
   await waitFor(() => chrome.evaluate(radar, "typeof XReplyMaterialDB === 'object' && document.readyState === 'complete'").catch(() => false), 10000, "雷达页未加载");
   await chrome.evaluate(radar, `(async () => {
     const model = XReplyMaterialModel, now = Date.now(), hour = 3600000;
-    const make = (raw, channelId, source) => model.normalize(raw, { channelId, now, metricsSource: source && model.MetricsSource.from(source) }).material;
+    const make = (raw, channelId) => model.normalize(raw, { channelId, now }).material;
     await XReplyMaterialDB.create().upsertMany([
       make({ id: "baidu:黄仁勋辞任英伟达CEO", kind: "hot_topic", url: "https://www.baidu.com/s?wd=1", title: "黄仁勋辞任英伟达CEO", metrics: { rank: 2 } }, "baidu-hot"),
       make({ id: "https://www.ithome.com/0/1.htm", kind: "article", url: "https://www.ithome.com/0/1.htm", title: "英伟达宣布黄仁勋辞任CEO，董事会启动接班", publishedAt: new Date(now - 3 * hour).toISOString() }, "ithome"),
       make({ id: "x:9101", kind: "x_post", url: "https://x.com/bob/status/9101", text: "黄仁勋辞任英伟达CEO了？太突然", publishedAt: new Date(now - 2 * hour).toISOString(),
-        author: { handle: "bob", followers: 3000 }, metrics: { views: 240000 } }, "x-observed", "x_observed"),
+        author: { handle: "bob", followers: 3000 }, metrics: { views: 240000 } }, "bot-feed"),
       make({ id: "https://www.ithome.com/0/2.htm", kind: "article", url: "https://www.ithome.com/0/2.htm", title: "某手机品牌秋季新品发布会定档", publishedAt: new Date(now - hour).toISOString() }, "ithome")
     ]);
     location.reload();

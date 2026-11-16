@@ -1,6 +1,6 @@
 {
   "name": "x-reply-context",
-  "version": "0.28.0",
+  "version": "0.28.1",
   "private": true,
   "type": "module",
   "description": "在 X 通知里识别原帖归属和已经回应的对话",
@@ -8,7 +8,7 @@
     "test": "node --test tests/*.test.mjs",
     "preview": "node scripts/preview.mjs",
     "package": "node scripts/package.mjs",
-    "check:browser": "node scripts/browser-check.mjs tests/material-db-check.html tests/x-velocity-badge-check.html",
+    "check:browser": "node scripts/browser-check.mjs tests/material-db-check.html",
     "check:extension": "node scripts/extension-check.mjs"
   }
 }

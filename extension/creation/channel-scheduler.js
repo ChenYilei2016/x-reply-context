@@ -110,7 +110,7 @@
         else runnable.push(definition);
       }
       const results = await runPool(runnable.map(definition => () => runChannel(definition, states[definition.id], channelSettings)), CONCURRENCY);
-      // 清理与拉取渠道无关：即使没有渠道到期或获授权，X 浏览采集也在持续写入。
+      // 清理与拉取渠道无关：没有渠道到期或获授权时，过期素材也要按周期清理。
       const pruned = await pruneIfStale();
       return { results, skipped, pruned };
     }

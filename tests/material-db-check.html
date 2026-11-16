@@ -15,7 +15,7 @@ BrowserCheck.run(async check => {
   const post = (n, views, seenAt, extra = {}) => model.normalize({
     id: `x:${n}`, kind: "x_post", url: `https://x.com/a/status/${n}`, text: `帖子 ${n}`,
     publishedAt: new Date(seenAt - HOUR).toISOString(), metrics: { views, observedAt: new Date(seenAt).toISOString() }, ...extra
-  }, { channelId: "x-observed", now: seenAt, metricsSource: model.MetricsSource.X_OBSERVED }).material;
+  }, { channelId: "bot-feed", now: seenAt }).material;
 
   const first = await db.upsertMany(Array.from({ length: 450 }, (_, i) => post(i, 2000 + i, NOW - i * 60_000)));
   check("分批写入 450 条", first.inserted === 450 && first.updated === 0, JSON.stringify(first));
@@ -56,6 +56,14 @@ BrowserCheck.run(async check => {
   await db.saveChannelState({ channelId: "ithome", lastSuccessAt: NOW, failures: 0 });
   const states = await db.channelStates();
   check("渠道状态读写", states.ithome?.lastSuccessAt === NOW);
+  await db.deleteChannelState("ithome");
+  check("删除渠道状态", !(await db.channelStates()).ithome);
+
+  // 迁移：逐条改写，返回 null 删除、新对象更新、原样不动
+  const before = await db.count();
+  const result = await db.rewrite(material => material.id === "x:2" ? null : material.id === "x:5" ? { ...material, note: "改写" } : material);
+  check("逐条改写：删除与更新计数", result.deleted === 1 && result.updated === 1 && await db.count() === before - 1, JSON.stringify(result));
+  check("改写内容已保存", (await db.get("x:5"))?.note === "改写" && !(await db.get("x:2")));
 
   await db.close();
   await new Promise(resolve => { const r = indexedDB.deleteDatabase(name); r.onsuccess = r.onerror = r.onblocked = resolve; });

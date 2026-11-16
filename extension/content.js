@@ -1037,11 +1037,6 @@
     }
     if (event.data.type === "INTERACTION_ALERT") {interactionAlert?.show(event.data);return;}
     if (event.data.type === "USER_COUNTS") { receiveUserCounts(event.data.users); return; }
-    if (event.data.type === "CREATION_X_POSTS") {
-      // 创作素材只转交后台；采集开关、校验和入库都在后台完成。
-      if (Array.isArray(event.data.posts)) void chrome.runtime.sendMessage({ type:"CREATION_INGEST_X",account:event.data.account,posts:event.data.posts }).catch(() => {});
-      return;
-    }
     if (event.data.type === "POST_VIDEO_MEDIA") {
       const post = postVideo?.parsePostLink(location.href);
       if (post && post.id === event.data.id) {

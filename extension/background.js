@@ -27,7 +27,7 @@ function isScreenLocked() {
 }
 let creation;
 function creationService() {return creation ||= globalThis.XReplyCreationBackground.create(chrome);}
-chrome.runtime.onInstalled?.addListener(()=>void creationService().ensureAlarm().catch(()=>{}));
+chrome.runtime.onInstalled?.addListener(()=>void creationService().handleInstalled().catch(()=>{}));
 chrome.runtime.onStartup?.addListener(()=>void creationService().ensureAlarm().catch(()=>{}));
 function refreshCycles() {return refreshCycle ||= globalThis.XReplyRefreshCycle.createBackground(chrome);}
 chrome.tabs?.onRemoved?.addListener(id=>{

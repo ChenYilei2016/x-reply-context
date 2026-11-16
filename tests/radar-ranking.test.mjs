@@ -15,9 +15,9 @@ const normalize = (raw, channelId, extra = {}) => model.normalize(raw, {channelI
 const hot = normalize({id: 'baidu:黄仁勋辞任英伟达CEO', kind: 'hot_topic', url: 'https://www.baidu.com/s?wd=a', title: '黄仁勋辞任英伟达CEO', metrics: {rank: 2}}, 'baidu-hot');
 const article = normalize({id: 'https://a.example/1', kind: 'article', url: 'https://a.example/1', title: '英伟达宣布黄仁勋辞任CEO', publishedAt: NOW - 3 * HOUR}, 'ithome');
 const viral = normalize({id: 'x:1', kind: 'x_post', url: 'https://x.com/a/status/1', text: '黄仁勋辞任英伟达CEO了？太突然',
-  publishedAt: NOW - 2 * HOUR, author: {handle: 'a', followers: 2000}, metrics: {views: 200000}}, 'x-observed', {metricsSource: model.MetricsSource.X_OBSERVED});
+  publishedAt: NOW - 2 * HOUR, author: {handle: 'a', followers: 2000}, metrics: {views: 200000}}, 'bot-feed');
 const quiet = normalize({id: 'x:2', kind: 'x_post', url: 'https://x.com/b/status/2', text: '今天写了一个开源小工具，欢迎试用',
-  publishedAt: NOW - 30 * HOUR, author: {handle: 'b', followers: 5000}, metrics: {views: 800}}, 'x-observed');
+  publishedAt: NOW - 30 * HOUR, author: {handle: 'b', followers: 5000}, metrics: {views: 800}}, 'bot-feed');
 const fresh = normalize({id: 'https://b.example/2', kind: 'article', url: 'https://b.example/2', title: '某手机品牌发布秋季新品',
   publishedAt: NOW - HOUR}, 'ithome');
 

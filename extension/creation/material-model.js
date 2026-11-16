@@ -1,5 +1,5 @@
 // 创作工作台的素材领域模型：统一结构、枚举规则、校验归一化、合并与派生指标。
-// 所有渠道（X 浏览采集、bot feed、热榜、RSS）都先转换成这里定义的 Material。
+// 所有渠道（bot feed、热榜、RSS）都先转换成这里定义的 Material。
 (() => {
   "use strict";
 
@@ -52,7 +52,6 @@
   }
 
   class MetricsSource {
-    static X_OBSERVED = new MetricsSource("x_observed", "X 实测", 3);
     static CHANNEL_REPORTED = new MetricsSource("channel_reported", "渠道报告", 2);
     static RANK_ONLY = new MetricsSource("rank_only", "仅名次", 1);
     static NONE = new MetricsSource("none", "无指标", 0);
@@ -64,7 +63,7 @@
       Object.freeze(this);
     }
 
-    static values() { return [MetricsSource.X_OBSERVED, MetricsSource.CHANNEL_REPORTED, MetricsSource.RANK_ONLY, MetricsSource.NONE]; }
+    static values() { return [MetricsSource.CHANNEL_REPORTED, MetricsSource.RANK_ONLY, MetricsSource.NONE]; }
     static from(id) { return MetricsSource.values().find(source => source.id === id); }
 
     /** 可信度更高的来源覆盖低的；同级时较新的覆盖旧的。 */
@@ -320,7 +319,7 @@
     maxCount: 20000
   });
 
-  /** 单条素材是否过期。收藏的永不过期；自己的帖子保留更久，用于样本与复盘；低浏览的 X 帖子 48 小时后先清理。 */
+  /** 单条素材是否过期。收藏的永不过期；自己的帖子（feed 标记 own）保留更久，用于样本与复盘；低浏览的 X 帖子 48 小时后先清理。 */
   function isExpired(material, now, policy = DEFAULT_RETENTION) {
     if (material.marks?.saved) return false;
     const idle = now - material.lastSeenAt;

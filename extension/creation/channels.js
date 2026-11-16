@@ -53,14 +53,6 @@
     $("run-all").disabled = busy;
   }
 
-  function renderXCapture() {
-    const { enabled, state } = status.xCapture;
-    $("x-capture-enabled").checked = enabled;
-    const text = !enabled ? "已关闭，浏览 X 时不记录帖子。" : state?.lastSuccessAt ?
-      `最近入库 ${formatTime(state.lastSuccessAt)}，累计新增 ${state.totalInserted ?? 0} 条` : "开启中，打开 X 浏览后开始记录。";
-    setStatusText($("x-capture-state"), { text, error: false });
-  }
-
   function renderChannel(channel) {
     const node = $("channel-template").content.firstElementChild.cloneNode(true);
     node.dataset.enabled = String(channel.enabled);
@@ -104,7 +96,6 @@
   function render() {
     if (!status) return;
     renderSummary();
-    renderXCapture();
     $("channels").replaceChildren(...status.channels.map(renderChannel));
   }
 
@@ -146,15 +137,5 @@
     return requestOrigins([...new Set(origins)]);
   }));
   $("run-all").addEventListener("click", () => act(() => runChannels(undefined)));
-  $("x-capture-enabled").addEventListener("change", event => act(() =>
-    call({ type: "CREATION_X_CAPTURE_SETTINGS", enabled: event.target.checked })));
-
-  // 流速标签开关由 X 页面的内容脚本直接读取，保存在本机设置中。
-  const VELOCITY_BADGE_KEY = "creationVelocityBadge";
-  void chrome.storage.local.get(VELOCITY_BADGE_KEY).then(value => { $("velocity-badge-enabled").checked = value[VELOCITY_BADGE_KEY] !== false; });
-  $("velocity-badge-enabled").addEventListener("change", event => {
-    void chrome.storage.local.set({ [VELOCITY_BADGE_KEY]: event.target.checked });
-  });
-
   void reload().catch(error => setStatusText($("summary"), { text: error.message, error: true }));
 })();

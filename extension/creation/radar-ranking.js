@@ -13,7 +13,7 @@
 
   /**
    * 素材在本渠道内的热度，按 [层级, 数值] 比较：有流速用流速，其次热榜名次，否则按发布时间。
-   * 不同渠道的数值单位不同（B站播放与 X 浏览不可比），因此只在同一渠道内比较。
+   * 不同渠道的数值单位不同（B站播放量与 X 帖子浏览量不可比），因此只在同一渠道内比较。
    */
   function materialHeat(material, now, model) {
     const velocity = model.velocity(material, now);

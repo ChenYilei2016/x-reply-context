@@ -29,7 +29,7 @@ test('枚举按 id 查找并封装各自规则', () => {
   assert.ok(Coverage.FULL.richerThan(Coverage.EXCERPT));
   assert.equal(Coverage.infer(''), Coverage.TITLE);
   assert.equal(Coverage.infer('字'.repeat(400)), Coverage.FULL);
-  assert.ok(MetricsSource.X_OBSERVED.replaces(MetricsSource.CHANNEL_REPORTED));
+  assert.ok(MetricsSource.CHANNEL_REPORTED.replaces(MetricsSource.RANK_ONLY));
   assert.ok(!MetricsSource.RANK_ONLY.replaces(MetricsSource.CHANNEL_REPORTED));
   assert.equal(MaterialCategory.fromTags(['未知', '娱乐', 'AI']), MaterialCategory.ENTERTAINMENT);
   assert.equal(MaterialCategory.classify('OpenAI 发布新模型'), MaterialCategory.AI);
@@ -69,27 +69,27 @@ test('归一化拒绝无效条目，丢弃非法指标', () => {
 });
 
 test('合并：保留更完整正文、更可信指标和用户标记，渠道取并集', () => {
-  const old = {...normalized(xPost({coverage: 'full', text: '完整正文'}), {metricsSource: MetricsSource.X_OBSERVED}), marks: {saved: true}};
-  const later = normalized(xPost({text: '摘要', metrics: {views: 30000, observedAt: '2026-11-16T13:00:00Z'}}),
-    {channelId: 'other', now: NOW + HOUR});
+  const old = {...normalized(xPost({coverage: 'full', text: '完整正文'})), marks: {saved: true}};
+  const later = normalized(xPost({text: '摘要', metrics: {rank: 3, observedAt: '2026-11-16T13:00:00Z'}}), {channelId: 'other', now: NOW + HOUR});
   const merged = model.merge(old, later);
   assert.equal(merged.text, '完整正文');
-  assert.equal(merged.metricsSource, 'x_observed', '低可信度渠道不覆盖 X 实测');
+  assert.equal(merged.metricsSource, 'channel_reported', '仅名次不覆盖渠道报告的完整指标');
   assert.equal(merged.metrics.views, 20000);
   assert.equal(merged.marks.saved, true);
   assert.deepEqual([...merged.channelIds], ['bot-feed', 'other']);
   assert.equal(merged.firstSeenAt, NOW);
   assert.equal(merged.lastSeenAt, NOW + HOUR);
-  assert.equal(merged.snapshots.length, 2, '不同来源的快照分别保留');
+  assert.equal(merged.snapshots.length, 1, '只有名次的数据不产生快照');
+  assert.equal(model.merge(later, old).metricsSource, 'channel_reported', '更可信的指标覆盖仅名次');
 
-  const upgraded = model.merge(later, old);
-  assert.equal(upgraded.metricsSource, 'x_observed', 'X 实测覆盖渠道报告');
+  const newer = normalized(xPost({metrics: {views: 30000, observedAt: '2026-11-16T13:00:00Z'}}), {channelId: 'other', now: NOW + HOUR});
+  assert.equal(model.merge(old, newer).metrics.views, 30000, '同级来源取较新的');
   assert.equal(model.merge(undefined, later), later);
 });
 
 test('快照间隔不足 30 分钟时替换，超过时追加，最多保留 8 个', () => {
   const at = minutes => ({...xPost(), metrics: {views: 1000 + minutes * 10, observedAt: new Date(NOW + minutes * 60_000).toISOString()}});
-  const observed = minutes => normalized(at(minutes), {metricsSource: MetricsSource.X_OBSERVED, now: NOW + minutes * 60_000});
+  const observed = minutes => normalized(at(minutes), {now: NOW + minutes * 60_000});
   let material = observed(0);
   material = model.merge(material, observed(10));
   assert.equal(material.snapshots.length, 1);

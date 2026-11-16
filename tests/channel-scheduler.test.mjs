@@ -118,7 +118,7 @@ test('调度：按开关、到期和权限筛选，归一化后入库，截断�
   await assert.rejects(scheduler.saveSettings('nope', {}), /未知渠道/);
 });
 
-test('没有渠道可运行时仍按周期清理素材库（X 浏览采集持续写入）', async () => {
+test('没有渠道可运行时仍按周期清理素材库', async () => {
   const {scope, db, make, advance} = setup({granted: () => false});
   scope.XReplyChannels.register(definition('noperm', {items: [item(1)]}));
   const scheduler = make();
