@@ -1,4 +1,6 @@
 importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-context.js","creation-model.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js","post-video.js","video-download.js","reply-skip-authors.js","interaction-report-data.js");
+importScripts("creation/material-model.js","creation/material-db.js","creation/channel-http.js","creation/channel-registry.js",
+  "creation/channel-scheduler.js","creation/creation-background.js");
 let aiService;
 let companion;
 let refreshCycle;
@@ -22,6 +24,10 @@ function isScreenLocked() {
     });
   });
 }
+let creation;
+function creationService() {return creation ||= globalThis.XReplyCreationBackground.create(chrome);}
+chrome.runtime.onInstalled?.addListener(()=>void creationService().ensureAlarm().catch(()=>{}));
+chrome.runtime.onStartup?.addListener(()=>void creationService().ensureAlarm().catch(()=>{}));
 function refreshCycles() {return refreshCycle ||= globalThis.XReplyRefreshCycle.createBackground(chrome);}
 chrome.tabs?.onRemoved?.addListener(id=>{
   if (chrome.power && chrome.alarms) void updateAwake(tabs=>{for(const [key,lease] of Object.entries(tabs))if(lease.tabId===id)delete tabs[key];}).catch(()=>{});
@@ -29,6 +35,7 @@ chrome.tabs?.onRemoved?.addListener(id=>{
 });
 chrome.alarms?.onAlarm.addListener(alarm=>{
   if (alarm.name===AWAKE_ALARM) void updateAwake().catch(()=>{});
+  else if (alarm.name===globalThis.XReplyCreationBackground.ALARM) void creationService().runScheduled().catch(()=>{});
 });
 chrome.idle?.onStateChanged.addListener(state=>{
   screenLocked=state==="locked";
@@ -309,6 +316,10 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse) => {
   }
   if (message.type === "COMPANION_OPEN") {
     void companionWindow().open(message,sender).then(sendResponse);
+    return true;
+  }
+  if (typeof message.type === "string" && message.type.startsWith("CREATION_")) {
+    void creationService().handle(message,sender).then(sendResponse,error => sendResponse({ok:false,error:error?.message || "创作服务暂不可用。"}));
     return true;
   }
   if (typeof message.type === "string" && message.type.startsWith("AI_")) {
