@@ -1,0 +1,31 @@
+{
+  "schema": "xrc.feed/v1",
+  "channel": { "id": "grok-bot", "name": "Grok 机器人" },
+  "generatedAt": "2026-11-16T12:00:00+08:00",
+  "items": [
+    {
+      "id": "x:1890000000000000000",
+      "kind": "x_post",
+      "url": "https://x.com/someone/status/1890000000000000000",
+      "text": "帖子原文",
+      "coverage": "full",
+      "lang": "zh",
+      "publishedAt": "2026-11-16T09:30:00+08:00",
+      "author": { "handle": "someone", "name": "某人", "followers": 12000 },
+      "metrics": { "views": 250000, "likes": 3200, "reposts": 410, "replies": 180, "observedAt": "2026-11-16T11:58:00+08:00" },
+      "tags": ["AI"],
+      "note": "一句话说明为什么值得写"
+    },
+    {
+      "id": "https://www.example.com/news/1",
+      "kind": "article",
+      "url": "https://www.example.com/news/1",
+      "title": "新闻标题",
+      "text": "新闻摘要或正文",
+      "coverage": "excerpt",
+      "publishedAt": "2026-11-16T08:00:00+08:00",
+      "tags": ["娱乐"],
+      "note": "娱乐圈热议，适合轻松调侃"
+    }
+  ]
+}

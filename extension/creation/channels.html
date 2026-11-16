@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>素材渠道 · 回过了</title>
+  <link rel="stylesheet" href="channels.css">
+</head>
+<body>
+  <header class="page-header">
+    <div>
+      <h1>素材渠道</h1>
+      <p class="muted">浏览器开着时按周期自动拉取，统一存入本机素材库。失败的渠道会自动退避重试，不影响其他渠道。</p>
+    </div>
+    <div class="header-actions">
+      <button type="button" id="grant-all">授权全部渠道</button>
+      <button type="button" id="run-all" class="primary">立即刷新全部</button>
+    </div>
+  </header>
+  <p id="summary" class="summary" role="status">正在读取渠道状态…</p>
+
+  <section class="card" aria-labelledby="x-capture-title">
+    <div class="row-head">
+      <h2 id="x-capture-title">X 浏览采集</h2>
+      <label class="switch"><input type="checkbox" id="x-capture-enabled"> 开启</label>
+    </div>
+    <p class="muted">你在 X 上正常浏览时，记录页面已加载帖子的浏览量、互动和作者粉丝数，用于计算流速和爆文倍数。不额外请求 X，不翻页，数据只存本机。</p>
+    <p id="x-capture-state" class="state"></p>
+  </section>
+
+  <section aria-labelledby="channels-title">
+    <h2 id="channels-title" class="section-title">拉取渠道</h2>
+    <div id="channels" class="channel-list"></div>
+  </section>
+
+  <template id="channel-template">
+    <article class="card channel">
+      <div class="row-head">
+        <div><h3 class="name"></h3><span class="badge category"></span><span class="muted interval"></span></div>
+        <div class="row-actions">
+          <span class="permission"></span>
+          <button type="button" class="grant" hidden>授权</button>
+          <button type="button" class="run">刷新</button>
+          <label class="switch"><input type="checkbox" class="enabled"> 开启</label>
+        </div>
+      </div>
+      <p class="state"></p>
+      <form class="url-form" hidden>
+        <label>feed 地址 <input type="text" class="url" inputmode="url" autocomplete="off" spellcheck="false"></label>
+        <button type="submit">保存地址</button>
+        <a href="https://github.com/ChenYilei2016/x-reply-context/blob/main/docs/guide/bot-feed.md" target="_blank" rel="noopener noreferrer">接入说明 ↗</a>
+      </form>
+    </article>
+  </template>
+
+  <script src="material-model.js"></script>
+  <script src="channels.js"></script>
+</body>
+</html>

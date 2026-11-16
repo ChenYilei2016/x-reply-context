@@ -62,6 +62,21 @@
       return { enabled: await xCaptureEnabled(), state: (await db.channelStates())[X_CHANNEL] || null };
     }
 
+    /** 只接受开关和（允许配置的渠道的）地址；地址必须落在渠道声明的主机内。 */
+    function channelSettingsPatch(message) {
+      const patch = {};
+      if (typeof message.enabled === "boolean") patch.enabled = message.enabled;
+      if (message.url !== undefined) {
+        const definition = globalThis.XReplyChannels.get(message.channelId);
+        if (!definition?.configurableUrl) throw new Error("该渠道的地址不可修改");
+        if (message.url !== "" && !globalThis.XReplyChannelHttp.allowedUrl(message.url, definition.hosts)) {
+          throw new Error(`地址只能指向 ${definition.hosts.join(" 或 ")}`);
+        }
+        patch.url = message.url;
+      }
+      return patch;
+    }
+
     /** 页面消息处理表：消息类型 → 处理函数。 */
     const pageHandlers = {
       CREATION_CHANNELS_STATUS: async () => ({ ...await scheduler.status(), xCapture: await xCaptureStatus() }),
@@ -74,10 +89,9 @@
         force: true,
         channelIds: Array.isArray(message.channelIds) ? message.channelIds.filter(id => typeof id === "string").slice(0, 50) : undefined
       }),
-      CREATION_CHANNEL_SETTINGS: message => {
-        const patch = {};
-        if (typeof message.enabled === "boolean") patch.enabled = message.enabled;
-        return scheduler.saveSettings(message.channelId, patch).then(() => ({ ok: true }));
+      CREATION_CHANNEL_SETTINGS: async message => {
+        await scheduler.saveSettings(message.channelId, channelSettingsPatch(message));
+        return {};
       }
     };
 
