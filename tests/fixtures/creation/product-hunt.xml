@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xml:lang="en-US" xmlns="http://www.w3.org/2005/Atom">
+  <id>tag:www.producthunt.com,2005:/feed?category=video-conferencing</id>
+  <link rel="alternate" type="text/html" href="https://www.producthunt.com"/>
+  <link rel="self" type="application/atom+xml" href="https://www.producthunt.com/feed?category=video-conferencing"/>
+  <title>Product Hunt — The best new products, every day</title>
+  <updated>2026-11-16T00:01:00-08:00</updated>
+  <entry>
+    <id>tag:www.producthunt.com,2005:Post/1304602</id>
+    <published>2026-11-04T10:56:32-08:00</published>
+    <updated>2026-11-16T05:53:31-08:00</updated>
+    <link rel="alternate" type="text/html" href="https://www.producthunt.com/products/openframe-3"/>
+    <title>OpenFrame</title>
+    <content type="html">          &lt;p&gt;
+            AI agents that run your IT. You approve every fix.
+          &lt;/p&gt;
+          &lt;p&gt;
+            &lt;a href="https://www.producthunt.com/products/openframe-3?utm_campaign=producthunt-atom-posts-feed&amp;amp;utm_medium=rss-feed&amp;amp;utm_source=producthunt-atom-posts-feed"&gt;Discussion&lt;/a&gt;
+            |
+            &lt;a href="https://www.producthunt.com/r/p/1304602?app_id=339"&gt;Link&lt;/a&gt;
+          &lt;/p&gt;
+</content>
+    <author>
+      <name>Ben Lang</name>
+    </author>
+  </entry>
+<entry>
+    <id>tag:www.producthunt.com,2005:Post/1315749</id>
+    <published>2026-11-13T12:57:01-08:00</published>
+    <updated>2026-11-16T05:53:26-08:00</updated>
+    <link rel="alternate" type="text/html" href="https://www.producthunt.com/products/blomma"/>
+    <title>Blomma for Organizations</title>
+    <content type="html">          &lt;p&gt;
+            Scale your people at the speed of your business
+          &lt;/p&gt;
+          &lt;p&gt;
+            &lt;a href="https://www.producthunt.com/products/blomma?utm_campaign=producthunt-atom-posts-feed&amp;amp;utm_medium=rss-feed&amp;amp;utm_source=producthunt-atom-posts-feed"&gt;Discussion&lt;/a&gt;
+            |
+            &lt;a href="https://www.producthunt.com/r/p/1315749?app_id=339"&gt;Link&lt;/a&gt;
+          &lt;/p&gt;
+</content>
+    <author>
+      <name>Silvia Oviedo</name>
+    </author>
+  </entry>
+
+</feed>

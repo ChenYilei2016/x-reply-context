@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title><![CDATA[OpenAI News]]></title>
+        <description><![CDATA[The OpenAI blog]]></description>
+        <link>https://openai.com/news</link>
+        <image>
+            <url>https://openai.com/apple-icon.png</url>
+            <title>OpenAI News</title>
+            <link>https://openai.com/news</link>
+        </image>
+        <generator>OpenAI</generator>
+        <lastBuildDate>Mon, 16 Nov 2026 12:54:25 GMT</lastBuildDate>
+        <atom:link href="https://openai.com/news/rss.xml" rel="self" type="application/rss+xml"/>
+        <language><![CDATA[en-US]]></language>
+        <item>
+            <title><![CDATA[LVMH’s Media Division announces strategic partnership with OpenAI]]></title>
+            <description><![CDATA[LVMH’s Media Division and OpenAI announce a partnership to support journalism with AI and make its publications more accessible through ChatGPT.]]></description>
+            <link>https://openai.com/index/lvmh-media-division-partnership</link>
+            <guid isPermaLink="true">https://openai.com/index/lvmh-media-division-partnership</guid>
+            <category><![CDATA[Company]]></category>
+            <pubDate>Mon, 16 Nov 2026 09:00:00 GMT</pubDate>
+        </item>
+<item>
+            <title><![CDATA[The King’s Trust and OpenAI launch £1m partnership]]></title>
+            <description><![CDATA[The King’s Trust and OpenAI launch a £1m partnership to help up to 25,000 young people across the UK build practical AI skills for work.]]></description>
+            <link>https://openai.com/index/the-kings-trust-and-openai</link>
+            <guid isPermaLink="true">https://openai.com/index/the-kings-trust-and-openai</guid>
+            <category><![CDATA[Global Affairs]]></category>
+            <pubDate>Mon, 16 Nov 2026 00:00:00 GMT</pubDate>
+        </item>
+
+    </channel>
+</rss>

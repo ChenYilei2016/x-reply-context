@@ -8,7 +8,15 @@ const sources = await Promise.all(files.map(file => readFile(new URL(`../extensi
 const MINUTE = 60_000;
 const NOW = Date.parse('2026-11-16T12:00:00Z');
 
-function setup({fetchImpl, granted = () => true} = {}) {
+/** 按主机返回预设响应；值为函数时调用它（可抛错模拟失败）。 */
+const routes = {};
+const routedFetch = async url => {
+  const route = routes[new URL(url).hostname];
+  const value = typeof route === 'function' ? await route() : route;
+  return new Response(JSON.stringify(value), {headers: {'content-type': 'application/json'}});
+};
+
+function setup({fetchImpl = routedFetch, granted = () => true} = {}) {
   const scope = vm.createContext({URL, AbortController, TextDecoder, Response, setTimeout, clearTimeout, fetch: fetchImpl});
   sources.forEach(source => vm.runInContext(source, scope));
   const stored = {};
@@ -34,8 +42,10 @@ function setup({fetchImpl, granted = () => true} = {}) {
 }
 
 const item = n => ({id: `https://a.example/${n}`, kind: 'article', url: `https://a.example/${n}`, title: `新闻 ${n}`});
-function definition(id, fetchItems, extra = {}) {
-  return {id, name: id, category: 'tech', intervalMinutes: 30, origins: [`https://${id}.example/*`], hosts: [`${id}.example`], maxItems: 3, fetchItems, ...extra};
+function definition(id, response, extra = {}) {
+  routes[`${id}.example`] = response;
+  return {id, name: id, category: 'tech', intervalMinutes: 30, origins: [`https://${id}.example/*`], hosts: [`${id}.example`], maxItems: 3,
+    url: `https://${id}.example/feed`, format: 'json', parse: body => body.items, ...extra};
 }
 
 test('纯规则：到期判断、退避时长与成功失败状态', () => {
@@ -44,7 +54,7 @@ test('纯规则：到期判断、退避时长与成功失败状态', () => {
   assert.ok(scheduler.isDue(undefined, NOW));
   assert.ok(!scheduler.isDue({nextRunAt: NOW + 1}, NOW));
   assert.deepEqual([1, 2, 3, 9].map(scheduler.backoffMinutes), [15, 30, 60, 60]);
-  const def = definition('a', async () => []);
+  const def = definition('a', {items: []});
   const failed = scheduler.stateAfterFailure(def, undefined, NOW, new Error('HTTP 503'));
   assert.equal(failed.failures, 1);
   assert.equal(failed.nextRunAt, NOW + 30 * MINUTE, '退避不短于渠道周期');
@@ -68,12 +78,13 @@ test('并发池限制同时运行的任务数，单个失败不影响其他任�
 test('调度：按开关、到期和权限筛选，归一化后入库，截断到 maxItems', async () => {
   const {scope, db, make, advance, chrome} = setup({granted: origin => !origin.includes('locked')});
   const registry = scope.XReplyChannels;
-  registry.register(definition('alpha', async () => [item(1), item(2), {id: 'bad', kind: 'article', url: 'http://insecure'}, item(3), item(4)]));
-  registry.register(definition('broken', async () => { throw new Error('HTTP 503'); }));
-  registry.register(definition('locked', async () => [item(9)]));
-  registry.register(definition('off', async () => [item(8)]));
-  assert.throws(() => registry.register(definition('alpha', async () => [])), /重复/);
+  registry.register(definition('alpha', {items: [item(1), item(2), {id: 'bad', kind: 'article', url: 'http://insecure'}, item(3), item(4)]}));
+  registry.register(definition('broken', () => { throw new Error('HTTP 503'); }));
+  registry.register(definition('locked', {items: [item(9)]}));
+  registry.register(definition('off', {items: [item(8)]}));
+  assert.throws(() => registry.register({...registry.get('alpha')}), /重复/);
   assert.throws(() => registry.register({id: 'x'}), /缺少/);
+  assert.throws(() => registry.register({...definition('y', {}), format: 'xml'}), /format/);
 
   const scheduler = make();
   await scheduler.saveSettings('off', {enabled: false});
@@ -109,7 +120,7 @@ test('调度：按开关、到期和权限筛选，归一化后入库，截断�
 
 test('调度锁：已有一轮在运行时直接返回 busy', async () => {
   const {scope, make} = setup();
-  scope.XReplyChannels.register(definition('slow', async () => [item(1)]));
+  scope.XReplyChannels.register(definition('slow', {items: [item(1)]}));
   let held = false;
   const locks = {request: async (name, options, fn) => held ? fn(null) : (held = true, fn({name}).finally(() => { held = false; }))};
   const scheduler = make({locks});

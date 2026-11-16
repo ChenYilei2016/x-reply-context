@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wfw="http://wellformedweb.org/CommentAPI/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:atom="http://www.w3.org/2005/Atom"
+	xmlns:sy="http://purl.org/rss/1.0/modules/syndication/"
+	xmlns:slash="http://purl.org/rss/1.0/modules/slash/"
+	>
+
+<channel>
+	<title>量子位</title>
+	<atom:link href="https://www.qbitai.com/feed" rel="self" type="application/rss+xml" />
+	<link>https://www.qbitai.com</link>
+	<description>追踪人工智能新趋势，报道科技行业新突破</description>
+	<lastBuildDate>Sat, 14 Nov 2026 10:09:57 +0000</lastBuildDate>
+	<language>zh-Hans</language>
+	<sy:updatePeriod>
+	hourly	</sy:updatePeriod>
+	<sy:updateFrequency>
+	1	</sy:updateFrequency>
+	<generator>https://wordpress.org/?v=7.1</generator>
+	<item>
+		<title>英伟达上演“奥特曼2.0”，员工集体请愿：让老黄回家！</title>
+		<link>https://www.qbitai.com/2026/11/510297.html</link>
+		
+		<dc:creator><![CDATA[鹭羽]]></dc:creator>
+		<pubDate>Sat, 14 Nov 2026 10:08:08 +0000</pubDate>
+				<category><![CDATA[资讯]]></category>
+		<category><![CDATA[英伟达]]></category>
+		<category><![CDATA[马斯克]]></category>
+		<category><![CDATA[黄仁勋]]></category>
+		<guid isPermaLink="false">https://www.qbitai.com/?p=510297</guid>
+
+					<description><![CDATA[马斯克也签名了]]></description>
+		
+		
+		
+			</item>
+<item>
+		<title>「史上最严」湿实验预测基准发布！推理拉满、算力翻5倍也白搭</title>
+		<link>https://www.qbitai.com/2026/11/510232.html</link>
+		
+		<dc:creator><![CDATA[鹭羽]]></dc:creator>
+		<pubDate>Sat, 14 Nov 2026 09:58:22 +0000</pubDate>
+				<category><![CDATA[资讯]]></category>
+		<category><![CDATA[首页轮播]]></category>
+		<category><![CDATA[基准测试]]></category>
+		<category><![CDATA[湿实验]]></category>
+		<category><![CDATA[预测]]></category>
+		<guid isPermaLink="false">https://www.qbitai.com/?p=510232</guid>
+
+					<description><![CDATA[斯坦福、哈佛、康奈尔……十余家顶尖团队齐坐一桌了]]></description>
+		
+		
+		
+			</item>
+
+	</channel>
+</rss>
