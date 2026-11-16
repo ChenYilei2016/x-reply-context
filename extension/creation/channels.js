@@ -149,5 +149,12 @@
   $("x-capture-enabled").addEventListener("change", event => act(() =>
     call({ type: "CREATION_X_CAPTURE_SETTINGS", enabled: event.target.checked })));
 
+  // 流速标签开关由 X 页面的内容脚本直接读取，保存在本机设置中。
+  const VELOCITY_BADGE_KEY = "creationVelocityBadge";
+  void chrome.storage.local.get(VELOCITY_BADGE_KEY).then(value => { $("velocity-badge-enabled").checked = value[VELOCITY_BADGE_KEY] !== false; });
+  $("velocity-badge-enabled").addEventListener("change", event => {
+    void chrome.storage.local.set({ [VELOCITY_BADGE_KEY]: event.target.checked });
+  });
+
   void reload().catch(error => setStatusText($("summary"), { text: error.message, error: true }));
 })();

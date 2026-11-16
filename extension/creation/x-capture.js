@@ -74,6 +74,8 @@
    */
   function createCollector({ send, clock = Date.now, schedule = setTimeout }) {
     const pending = new Map();
+    /** 供页面流速标签即时显示的精简指标；入库仍按批次。 */
+    const display = new Map();
     let timer;
 
     function flush() {
@@ -90,10 +92,20 @@
       const post = postFromNode(tweet, node, clock());
       if (!post) return;
       pending.set(post.id, post);
+      if (post.metrics?.views !== undefined) {
+        display.set(post.id, { id: post.id, views: post.metrics.views, publishedAt: post.publishedAt, followers: post.author.followers });
+      }
       timer ??= schedule(flush, FLUSH_INTERVAL);
     }
 
-    return { add, flush, size: () => pending.size };
+    /** 取出自上次以来新增的展示数据。 */
+    function takeDisplay() {
+      const posts = [...display.values()];
+      display.clear();
+      return posts;
+    }
+
+    return { add, flush, takeDisplay, size: () => pending.size };
   }
 
   globalThis.XReplyXCapture = Object.freeze({ postFromNode, createCollector, FLUSH_INTERVAL, BATCH_SIZE });

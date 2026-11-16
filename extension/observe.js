@@ -269,6 +269,8 @@
           observeCreation?.add(tweet,node);
         } : undefined);
       if (includeCounts) flushUserCounts();
+      const postMetrics = observeCreation?.takeDisplay();
+      if (ready && postMetrics?.length) window.postMessage({ channel:CHANNEL,type:"CREATION_POST_METRICS",posts:postMetrics },location.origin);
       if (mp4 || mp4 === "" && context.operation === "TweetDetail") {
         pendingPostVideo = { id:postId,url:mp4 };
         flushPostVideo();

@@ -10,6 +10,9 @@
   const X_CAPTURE_KEY = "creationXCaptureEnabled";
   const X_BATCH_LIMIT = 200;
   const X_ORIGINS = Object.freeze(["https://x.com", "https://twitter.com"]);
+  /** 点击流速标签收藏时，帖子可能还在 5 秒批次里未入库；先暂存，入库后补标记。 */
+  const PENDING_SAVES_KEY = "creationPendingSaves";
+  const PENDING_SAVES_LIMIT = 200;
 
   function create(chrome) {
     const db = globalThis.XReplyMaterialDB.create();
@@ -50,12 +53,35 @@
         materials.push(material);
       }
       const { inserted } = await db.upsertMany(materials);
+      await applyPendingSaves(materials.map(material => material.id));
       const previous = (await db.channelStates())[X_CHANNEL];
       await db.saveChannelState({
         channelId: X_CHANNEL, lastSuccessAt: now, lastRunAt: now, error: "", failures: 0,
         fetched: materials.length, inserted, totalInserted: (previous?.totalInserted || 0) + inserted
       });
       return { stored: materials.length, inserted };
+    }
+
+    async function pendingSaves() {
+      return (await chrome.storage.session.get(PENDING_SAVES_KEY))[PENDING_SAVES_KEY] || [];
+    }
+
+    async function applyPendingSaves(ids) {
+      const pending = await pendingSaves();
+      const ready = pending.filter(id => ids.includes(id));
+      if (!ready.length) return;
+      await Promise.all(ready.map(id => db.setMark(id, "saved", true)));
+      await chrome.storage.session.set({ [PENDING_SAVES_KEY]: pending.filter(id => !ready.includes(id)) });
+    }
+
+    /** 收藏 X 帖子为素材：已入库直接标记，否则暂存到下次入库。 */
+    async function saveXPost(message) {
+      const id = typeof message.postId === "string" && /^\d{1,25}$/.test(message.postId) ? `x:${message.postId}` : "";
+      if (!id) throw new Error("帖子编号无效");
+      if (await db.setMark(id, "saved", true)) return { saved: true };
+      const pending = (await pendingSaves()).filter(item => item !== id);
+      await chrome.storage.session.set({ [PENDING_SAVES_KEY]: [...pending, id].slice(-PENDING_SAVES_LIMIT) });
+      return { saved: false, pending: true };
     }
 
     async function xCaptureStatus() {
@@ -99,6 +125,10 @@
       if (message.type === "CREATION_INGEST_X") {
         if (!fromXTopFrame(sender) || !Array.isArray(message.posts)) return { ok: false, error: "仅 X 页面可以提交浏览素材" };
         return { ok: true, ...await ingestXPosts(message) };
+      }
+      if (message.type === "CREATION_SAVE_X_POST") {
+        if (!fromXTopFrame(sender)) return { ok: false, error: "仅 X 页面可以收藏帖子" };
+        return { ok: true, ...await saveXPost(message) };
       }
       const handler = pageHandlers[message.type];
       if (!handler) return { ok: false, error: "不支持的创作操作" };

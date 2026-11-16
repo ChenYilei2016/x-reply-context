@@ -21,8 +21,8 @@
     {
       "matches": ["https://x.com/*", "https://twitter.com/*"],
       "run_at": "document_start",
-      "js": ["card-filter.js", "home-filter.js", "notification-filter.js", "people-filter.js", "editor.js", "interaction-alert.js", "ai-context.js", "ai-replies.js", "refresh-cycle.js", "timed-replies.js", "continuous.js", "post-video.js", "reply-skip-authors.js", "content.js"],
-      "css": ["content.css"]
+      "js": ["card-filter.js", "home-filter.js", "notification-filter.js", "people-filter.js", "editor.js", "interaction-alert.js", "ai-context.js", "ai-replies.js", "refresh-cycle.js", "timed-replies.js", "continuous.js", "post-video.js", "reply-skip-authors.js", "content.js", "creation/format.js", "creation/x-velocity-badge.js", "creation/x-velocity-badge-boot.js"],
+      "css": ["content.css", "creation/x-velocity-badge.css"]
     }
   ]
 }

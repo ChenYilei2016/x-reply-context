@@ -116,7 +116,8 @@ test('后台入库：只接受 X 顶层页面，遵守采集开关，识别自�
   const stored = {}, upserts = [], states = {};
   const chrome = {
     runtime: {getURL: path => `chrome-extension://test/${path}`},
-    storage: {local: {get: async key => ({[key]: stored[key]}), set: async values => Object.assign(stored, values)}},
+    storage: {local: {get: async key => ({[key]: stored[key]}), set: async values => Object.assign(stored, values)},
+      session: {get: async () => ({}), set: async () => {}}},
     permissions: {contains: async () => true}, alarms: {get: async () => null, create: async () => {}}
   };
   const db = {
@@ -151,4 +152,43 @@ test('后台入库：只接受 X 顶层页面，遵守采集开关，识别自�
   const status = await service.handle({type: 'CREATION_CHANNELS_STATUS'}, page);
   assert.equal(status.xCapture.enabled, false);
   assert.equal(status.xCapture.state.fetched, 2);
+});
+
+test('收集器即时展示数据：只含有浏览量的帖子，取出后清空', () => {
+  const capture = loadCapture();
+  const collector = capture.createCollector({send: () => true, clock: () => NOW, schedule: () => 0});
+  collector.add({id: '5001', text: 'a'}, tweetResult('5001'));
+  collector.add({id: '5002', text: 'b'}, tweetResult('5002', {viewState: 'Enabled'}));
+  const display = collector.takeDisplay();
+  assert.deepEqual(JSON.parse(JSON.stringify(display)), [{id: 'x:5001', views: 34567, publishedAt: '2026-11-16T10:00:00.000Z', followers: 1200}]);
+  assert.equal(collector.takeDisplay().length, 0);
+});
+
+test('流速标签收藏：已入库直接标记，未入库暂存到下次入库补上', async () => {
+  const marks = {}, materials = new Set(), session = {};
+  const chrome = {
+    runtime: {getURL: path => `chrome-extension://test/${path}`},
+    storage: {local: {get: async () => ({})}, session: {get: async key => ({[key]: session[key]}), set: async values => Object.assign(session, values)}},
+    permissions: {contains: async () => true}, alarms: {get: async () => null, create: async () => {}}
+  };
+  const db = {
+    async upsertMany(items) { items.forEach(item => materials.add(item.id)); return {inserted: items.length, updated: 0}; },
+    async setMark(id, mark, value) { if (!materials.has(id)) return undefined; marks[id] = {[mark]: value}; return {id}; },
+    async channelStates() { return {}; }, async saveChannelState() {}
+  };
+  const scope = vm.createContext({URL, XReplyMaterialDB: {create: () => db}});
+  backgroundSources.forEach(source => vm.runInContext(source, scope));
+  const service = scope.XReplyCreationBackground.create(chrome);
+  const xSender = {frameId: 0, url: 'https://x.com/home'};
+  assert.equal((await service.handle({type: 'CREATION_SAVE_X_POST', postId: '6001'}, {url: 'chrome-extension://test/creation/radar.html'})).ok, false);
+  assert.equal((await service.handle({type: 'CREATION_SAVE_X_POST', postId: 'abc'}, xSender).catch(error => ({error: error.message}))).error, '帖子编号无效');
+  const pending = await service.handle({type: 'CREATION_SAVE_X_POST', postId: '6001'}, xSender);
+  assert.equal(pending.pending, true);
+  assert.deepEqual([...session.creationPendingSaves], ['x:6001']);
+  const capture = loadCapture();
+  await service.handle({type: 'CREATION_INGEST_X', account: 'me', posts: [capture.postFromNode({id: '6001', text: 'x'}, tweetResult('6001'), NOW)]}, xSender);
+  assert.equal(marks['x:6001'].saved, true, '入库后补上收藏');
+  assert.equal(session.creationPendingSaves.length, 0);
+  const direct = await service.handle({type: 'CREATION_SAVE_X_POST', postId: '6001'}, xSender);
+  assert.equal(direct.saved, true);
 });
