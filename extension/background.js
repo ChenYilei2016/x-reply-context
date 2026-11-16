@@ -1,4 +1,4 @@
-importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-context.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js","post-video.js","video-download.js","reply-skip-authors.js","interaction-report-data.js");
+importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-context.js","creation-model.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js","post-video.js","video-download.js","reply-skip-authors.js","interaction-report-data.js");
 let aiService;
 let companion;
 let refreshCycle;

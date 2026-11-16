@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>创作工作台 · 回过了</title>
+  <link rel="stylesheet" href="creation.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="creation.html"><span>✓</span> 回过了</a>
+    <p class="nav-label">创作工作台</p>
+    <nav aria-label="创作导航">
+      <button data-view="news" aria-pressed="true">▤　新闻素材 <small id="news-count">0</small></button>
+      <button data-view="saved" aria-pressed="false">☆　我的收藏</button>
+      <button data-view="drafts" aria-pressed="false">▧　我的草稿 <small id="draft-count">0</small></button>
+      <button data-view="hidden" aria-pressed="false">⊘　已隐藏</button>
+    </nav>
+    <div class="sidebar-footer">
+      <p>新闻自动更新<br>挑好素材，再写自己的观点</p>
+      <a href="ai-settings.html" target="_blank" rel="noopener">AI 接口设置 ↗</a>
+      <p class="muted">X 爆文数据源将在后续扩展</p>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><div><span class="eyebrow">从素材到你的内容</span><h1 id="page-title">新闻素材</h1></div><button id="refresh">刷新素材</button></header>
+    <section class="onboarding" id="permission-panel" hidden>
+      <div><strong>开启自动新闻素材</strong><p>读取 IT之家、少数派和 Google AI。首次需授权这三个网站；之后打开工作台会自动检查更新。</p></div>
+      <button class="primary" id="enable-sources">授权并加载素材</button>
+    </section>
+    <p id="news-status" class="status" role="status">正在读取上次素材…</p>
+    <details id="source-details" class="source-details"><summary>来源状态与更新时间</summary><div id="source-statuses"></div><p>来源失败时保留缓存。浏览器关闭时不采集，重新打开后补拉。新闻发布时间不代表热度。</p></details>
+    <div class="work-grid">
+      <main>
+        <form id="filters" class="filters">
+          <input id="search" type="search" aria-label="搜索素材" placeholder="搜索标题或内容" maxlength="100">
+          <select id="source" aria-label="素材来源"><option value="all">全部来源</option></select>
+          <select id="filter-state" aria-label="使用状态"><option value="all">全部状态</option><option value="unused">未使用</option><option value="used">已使用</option><option value="body">已有正文</option></select>
+          <select id="sort" aria-label="排序"><option value="newest">最新优先</option><option value="body">正文优先</option></select>
+        </form>
+        <p id="list-summary" class="muted"></p>
+        <div id="cards" class="cards"></div>
+        <div class="pagination"><button id="previous">上一页</button><span id="page-number"></span><button id="next">下一页</button></div>
+      </main>
+      <section class="editor-panel" aria-label="内容创作编辑器">
+        <div class="editor-heading"><h2>写成我的内容</h2><span id="selection-count" class="badge">0 / 3 篇</span></div>
+        <p class="muted">选一篇改写，选多篇融合；点标题可展开实际素材。</p>
+        <div id="selected-materials"></div>
+        <div class="editor-controls">
+          <label>写作风格<select id="style"><option value="brief">简短转述＋看法</option><option value="developer">程序员视角</option><option value="casual">轻松吐槽</option><option value="digest">信息整理</option></select></label>
+          <label>目标字数<select id="length"><option value="100">约 100 字</option><option value="200" selected>约 200 字</option><option value="300">约 300 字</option><option value="500">约 500 字</option><option value="800">约 800 字</option></select></label>
+        </div>
+        <label>本次附加要求<textarea id="instructions" rows="2" maxlength="2000" placeholder="如：关注普通用户能用到什么，开头直接一些"></textarea></label>
+        <details class="prompt-settings"><summary>创作人设与提示词</summary><textarea id="prompt" rows="6" maxlength="8000" aria-label="创作提示词"></textarea><button id="reset-prompt">恢复默认创作提示词</button><p class="muted">仅用于此工作台，与 AI 评论提示词分别保存。</p></details>
+        <div class="model-line"><span id="model-status">正在检查模型配置…</span><button id="authorize-model" hidden>授权模型接口</button></div>
+        <div class="actions"><button class="primary" id="generate">生成成稿</button><button id="angles">找写作角度</button><button id="cancel" hidden>取消</button></div>
+        <p id="generation-status" class="status" role="status"></p>
+        <section id="candidate-panel" hidden aria-label="本次 AI 结果"><div class="candidate-heading"><strong id="candidate-label">本次结果</strong><button id="use-candidate">采用为草稿</button></div><pre id="candidate"></pre><p class="muted">生成结果与草稿分开；采用前可核对素材。</p></section>
+        <label for="draft">我的草稿 <span class="muted" id="draft-length">0 字</span></label>
+        <textarea id="draft" rows="10" maxlength="12000" placeholder="采用生成结果，或直接写下自己的内容。草稿在本机自动保存。"></textarea>
+        <p id="save-status" class="status" role="status"></p>
+        <div class="actions"><button class="primary" id="copy">复制正文</button><button id="mark-used">标记素材已用</button><button id="save-as">另存一份</button><button id="new-draft">新建草稿</button></div>
+        <a class="source-link" href="https://x.com/compose/post" target="_blank" rel="noopener noreferrer">打开 X 写帖 ↗</a>
+        <p class="editor-footnote">来源链接随草稿保存。检查事实与时效后再发布；图片和视频未作为生成素材。</p>
+      </section>
+    </div>
+  </div>
+  <script src="creation-model.js"></script>
+  <script src="creation-news.js"></script>
+  <script src="creation-store.js"></script>
+  <script src="creation.js"></script>
+</body>
+</html>
