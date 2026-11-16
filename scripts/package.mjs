@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -12,4 +12,7 @@ const files = (await readdir(extension)).filter(file => !file.startsWith(".")).s
 execFileSync("zip",["-q","-j",output,...files],{ cwd:extension });
 const entries = execFileSync("unzip",["-Z1",output],{ encoding:"utf8" }).trim().split("\n").sort();
 if (JSON.stringify(entries) !== JSON.stringify(files)) throw new Error("安装包目录与扩展源码不一致");
+// 仓库只保留当前版本的安装包，历史版本可从 git 历史取回。
+const releases = (await readdir(path.join(root,"dist"))).filter(file => /^x-reply-context-.+\.zip$/.test(file));
+for (const file of releases) if (path.join(root,"dist",file) !== output) await rm(path.join(root,"dist",file));
 console.log(output);
