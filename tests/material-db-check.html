@@ -1,0 +1,63 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>素材库检查</title>
+<script src="/extension/creation/material-model.js"></script>
+<script src="/extension/creation/material-db.js"></script>
+<script src="/tests/browser-check-harness.js"></script>
+<script>
+"use strict";
+BrowserCheck.run(async check => {
+  const model = XReplyMaterialModel;
+  const name = `xrc-check-${Date.now()}`;
+  const db = XReplyMaterialDB.create({ name });
+  const HOUR = 3600_000;
+  const NOW = Date.now();
+  const post = (n, views, seenAt, extra = {}) => model.normalize({
+    id: `x:${n}`, kind: "x_post", url: `https://x.com/a/status/${n}`, text: `帖子 ${n}`,
+    publishedAt: new Date(seenAt - HOUR).toISOString(), metrics: { views, observedAt: new Date(seenAt).toISOString() }, ...extra
+  }, { channelId: "x-observed", now: seenAt, metricsSource: model.MetricsSource.X_OBSERVED }).material;
+
+  const first = await db.upsertMany(Array.from({ length: 450 }, (_, i) => post(i, 2000 + i, NOW - i * 60_000)));
+  check("分批写入 450 条", first.inserted === 450 && first.updated === 0, JSON.stringify(first));
+  check("计数", await db.count() === 450);
+
+  const again = await db.upsertMany([post(1, 9000, NOW + HOUR), post(1, 9500, NOW + HOUR + 1000)]);
+  check("同批重复 id 先合并", again.inserted === 0 && again.updated === 1, JSON.stringify(again));
+  const merged = await db.get("x:1");
+  check("合并后追加快照", merged.snapshots.length === 2 && merged.metrics.views === 9500, JSON.stringify(merged.snapshots));
+
+  const recent = await db.recent({ limit: 5 });
+  check("按最近出现倒序且受 limit 限制", recent.length === 5 && recent[0].id === "x:1", recent.map(m => m.id).join(","));
+  const since = await db.recent({ since: NOW - 9 * 60_000 });
+  check("since 截止", since.length === 10, since.length);
+  await db.upsertMany([model.normalize({ id: "https://a.example/1", kind: "article", url: "https://a.example/1", title: "新闻" },
+    { channelId: "ithome", now: NOW }).material]);
+  const articles = await db.recent({ kind: "article" });
+  check("按类型读取", articles.length === 1 && articles[0].kind === "article");
+
+  const marked = await db.setMark("x:2", "saved", true);
+  check("设置收藏", marked.marks.saved === true);
+  await db.setMark("x:3", "hidden", true);
+  await db.setMark("x:3", "hidden", false);
+  check("取消标记会删除字段", !("hidden" in (await db.get("x:3")).marks));
+  let rejected = false;
+  try { db.setMark("x:3", "unknown", true); } catch { rejected = true; }
+  check("拒绝未知标记", rejected);
+
+  await db.upsertMany([post(9001, 100, NOW - 3 * 24 * HOUR), post(9002, 100, NOW - 3 * 24 * HOUR, { own: true })]);
+  const removedExpired = await db.prune(NOW);
+  check("删除低浏览过期帖子，保留自己的帖子", removedExpired === 1 && !(await db.get("x:9001")) && Boolean(await db.get("x:9002")),
+    `removed=${removedExpired}`);
+  const removedOverflow = await db.prune(NOW, { ...model.DEFAULT_RETENTION, maxCount: 100 });
+  const left = await db.count();
+  check("超量时从最久未出现的删起", left === 100 && removedOverflow === 352, `left=${left} removed=${removedOverflow}`);
+  check("超量清理跳过收藏", Boolean(await db.get("x:2")));
+
+  await db.saveChannelState({ channelId: "ithome", lastSuccessAt: NOW, failures: 0 });
+  const states = await db.channelStates();
+  check("渠道状态读写", states.ithome?.lastSuccessAt === NOW);
+
+  await db.close();
+  await new Promise(resolve => { const r = indexedDB.deleteDatabase(name); r.onsuccess = r.onerror = r.onblocked = resolve; });
+});
+</script>
