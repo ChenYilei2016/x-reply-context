@@ -6,14 +6,15 @@ import '../extension/observe-media.js';
 test('本页缓存只选目标的直接评论，优先附目标图片并隔离切换账号',()=>{
   const cache=globalThis.XReplyAIContext.create();
   const image='https://pbs.twimg.com/media/Photo.jpg';
-  cache.observe('',{id:'100',text:'原帖',conversationId:'100',aiPhoto:image});
-  cache.observe('me',{id:'101',parentId:'100',conversationId:'100',text:'上一级'});
+  cache.observe('',{id:'100',text:'原帖',conversationId:'100',aiPhoto:image,aiHasVideo:true});
+  cache.observe('me',{id:'101',parentId:'100',conversationId:'100',text:'上一级',aiHasVideo:false});
   cache.observe('me',{id:'102',parentId:'101',conversationId:'100',text:'当前帖子'});
   cache.observe('me',{id:'103',parentId:'100',conversationId:'100',text:'另一个分支'});
   for (let i=1;i<=5;i++) cache.observe('me',{id:String(110+i),parentId:'102',conversationId:'100',text:`直接回复${i}`});
   const before=cache.read('me','102',false);
   assert.deepEqual(before.comments,['直接回复1','直接回复2','直接回复3']);
   assert.equal(before.parent,'上一级');
+  assert.deepEqual(before.video,{post:undefined,parent:false,root:true});
   assert.equal(before.image,'');
   assert.equal(cache.read('me','102',true).imageFrom,'root');
   const displayed = 'https://pbs.twimg.com/media/Displayed.jpg';
@@ -30,10 +31,21 @@ test('本页缓存只选目标的直接评论，优先附目标图片并隔离�
   const afterSwitch = cache.read('other','102',true,()=>displayed);
   assert.deepEqual(afterSwitch.comments,[]);
   assert.equal(afterSwitch.parent,undefined);
+  assert.equal(afterSwitch.video.root,undefined);
   assert.equal(afterSwitch.image,displayed);
   cache.observe('other',{id:'102',text:'新账号当前帖'});
   assert.deepEqual(cache.read('other','102',true).comments,[]);
   assert.equal(cache.read('other','102',true).image,'');
+});
+
+test('视频信息来自本帖媒体，动图可识别，部分资料保留未知',()=>{
+  const {videoPresence}=globalThis.XReplyObserveMedia;
+  const legacy={extended_entities:{media:[{type:'video'}]}};
+  assert.equal(videoPresence({legacy}),true);
+  assert.equal(videoPresence({legacy:{entities:{media:[{type:'animated_gif'}]}}}),true);
+  assert.equal(videoPresence({legacy:{extended_entities:{media:[{type:'photo'}]}}}),false);
+  assert.equal(videoPresence({legacy:{entities:{media:[{type:'photo'}]}}}),undefined);
+  assert.equal(videoPresence({quoted_status_result:{result:{legacy}}}),undefined);
 });
 
 test('只读取帖子照片，跳过视频封面和受保护作者的媒体',()=>{

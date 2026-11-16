@@ -8,7 +8,12 @@ function setup(){
  class Element {
   constructor(tag='div',editing=false){this.tag=tag;this.children=[];this.editing=editing;}
   setAttribute(){} addEventListener(){} append(...nodes){this.children.push(...nodes);} remove(){}
-  querySelector(s){return this.children.find(n=>s.startsWith('.')?n.className===s.slice(1):n.tag===s);}
+  querySelector(s){
+   for(const node of this.children){
+    if(s.startsWith('.')?node.className===s.slice(1):node.tag===s)return node;
+    const descendant=node.querySelector(s);if(descendant)return descendant;
+   }
+  }
   closest(s){return this.editing && (s.includes('contenteditable')||s.includes('textarea'))?this:null;}
  }
  const register=kind=>(name,fn)=>{if(!handlers[kind].has(name))handlers[kind].set(name,[]);handlers[kind].get(name).push(fn);};

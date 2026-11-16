@@ -2,6 +2,7 @@
 (() => {
   "use strict";
   const KEY="timedReplies";
+  const DRAFT_STALL_MS=60000;
   const defaults={enabled:false,allowVisibleUnfocused:false,minSeconds:3,maxSeconds:10,maxAttempts:500,maxMinutes:60};
   function normalize(raw) {
     const value={enabled:raw?.enabled===true,allowVisibleUnfocused:raw?.allowVisibleUnfocused===true};
@@ -28,11 +29,13 @@
     return {runId:raw.runId,account:raw.account,attempts:raw.attempts,expiresAt:raw.expiresAt,
       capturedAt:raw.capturedAt,remainingMs:raw.remainingMs,lastId:raw.lastId,settings};
   }
-  function create({storage,readState,trigger,requestRefresh,onInterrupt=()=>{},onContinue=()=>"",cancelRefresh=()=>{},keepAwake=()=>{}}) {
+  function create({storage,readState,trigger,requestRefresh,onInterrupt=()=>{},onContinue=()=>"",
+      cancelRefresh=()=>{},keepAwake=()=>{},powerStatus=()=>"常亮申请未开启",checkScreenLock,
+      confirmDraft=()=>false}) {
     let config={...defaults},loaded=false,run=null,paused=null,armed=null,timer=null,scheduledAt=0;
     let row=null,badge=null,caption="尚未开始",attempts=0,firing=false,stopped=false;
     let handoff=null,restoring=null,restoreRequested=false,shownExpiry=0,shownEnd="";
-    let restoreDenied=document.hidden,blurredBeforeLoad=false;
+    let restoreDenied=document.hidden,blurredBeforeLoad=false,screenCheck;
     const allowed=()=>pageAllowed(config);
     const manualNavigation=()=>{const entry=performance.getEntriesByType?.('navigation')?.[0];return !entry||entry.type!=="navigate";};
     function setText(node,text){if(node.textContent!==text)node.textContent=text;}
@@ -47,26 +50,36 @@
         const title=`随机${config.minSeconds}～${config.maxSeconds}秒，最多${config.maxAttempts}次或${config.maxMinutes}分钟。暂停保留次数和原截止时间，需手动继续；手动刷新不会恢复。`;
         if(row.title!==title)row.title=title;
       }
-      const show=config.enabled&&(active||/^\/(?:home|compose)(?:\/|$)/.test(location.pathname));
+      const show=(config.enabled||stopped)&&(active||/^\/(?:home|compose)(?:\/|$)/.test(location.pathname));
       if(!show){badge?.remove();badge=null;return;}
       if(!badge){
         const host=document.body||document.documentElement;if(!host)return;
         badge=document.createElement('aside');badge.className='xrc-timed-badge';badge.setAttribute('role','status');badge.setAttribute('aria-live','polite');
         const title=document.createElement('strong'),status=document.createElement('span'),detail=document.createElement('small'),button=document.createElement('button'),visibility=document.createElement('div');
+        const power=document.createElement('div'),useDraft=document.createElement('button');
         status.className='xrc-timed-badge-status';detail.className='xrc-timed-badge-detail';button.type='button';button.textContent='暂停本轮';
         button.addEventListener('mousedown',event=>event.preventDefault());button.addEventListener('click',toggleRun);
         visibility.className='xrc-timed-badge-visibility';visibility.setAttribute('aria-label','浏览器报告的页面状态');
         visibility.title='按浏览器报告显示；完全遮挡可能被判定隐藏。隐藏始终暂停，允许可见失焦需在扩展弹窗开启。';
-        badge.append(title,button,status,detail,visibility);host.append(badge);
+        power.className='xrc-timed-badge-power';
+        power.title='显示常亮申请的结果。macOS 负责执行闲置和锁屏规则。';
+        useDraft.type='button';useDraft.className='xrc-timed-review-draft';useDraft.hidden=true;
+        useDraft.textContent='使用当前草稿并继续';
+        useDraft.addEventListener('mousedown',event=>event.preventDefault());
+        useDraft.addEventListener('click',()=>continueRun({review:true}));
+        badge.append(title,button,status,detail,visibility,power,useDraft);host.append(badge);
       }
       const phase=handoff||restoring?'restoring':run?'running':paused?'paused':stopped?'stopped':'idle';
       if(badge.dataset.state!==phase)badge.dataset.state=phase;
       setText(badge.querySelector('strong'),phase==='restoring'?'自动化 · 刷新衔接中':run?'自动化运行中':paused?'自动化已暂停':stopped?'自动化已停止':'自动化未开始');
-      setText(badge.querySelector('span'),caption);
+      const status=badge.querySelector('span');
+      setText(status,paused?`暂停原因：${caption}`:stopped?`停止原因：${caption}`:caption);
+      if(status.title!==caption)status.title=caption;
+      updatePowerDisplay();
       const visibility=badge.querySelector('.xrc-timed-badge-visibility');
       setText(visibility,`${document.hidden?'页面隐藏':'页面可见'} · ${!document.hasFocus||document.hasFocus()?'有焦点':'已失焦'}`);
       const hidden=String(document.hidden);if(visibility.dataset.hidden!==hidden)visibility.dataset.hidden=hidden;
-      const expiresAt=run?.expiresAt||paused?.expiresAt||restoring?.ticket.expiresAt;
+      const expiresAt=run?.expiresAt||paused?.expiresAt||restoring?.ticket.expiresAt||(stopped?shownExpiry:0);
       if(expiresAt && expiresAt!==shownExpiry){shownExpiry=expiresAt;shownEnd=new Date(expiresAt).toLocaleTimeString([], {hour12:false});}
       const end=expiresAt?` · 截止 ${shownEnd}`:` · 上限${config.maxMinutes}分钟`;
       setText(badge.querySelector('small'),`${attempts}/${config.maxAttempts}次${end}`);
@@ -74,12 +87,20 @@
       setText(button,active?'暂停本轮':paused?'继续本轮':'已停止');
       const disabled=!active&&(!paused||Boolean(state?.reason)||!state?.resumeReady);
       if(button.disabled!==disabled)button.disabled=disabled;
+      const useDraft=badge.querySelector('.xrc-timed-review-draft');
+      const showReview=Boolean(paused&&state?.draftNeedsReview&&state.resumeReady&&!state.reason);
+      if(useDraft.hidden===showReview)useDraft.hidden=!showReview;
+    }
+    function updatePowerDisplay() {
+      if(badge)setText(badge.querySelector('.xrc-timed-badge-power'),powerStatus());
     }
     function clearTimer(){clearTimeout(timer);timer=null;scheduledAt=0;}
+    function clearScreenCheck(){if(screenCheck){clearTimeout(screenCheck.timer);screenCheck=null;}}
     function halt(reason,{interrupt=true,cancel=true}={}) {
       if(interrupt)restoreDenied=true;
       if(!run&&!paused&&!restoring&&!handoff)return;
       const refreshId=handoff?.refreshId||restoring?.refreshId||run?.refreshId;
+      clearScreenCheck();
       run=null;paused=null;armed=null;handoff=null;restoring=null;restoreRequested=false;clearTimer();caption=reason;stopped=true;
       keepAwake(0);
       if(interrupt)onInterrupt(reason);
@@ -97,11 +118,19 @@
       if(!run)return;
       if(readState()?.likePending){stop("点赞请求尚未确认，请核对后重新开始");return;}
       const refreshId=run.refreshId;
-      paused={...run,refreshId:""};run=null;armed=null;clearTimer();caption=reason;
+      clearScreenCheck();
+      paused={...run,refreshId:"",draftWait:null};run=null;armed=null;clearTimer();caption=reason;
       keepAwake(0);
       onInterrupt(reason);
       if(refreshId)cancelRefresh(refreshId);
       refresh();requestRefresh();
+    }
+    function screenLocked() {
+      restoreDenied=true;
+      const reason="Chrome 报告锁屏或屏保已启动";
+      if(handoff||restoring){stop(reason+"，换批续接已取消");return;}
+      if(run)pause(reason);
+      if(paused && /^页面(切到后台|失去焦点)/.test(caption)){caption=reason;paint();}
     }
     function checkPaused() {
       if(!paused)return;
@@ -112,14 +141,28 @@
       if(!config.enabled || !state?.supported || state.account!==paused.account || state.session!==paused.session ||
           state.reason&&!state.pauseable&&!state.awaitingReview)stop(state?.reason||"页面、账号或会话变化，请重新开始");
     }
-    function continueRun() {
+    function continueRun({review=false}={}) {
       checkPaused();if(!paused)return;
       const state=readState();
       if(!allowed() || state.reason || !state.resumeReady){
         caption=state.reason||"请等待本条结果，核对后进入下一条再继续";paint();return;
       }
+      const owner=paused;
+      let reviewedDraft;
+      if(review){
+        if(!state.draftNeedsReview || !confirmDraft(state.draft))return;
+        const latest=readState();
+        if(paused!==owner || !allowed() || !latest?.resumeReady || latest.reason ||
+          latest.session!==state.session || latest.account!==state.account || latest.id!==state.id ||
+          latest.editor!==state.editor || latest.draft!==state.draft){
+          if(paused===owner){caption="草稿或回复对象已变化，请重新核对。";paint();}
+          return;
+        }
+        reviewedDraft=state.draft.replace(/\n$/,"");
+      }
       let problem;
-      try {problem=onContinue(state);}catch {problem="AI 恢复未确认，请检查草稿后手动推荐。";}
+      try {problem=onContinue(state,reviewedDraft);}catch {problem="AI 恢复未确认，请检查草稿后手动推荐。";}
+      if(paused!==owner)return;
       if(problem){caption=problem;paint();return;}
       run=paused;paused=null;stopped=false;caption="继续本轮，等待草稿就绪";
       refresh();requestRefresh();
@@ -148,7 +191,7 @@
       if(refreshId && [handoff?.refreshId,restoring?.refreshId,run?.refreshId].includes(refreshId))halt(reason,{cancel:false});
     }
     function prepareRefresh(refreshId) {
-      if(!run || run.finishReason || !stateForRun())return null;
+      if(!run || run.finishReason || screenCheck || !stateForRun())return null;
       const left=Math.min(run.endAt-performance.now(),run.expiresAt-Date.now());
       if(left<config.minSeconds*1000){budgetStop("剩余时间不足一次等待，已停止");return null;}
       const ticket={runId:run.id,account:run.account,attempts,lastId:run.lastId,expiresAt:run.expiresAt,
@@ -196,7 +239,21 @@
         else stop(state?.reason || "页面或账号变化，已停止");
         return null;
       }
+      if(state.draftProblem){pause(state.draftProblem);return null;}
       return state;
+    }
+    function updateDraftWait(state) {
+      if(state.ready || !state.preparingDraft){run.draftWait=null;return true;}
+      const now=performance.now(),wait=run.draftWait;
+      if(!wait || wait.id!==state.id){
+        run.draftWait={id:state.id,phase:state.preparingDraft,draft:state.draft,deadline:now+DRAFT_STALL_MS};
+      }else if(wait.phase!==state.preparingDraft || wait.draft!==state.draft){
+        wait.phase=state.preparingDraft;wait.draft=state.draft;wait.deadline=now+DRAFT_STALL_MS;
+      }else if(now>=wait.deadline){
+        pause("草稿 60 秒没有进展。核对草稿后点击「继续本轮」。");
+        return false;
+      }
+      return true;
     }
     function refresh() {
       finishRestore();checkPaused();
@@ -209,12 +266,17 @@
       if(armed && (armed.id!==state.id || armed.draft!==state.draft || !state.ready)){
         stop("草稿或回复状态变化，已停止");return;
       }
+      if(screenCheck){paint();return;}
+      if(!updateDraftWait(state))return;
       if(!armed && state.ready && state.id!==run.lastId) {
         const delayMs=config.minSeconds*1000+Math.floor(Math.random()*((config.maxSeconds-config.minSeconds)*1000+1));
         armed={id:state.id,draft:state.draft,at:performance.now()+delayMs};
         caption=`本次等待${delayMs/1000}秒`;
       } else if(!armed)caption=state.waiting || "等待已填好的草稿";
-      schedule(Math.min(armed?.at ?? run.endAt,run.endAt));paint();
+      const nextAt=Math.min(armed?.at ?? run.draftWait?.deadline ?? run.endAt,run.endAt);
+      // Keep the earlier check while typing so each character does not reset the timer.
+      if(!run.draftWait || timer===null || scheduledAt>nextAt)schedule(nextAt);
+      paint();
     }
     function tick() {
       timer=null;scheduledAt=0;
@@ -223,6 +285,28 @@
       const state=stateForRun();if(!state)return;
       if(!armed || performance.now()<armed.at){refresh();return;}
       if(!state.ready || state.id!==armed.id || state.draft!==armed.draft){stop("草稿或回复状态变化，未发送");return;}
+      if(checkScreenLock){void confirmUnlocked();return;}
+      fire(state);
+    }
+    async function confirmUnlocked() {
+      const owner=run, target=armed;
+      const failed=()=>{clearScreenCheck();pause("无法确认屏幕锁定状态，本轮已暂停");};
+      const check=screenCheck={timer:setTimeout(failed,2000)};
+      caption="确认屏幕状态…";paint();
+      let locked;
+      try {locked=await checkScreenLock();}
+      catch {if(screenCheck===check)failed();return;}
+      if(screenCheck!==check)return;
+      clearScreenCheck();
+      if(run!==owner || armed!==target)return;
+      if(locked!==false){if(locked===true)screenLocked();else failed();return;}
+      if(performance.now()>=owner.endAt || Date.now()>=owner.expiresAt){refresh();return;}
+      const state=stateForRun();
+      if(!state)return;
+      if(!state.ready || state.id!==target.id || state.draft!==target.draft){stop("草稿或回复状态变化，未发送");return;}
+      fire(state);
+    }
+    function fire(state) {
       const owner=run;
       owner.lastId=state.id;attempts++;armed=null;firing=true;
       owner.settleUntil=Date.now()+60000;
@@ -242,7 +326,7 @@
       if(run || paused || restoring || handoff || !loaded || !config.enabled)return;
       const state=readState();
       if(!allowed() || !state?.supported || state.reason){caption=state?.reason || "请从为你推荐打开回复框";paint();return;}
-      attempts=0;stopped=false;restoreDenied=true;run={id:crypto.randomUUID(),session:state.session,account:state.account,lastId:"",
+      attempts=0;stopped=false;shownExpiry=0;restoreDenied=true;run={id:crypto.randomUUID(),session:state.session,account:state.account,lastId:"",
         endAt:performance.now()+config.maxMinutes*60000,expiresAt:Date.now()+config.maxMinutes*60000,refreshId:""};
       refresh();requestRefresh();
       if(run)keepAwake(run.expiresAt);
@@ -287,7 +371,7 @@
       }
       paint();
     }
-    return {start,stop,pause,continueRun,pageAllowed:allowed,allowsUnfocused:()=>config.allowVisibleUnfocused&&Boolean(run||restoring),isPaused:()=>Boolean(paused),isFinishing:()=>Boolean(run?.finishReason),
+    return {start,stop,pause,screenLocked,updatePowerDisplay,continueRun,pageAllowed:allowed,allowsUnfocused:()=>config.allowVisibleUnfocused&&Boolean(run||restoring),isPaused:()=>Boolean(paused),isFinishing:()=>Boolean(run?.finishReason),
       refresh,render,prepareRefresh,validRefresh,commitRefresh,previewResume,canResume,restore,cancelFromRefresh};
   }
   async function installSettings(storage) {

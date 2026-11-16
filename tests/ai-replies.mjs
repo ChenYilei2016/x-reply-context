@@ -3,6 +3,7 @@ const output=document.querySelector('#result');
 const listeners=[],calls=[],pending=new Map(),generations=new Map();
 let enabled=true,autoComplete=false,modelError=false,totalRequests=0,ai,flow,timed,frame,clearDraft,delay=1500,rewritten='改写后的短句',sent=0,likes=0;
 let fillRecommended=false, simulateSend=false, feedPath='/notifications',focusNewEditor=true,allowUnfocusedFill=false;
+let draftConfirmation=()=>false;
 const automaticFailures=[];
 const requestRefresh=()=>{if(frame)return;frame=requestAnimationFrame(()=>{frame=0;flow?.refresh();ai?.refresh();timed?.refresh();});};
 globalThis.chrome={storage:{onChanged:{addListener:fn=>listeners.push(fn)}}};
@@ -28,15 +29,22 @@ const message=async message=>{
 };
 timed=XReplyTimedReplies.create({storage:{local:{get:async()=>({})},onChanged:{addListener:fn=>listeners.push(fn)}},
  readState:()=>flow?.timedState(),trigger:state=>flow?.timedSend(state),requestRefresh,
- onContinue:state=>ai?.resumeAutomatic(state.editor)||"",
+ onContinue:(state,reviewedDraft)=>ai?.resumeAutomatic(state.editor,reviewedDraft)||"",
+ confirmDraft: draft=>draftConfirmation(draft),
  onInterrupt:reason=>{ai?.pause();flow?.cancelTimedFollowup(reason);}});
 const guard=XReplyInteractionAlert.create({accountHandle,onPause:()=>{ai?.pause();flow?.pauseForAlert();},onRelease:()=>flow?.stop()});
 ai=XReplyAIReplies.create({interactionBlocked:()=>guard.blocked(),accountHandle,tweetId,connected:()=>true,message,requestRefresh,
   replyPostId:editor=>flow?.replyPostId(editor),rootOwnership:editor=>flow?.rootOwnership(editor)||"unknown",
   recommendedReply:editor=>flow?.recommendedReply(editor),canAutoFillUnfocused:()=>allowUnfocusedFill,
-  onAutoFillBlocked:(editor,reason)=>{automaticFailures.push(reason);if(flow?.recommendedReply(editor))timed?.stop(reason);}});
+  onAutoFillBlocked:(editor,reason,recoverable)=>{
+    automaticFailures.push(reason);
+    if (!flow?.recommendedReply(editor)) return;
+    if (recoverable) timed.pause(reason);
+    else timed.stop(reason);
+  }});
 flow=XReplyContinuous.create({timedReplies:timed,interactionBlocked:()=>guard.blocked(),accountHandle,tweetId,columnSelector:'[data-testid="primaryColumn"]',message,requestRefresh,aiBusy:editor=>ai.busy(editor),aiRecommend:editor=>ai.recommend(editor),aiPhase:editor=>ai.phase(editor),
-  aiFillRecommendedEnabled:()=>ai.fillRecommendedEnabled(),renderLabels:(node,row)=>{node.textContent=row.origin;}});
+  aiDraftProblem:(reply,draft)=>ai.draftProblem(reply,draft),aiFillRecommendedEnabled:()=>ai.fillRecommendedEnabled(),
+  renderLabels:(node,row)=>{node.textContent=row.origin;}});
 function DraftEditor({initialText=""}={}){
   const [state,setState]=React.useState(()=>initialText?Draft.EditorState.createWithContent(Draft.ContentState.createFromText(initialText)):Draft.EditorState.createEmpty());
   clearDraft=()=>setState(Draft.EditorState.createEmpty()); // Reset the controlled fixture, not its DOM.
@@ -291,7 +299,7 @@ document.querySelector('#run-pause').onclick=async event=>{
  event.target.disabled=true;const result=document.querySelector('#pause-result'),checks=[];
  const check=(name,ok)=>{checks.push({name,ok:Boolean(ok)});if(!ok)throw Error(name);};
  const warning=()=>guard.show({account:'me',operation:'FavoriteTweet',httpStatus:429,message:'Local rate-limit fixture'});
- const ack=()=>document.querySelector('.xrc-interaction-alert button')?.click();
+ const ack=()=>document.querySelector('.xrc-alert-ack')?.click();
  result.dataset.result='running';
  try {
   closeUI();flow.stop();enabled=true;autoComplete=false;fillRecommended=false;simulateSend=false;delay=1000;
@@ -348,6 +356,16 @@ document.querySelector('#run-unfocused').onclick=async event=>{
   check('没有本轮失焦授权时仍拒绝自动填入',text()===''&&automaticFailures.length===blockedBefore+1);
   const noRetry=calls.length;for(let i=0;i<30;i++)ai.refresh();await sleep(100);
   check('受阻后页面刷新调度不重复请求模型',calls.length===noRetry&&!ai.busy(editor()));
+  closeUI();focused=true;focusNewEditor=true;
+  const beforeClick=calls.length,failuresBeforeClick=automaticFailures.length;
+  open(0);await wait(()=>ai.busy(editor()));
+  check('普通点击前回复框有焦点',document.activeElement===editor());
+  editor().blur();
+  document.querySelector('.dialog [data-testid="tweetText"]').click();
+  await wait(()=>!ai.busy(editor()));
+  check('同页点击正文后仍填入原回复框',text()==='第一条候选甲'&&
+   calls.length===beforeClick+1&&automaticFailures.length===failuresBeforeClick);
+  focusNewEditor=false;focused=false;
   closeUI();allowUnfocusedFill=true;open(0);await wait(()=>ai.busy(editor()));focused=true;
   const button=document.querySelector('[data-testid=app-bar-close]');button.focus();
   const failed=automaticFailures.length;await wait(()=>!ai.busy(editor()));
@@ -403,21 +421,75 @@ document.querySelector('#run-continue-ai').onclick=async event=>{
   const rebuiltPartial=document.querySelector('.public-DraftEditor-content');rebuiltPartial.dataset.testid='tweetTextarea_0';rebuiltPartial.focus();requestRefresh();await sleep(80);
   timed.continueRun();await sleep(100);
   check('半成品不会直接继续倒计时或重复追加',timed.isPaused()&&text()===partial&&calls.length===beforePartial);
+  const fullDraft='第一条候选甲', latePartial=fullDraft.slice(0,partial.length+1);
+  check('模拟 X 晚一拍写入一个字',fullDraft.startsWith(partial)&&latePartial.length<fullDraft.length&&
+    await input(latePartial.slice(partial.length)));
+  timed.continueRun();
+  check('X 迟到写入的半截仍需核对',timed.isPaused()&&text()===latePartial&&calls.length===beforePartial);
+  const reviewButton=document.querySelector('.xrc-timed-review-draft');
+  let reviewed;
+  draftConfirmation=draft=>{reviewed=draft;return false;};
+  check('半截草稿有独立确认入口',reviewButton&&!reviewButton.hidden);
+  reviewButton.click();
+  check('取消确认保留原草稿及暂停状态',reviewed===latePartial&&timed.isPaused()&&text()===latePartial);
+  // An X paste that completes after interruption needs no partial-draft override.
+  check('补齐本次 AI 原文',await input(fullDraft.slice(latePartial.length)));
+  timed.continueRun();
+  check('完整草稿继续时不重新请求模型',!timed.isPaused()&&text()===fullDraft&&calls.length===beforePartial);
+  closeUI();open(0);await wait(()=>ai.busy(editor()));timed.start();
+  await wait(()=>text().length===1&&!XReplyEditor.busy(editor()));
+  timed.pause();
+  const confirmedDraft=text(),confirmedCount=calls.length;
+  draftConfirmation=draft=>draft===confirmedDraft;
+  document.querySelector('.xrc-timed-review-draft').click();
+  check('确认后可保留当前文字继续本轮',!timed.isPaused()&&text()===confirmedDraft&&calls.length===confirmedCount);
+  timed.pause();
+  closeUI();open(0);await wait(()=>ai.busy(editor()));timed.start();
+  await wait(()=>text().length===1&&!XReplyEditor.busy(editor()));
+  timed.pause();
+  const beforeClearing=calls.length;
   clearDraft();await wait(()=>text()==='');timed.continueRun();
   await wait(()=>!ai.busy(editor())&&text().length>0);
-  check('主动清空半成品再继续，只重新准备一次完整草稿',calls.length===beforePartial+1&&!timed.isPaused());
+  check('主动清空半成品再继续，只重新准备一次完整草稿',calls.length===beforeClearing+1&&!timed.isPaused());
   closeUI();open(0);await wait(()=>ai.busy(editor()));timed.start();timed.pause();await input('我自己的草稿');const manualCount=calls.length;timed.continueRun();await sleep(100);
   check('暂停后手写内容原样保留，不额外生成',text()==='我自己的草稿'&&calls.length===manualCount&&!timed.isPaused());
   closeUI();open(0);await wait(()=>ai.busy(editor()));timed.start();
   const interruptedCount=calls.length,interruptedFailures=automaticFailures.length,activeMount=document.querySelector('#editor-mount');
   ReactDOM.unmountComponentAtNode(activeMount);ReactDOM.render(React.createElement(DraftEditor),activeMount);
   const activeReplacement=document.querySelector('.public-DraftEditor-content');activeReplacement.dataset.testid='tweetTextarea_0';activeReplacement.focus();requestRefresh();await sleep(100);
-  check('运行时重建导致旧任务取消会明确停止，不空等不重试',automaticFailures.length===interruptedFailures+1&&calls.length===interruptedCount&&document.querySelector('.xrc-timed-badge')?.dataset.state==='stopped');
+  check('运行时重建导致旧任务取消会明确暂停，不空等不重试',automaticFailures.length===interruptedFailures+1&&calls.length===interruptedCount&&timed.isPaused());
+  closeUI();open(0);await wait(()=>ai.busy(editor()));timed.start();
+  await wait(()=>text().length>0&&!XReplyEditor.busy(editor()));
+  const incomplete=text(),rebuiltMount=document.querySelector('#editor-mount'),beforeRebuild=calls.length;
+  // X may clear the old node while carrying its draft into the replacement.
+  editor().replaceChildren();
+  ReactDOM.unmountComponentAtNode(rebuiltMount);ReactDOM.render(React.createElement(DraftEditor,{initialText:incomplete}),rebuiltMount);
+  const rebuilt=document.querySelector('.public-DraftEditor-content');rebuilt.dataset.testid='tweetTextarea_0';rebuilt.focus();requestRefresh();
+  await wait(()=>timed.isPaused());
+  timed.continueRun();
+  check('编辑器重建留下半截时保留草稿并暂停，继续也不会发送半截',timed.isPaused()&&text()===incomplete&&calls.length===beforeRebuild);
+  closeUI();modelError=true;open(0);await wait(()=>ai.busy(editor()));await wait(()=>!ai.busy(editor()));
+  const failedCount=calls.length;
+  timed.start();
+  check('开始本轮前 AI 已失败会直接提示并暂停',timed.isPaused()&&calls.length===failedCount&&document.querySelector('.xrc-timed-badge-status').textContent.includes('模拟模型失败'));
+  modelError=false;
+  closeUI();open(0);await wait(()=>ai.busy(editor()));timed.start();
+  const nextFrame=window.requestAnimationFrame;
+  try {
+    // Model a browser frame that never reaches the active editor write.
+    window.requestAnimationFrame=callback=>XReplyEditor.busy(editor()) ? 0 : nextFrame.call(window,callback);
+    await wait(()=>XReplyEditor.busy(editor()));
+    timed.pause();
+    await wait(()=>!XReplyEditor.busy(editor()));
+    check('暂停可解除卡在浏览器帧的写入，当前草稿保留',timed.isPaused()&&text()==='');
+  } finally {
+    window.requestAnimationFrame=nextFrame;
+  }
   closeUI();open(0);await wait(()=>ai.busy(editor()));timed.start();timed.pause();fillRecommended=false;update();await sleep(70);
   const disabledCount=calls.length;timed.continueRun();await sleep(80);
   check('空草稿且自动填入关闭时明确保持暂停，不假装恢复成功',timed.isPaused()&&calls.length===disabledCount&&document.querySelector('.xrc-timed-badge-status').textContent.includes('空草稿尚未准备'));
   check('整个检查没有发送或点赞',sent===initialSent&&likes===initialLikes);
  }catch(error){checks.push({name:error.message,ok:false});}
- finally{timed.stop();closeUI();flow.stop();timedSetting(false);fillRecommended=autoComplete=simulateSend=false;update();feedPath='/notifications';history.replaceState(null,'',feedPath);event.target.disabled=false;}
+ finally{timed.stop();closeUI();flow.stop();timedSetting(false);draftConfirmation=()=>false;modelError=fillRecommended=autoComplete=simulateSend=false;update();feedPath='/notifications';history.replaceState(null,'',feedPath);event.target.disabled=false;}
  result.dataset.result=checks.every(item=>item.ok)?'passed':'failed';result.textContent=JSON.stringify({fixture:true,checks},null,2);
 };

@@ -1,9 +1,19 @@
 (() => {
   "use strict";
 
-  function mediaItems(tweet) {
-    return tweet.legacy?.extended_entities?.media ?? tweet.extended_entities?.media ??
-      tweet.legacy?.entities?.media ?? tweet.entities?.media;
+  const extendedMedia = tweet => tweet.legacy?.extended_entities?.media ?? tweet.extended_entities?.media;
+  const mediaItems = tweet => extendedMedia(tweet) ?? tweet.legacy?.entities?.media ?? tweet.entities?.media;
+
+  function videoPresence(tweet) {
+    const items = mediaItems(tweet);
+    if (!Array.isArray(items)) return undefined;
+    let photosOnly = items === extendedMedia(tweet) && items.length <= 4;
+    for (let index = 0; index < Math.min(items.length,4); index++) {
+      const type = items[index]?.type;
+      if (type === "video" || type === "animated_gif") return true;
+      photosOnly &&= type === "photo";
+    }
+    return photosOnly ? false : undefined;
   }
 
   function parseCdnUrl(value,origin,pathPattern,limit) {
@@ -51,5 +61,5 @@
     return "";
   }
 
-  globalThis.XReplyObserveMedia = { photoFromTweet,selectMp4 };
+  globalThis.XReplyObserveMedia = { photoFromTweet,selectMp4,videoPresence };
 })();

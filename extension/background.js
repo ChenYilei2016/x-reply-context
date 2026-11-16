@@ -10,6 +10,18 @@ const AWAKE_ALARM = "timedAwakeCleanup";
 let awakeQueue = Promise.resolve();
 let awakeTimer;
 let awakeTabs;
+// A failed storage cleanup must not make a released power request look active.
+let awakeRequested;
+let screenLocked = false;
+function isScreenLocked() {
+  return new Promise((resolve,reject)=>{
+    chrome.idle.queryState(60,state=>{
+      const error=chrome.runtime.lastError;
+      if (error || !["active","idle","locked"].includes(state)) reject(new Error(error?.message || "无法读取锁屏状态"));
+      else resolve(screenLocked || state==="locked");
+    });
+  });
+}
 function refreshCycles() {return refreshCycle ||= globalThis.XReplyRefreshCycle.createBackground(chrome);}
 chrome.tabs?.onRemoved?.addListener(id=>{
   if (chrome.power && chrome.alarms) void updateAwake(tabs=>{for(const [key,lease] of Object.entries(tabs))if(lease.tabId===id)delete tabs[key];}).catch(()=>{});
@@ -17,6 +29,10 @@ chrome.tabs?.onRemoved?.addListener(id=>{
 });
 chrome.alarms?.onAlarm.addListener(alarm=>{
   if (alarm.name===AWAKE_ALARM) void updateAwake().catch(()=>{});
+});
+chrome.idle?.onStateChanged.addListener(state=>{
+  screenLocked=state==="locked";
+  if (screenLocked) void updateAwake(undefined,true).catch(()=>{});
 });
 function companionWindow() {
   return companion ||= globalThis.XReplyCompanion.create(chrome);
@@ -81,8 +97,12 @@ function allowedSender(sender) {
   } catch { return false; }
 }
 
-function updateAwake(change=()=>{}) {
+function updateAwake(change,removeAll=false) {
   const result=awakeQueue.then(async()=>{
+    if (removeAll) {
+      chrome.power.releaseKeepAwake();
+      awakeRequested=false;
+    }
     if (!awakeTabs) {
       const saved=(await chrome.storage.session.get(AWAKE_KEY))[AWAKE_KEY] || {};
       // Migrate the previous per-tab leases once; a late old document owns only its own lease.
@@ -91,28 +111,34 @@ function updateAwake(change=()=>{}) {
         return [`${tabId}:${lease.documentId}`,{...lease,tabId}];
       }));
     }
-    const next={...awakeTabs};
-    change(next);
+    const notifyLocked=change ? await change(awakeTabs) : false;
     const now=Date.now();
-    for (const [tabId,lease] of Object.entries(next)) {
-      if (lease.expiresAt<=now) delete next[tabId];
+    for (const [key,lease] of Object.entries(awakeTabs)) {
+      if ((removeAll || notifyLocked) && chrome.tabs?.sendMessage) {
+        void chrome.tabs.sendMessage(lease.tabId,{type:"TIMED_SCREEN_LOCKED"},{documentId:lease.documentId}).catch(()=>{});
+      }
+      if (removeAll || notifyLocked || lease.expiresAt<=now) delete awakeTabs[key];
     }
-    const leases=Object.values(next);
+    clearTimeout(awakeTimer);
+    const leases=Object.values(awakeTabs);
     if (leases.length) {
       // The browser alarm survives a worker restart. Register it before acquiring the lock.
-      if (!await chrome.alarms.get(AWAKE_ALARM)) await chrome.alarms.create(AWAKE_ALARM,{periodInMinutes:1});
-      await chrome.storage.session.set({[AWAKE_KEY]:next});
-      if (!Object.keys(awakeTabs).length) chrome.power.requestKeepAwake("system");
       const expiresAt=Math.min(...leases.map(lease=>lease.expiresAt));
-      clearTimeout(awakeTimer);
       awakeTimer=setTimeout(()=>{void updateAwake().catch(()=>{});},Math.max(0,expiresAt-Date.now()));
+      if (!await chrome.alarms.get(AWAKE_ALARM)) await chrome.alarms.create(AWAKE_ALARM,{periodInMinutes:1});
+      await chrome.storage.session.set({[AWAKE_KEY]:awakeTabs});
+      if (!awakeRequested) {
+        chrome.power.requestKeepAwake("display");
+        awakeRequested=true;
+      }
     } else {
-      chrome.power.releaseKeepAwake();
-      clearTimeout(awakeTimer);
+      if (awakeRequested!==false) {
+        chrome.power.releaseKeepAwake();
+        awakeRequested=false;
+      }
       await chrome.storage.session.remove(AWAKE_KEY);
       await chrome.alarms.clear(AWAKE_ALARM);
     }
-    awakeTabs=next;
   });
   awakeQueue=result.catch(()=>{});
   return result;
@@ -121,17 +147,24 @@ function updateAwake(change=()=>{}) {
 async function keepAwake(until,sender) {
   const tabId=sender.tab?.id,documentId=sender.documentId;
   if (!chrome.power || !chrome.alarms || !Number.isInteger(tabId) || sender.frameId!==0 || (typeof documentId!=="string" || !documentId || documentId.length>128) ||
-      !["https://x.com","https://twitter.com"].includes(new URL(sender.url).origin)) return false;
-  if (!Number.isFinite(until) || until<0) return false;
+      !["https://x.com","https://twitter.com"].includes(new URL(sender.url).origin) ||
+      !Number.isFinite(until) || until<0) return {ok:false};
   const key=`${tabId}:${documentId}`;
-  await updateAwake(tabs=>{
-    if (until===0) {
-      delete tabs[key];
-    } else if (until>Date.now()) {
-      tabs[key]={tabId,documentId,expiresAt:Math.min(until,Date.now()+20000)};
-    }
-  });
-  return true;
+  let expiresAt=0,locked=false;
+  try {
+    await updateAwake(async tabs=>{
+      if (until>0) locked=await isScreenLocked();
+      const now=Date.now();
+      if (until<=now || locked) delete tabs[key];
+      else {
+        expiresAt=Math.min(until,now+20000);
+        tabs[key]={tabId,documentId,expiresAt};
+      }
+      return locked;
+    });
+  } catch { return {ok:false,locked}; }
+  if (locked) return {ok:true,locked:true};
+  return {ok:until===0 || expiresAt>Date.now(),expiresAt};
 }
 
 function writeSkipAuthor({account,author,skipped}) {
@@ -261,7 +294,13 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse) => {
     return true;
   }
   if (message.type === "TIMED_KEEP_AWAKE") {
-    void keepAwake(message.until,sender).then(ok=>sendResponse({ok}),()=>sendResponse({ok:false}));
+    void keepAwake(message.until,sender).then(sendResponse,()=>sendResponse({ok:false}));
+    return true;
+  }
+  if (message.type === "TIMED_CHECK_SCREEN") {
+    if (sender.frameId!==0 || !Number.isInteger(sender.tab?.id) ||
+        !["https://x.com","https://twitter.com"].includes(new URL(sender.url).origin)) return false;
+    void isScreenLocked().then(locked=>sendResponse({ok:true,locked}),()=>sendResponse({ok:false}));
     return true;
   }
   if (["REFRESH_ARM","REFRESH_TAKE","REFRESH_CANCEL"].includes(message.type)) {

@@ -2,6 +2,7 @@
 <title>回过了 · AI 回复设置</title>
 <style>
 body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 20px;color:#182b36}h1{font-size:24px}label{display:block;margin-top:18px;font-weight:600}input:not([type=checkbox]),textarea,select{box-sizing:border-box;width:100%;border:1px solid #8293a480;border-radius:8px;padding:10px;font:inherit}textarea{min-height:150px}button{padding:8px 18px;border-radius:18px;border:1px solid #087ebd;background:white;color:#087ebd;cursor:pointer;margin:16px 8px 0 0}#save{background:#087ebd;color:white}button:disabled{opacity:.5}.hint{color:#536471;font-size:13px}#status{min-height:24px;white-space:pre-wrap}code{background:#eef3f6;padding:2px 4px}
+#endpointPreview{overflow-wrap:anywhere}#baseUrlWarning{color:#935700}
 </style>
 <h1>AI 回复 · 自带 API</h1>
 <p>开启前请停用原来的 XReply，避免两套插件同时生成、处理快捷键和写入草稿。</p>
@@ -13,7 +14,11 @@ body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding
 <div><button id="addProfile" type="button" disabled>新增配置</button><button id="openaiProfile" type="button" disabled>OpenAI 预设</button><button id="removeProfile" type="button" disabled>删除此配置</button></div>
 <div class="hint">最多10组。选择后点「保存并使用此配置」切换生成所用的 API。切换列表时会保留本页编辑，二次润色可单独选择 API。</div>
 <label for="profileName">配置名称</label><input id="profileName" maxlength="60" autocomplete="off" placeholder="例如：主用 API、备用 API">
-<label for="baseUrl">Base URL</label><input id="baseUrl" type="url" placeholder="https://api.example.com/v1" autocomplete="off"><div class="hint">自动追加 /chat/completions，支持 HTTPS 或 localhost / 127.0.0.1 HTTP 服务。</div>
+<label for="baseUrl">Base URL</label>
+<input id="baseUrl" type="url" placeholder="https://api.example.com/v1" autocomplete="off" aria-describedby="baseUrlHint endpointPreview baseUrlWarning">
+<div class="hint" id="baseUrlHint">可填 Base URL 或完整的 /chat/completions 地址。支持 HTTPS 或 localhost / 127.0.0.1 HTTP 服务。</div>
+<div class="hint" id="endpointPreview" hidden>实际请求地址 <code></code></div>
+<div class="hint" id="baseUrlWarning" hidden></div>
 <label for="apiKey">API Key</label><input id="apiKey" type="password" autocomplete="off" spellcheck="false">
 <label for="model">模型</label><input id="model" autocomplete="off" spellcheck="false">
 <p class="hint">OpenAI 预设：官方 API 地址 + gpt-6-luna，Key 留空，请填写你自己的 API Key。这是 API 接入，不会读取 ChatGPT 网页登录状态。</p>

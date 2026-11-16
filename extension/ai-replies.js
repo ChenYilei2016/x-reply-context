@@ -4,6 +4,7 @@
   // X adds one trailing media link per photo and may split the protocol onto its own line.
   const MEDIA_LINKS_AT_END = /(?:^|\s)(?:https?:\/\/\s*)?pic\.x\.com\/[a-z0-9]+(?:\s+(?:https?:\/\/\s*)?pic\.x\.com\/[a-z0-9]+)*\s*$/i;
   const VIDEO = '[data-testid="videoPlayer"],[data-testid="videoComponent"],video';
+  const PARTIAL_DRAFT_HINT = "AI 填入曾中断。核对后可选「使用当前草稿并继续」，也可编辑或清空草稿。";
   const postText = value => (value || "").replace(MEDIA_LINKS_AT_END, "").trim();
 
   function authorRoleFromArticle(article,postId,account) {
@@ -12,13 +13,17 @@
     return author ? (author === account ? "我" : "对方") : "";
   }
 
-  function videoOnlyArticle(article) {
-    if (!article?.isConnected || !article.querySelector(VIDEO)) return false;
-    const ownVideo = [...article.querySelectorAll(VIDEO)].some(node => {
+  function videoInArticle(article) {
+    if (!article?.isConnected) return false;
+    for (const node of article.querySelectorAll(VIDEO)) {
       const quote = node.closest('[role="link"]:not(a)');
-      return node.closest('article[data-testid="tweet"]') === article && (!quote || !article.contains(quote));
-    });
-    if (!ownVideo || [...article.querySelectorAll('[data-testid="tweetText"]')].some(node => postText(node.textContent))) return false;
+      if (node.closest('article[data-testid="tweet"]') === article && (!quote || !article.contains(quote))) return true;
+    }
+    return false;
+  }
+
+  function videoOnlyArticle(article,hasVideo = videoInArticle(article)) {
+    if (!hasVideo || [...article.querySelectorAll('[data-testid="tweetText"]')].some(node => postText(node.textContent))) return false;
     return ![...article.querySelectorAll('[data-testid="tweetPhoto"]')].some(photo => {
       const href = photo.closest('a[href]')?.getAttribute("href") || "";
       return !photo.closest(VIDEO) && !photo.querySelector(VIDEO) && !/\/status\/\d+\/video\/\d+(?:[/?#]|$)/.test(href);
@@ -183,7 +188,7 @@
       const reply = current?.editor === editor ? current : null;
       const used = reply?.contextUsed || null;
       if (details && options.contains(details.trigger)) renderDetails(used);
-      const labels = used ? [used.parent ? "上级" : used.root ? "原帖" : "",
+      const labels = used ? [used.hasVideo ? "视频未提供" : "",used.parent ? "上级" : "",used.root ? "原帖" : "",
         used.comments ? `评 ${used.comments}` : "",used.image ? "图 1" : ""].filter(Boolean) : [];
       const summary = options.querySelector(".xrc-ai-context-summary");
       const materials = used ? labels.join(" · ") || "仅本帖" : "";
@@ -202,14 +207,42 @@
       const ids = [...s.pending]; s.pending.clear();
       void message({type:"AI_CANCEL",ids}).catch(()=>{});
     }
+    function rememberIncompleteDraft(s) {
+      if (s?.autoExpected === undefined || !s.autoReply) return;
+      const preparation = autoPreparations.get(s.autoReply);
+      if (!preparation) return;
+      const replacement = s.dialog.querySelector(EDITOR);
+      const editor = replacement && replacement !== s.editor && recommendedReply(replacement) === s.autoReply ?
+        replacement : s.editor;
+      const draft = edit.read(editor) || s.autoWritten;
+      if (draft === s.autoExpected) {
+        delete preparation.interruptedDraft;
+        preparation.partial = "";
+      } else {
+        // A paste can reach X's editor after the pause captured the current text.
+        preparation.interruptedDraft = s.autoExpected;
+        preparation.partial = draft || "";
+      }
+    }
+    function needsDraftReview(preparation,draft) {
+      if (!preparation || !draft.trim() || draft === preparation.interruptedDraft) return false;
+      return draft === preparation.partial || preparation.interruptedDraft?.startsWith(draft) === true;
+    }
+    function draftProblem(reply,draft) {
+      const preparation = autoPreparations.get(reply);
+      if (!preparation) return "";
+      if (draft.trim()) return needsDraftReview(preparation,draft.replace(/\n$/,"")) ? PARTIAL_DRAFT_HINT : "";
+      return preparation.failure || "";
+    }
     function stop() {
       closeDetails();
       const old = current; current = undefined;
       if (old) {
+        rememberIncompleteDraft(old);
         previews.set(old.editor,{account:old.account,post:old.post,targetId:old.targetId,targetCard:old.targetCard,quote:old.quote,epoch:old.epoch,
           candidates:[...old.candidates],index:old.index,contextUsed:old.contextUsed,
           retry:!old.candidates.length && old.pending.size > 0,error:old.error});
-        cancelRequests(old);hidePreview(old);clearTimeout(old.timer);old.wake?.();
+        cancelRequests(old);hidePreview(old);old.writeController?.abort();clearTimeout(old.timer);old.wake?.();
       }
       target=undefined;
       if (notice) notice.hidden=true;
@@ -223,8 +256,6 @@
         if(reply){
           const preparation=autoPreparations.get(reply) || {partial:""};
           preparation.paused=true;
-          const draft=edit.read(editor);
-          if(current?.autoExpected!==undefined && draft && draft!==current.autoExpected)preparation.partial=draft;
           autoPreparations.set(reply,preparation);
         }
       }
@@ -232,7 +263,7 @@
       if(editor)previews.delete(editor);
     }
     // Continue uses the live reply and editor, never a snapshot of an old DOM node.
-    function resumeAutomatic(editor) {
+    function resumeAutomatic(editor,reviewedDraft) {
       if(interactionBlocked() || !connected() || document.hidden || !editor?.isConnected || document.querySelector(EDITOR)!==editor)
         return "当前回复框不可用，请核对页面后继续。";
       const reply=recommendedReply(editor);
@@ -240,9 +271,18 @@
       if(current?.composing || current?.writing || current?.rewriting || current?.recommending || current?.pending.size || edit.busy(editor))
         return "AI 或编辑操作尚未完成，请稍后再继续。";
       const draft=edit.read(editor),preparation=autoPreparations.get(reply);
-      if(draft && preparation?.partial===draft)return "AI 只填入了部分内容，请先核对并编辑，或清空后再继续。";
+      if (reviewedDraft !== undefined && reviewedDraft !== draft) return "草稿已变化，请重新核对。";
+      if (needsDraftReview(preparation,draft) && reviewedDraft === undefined) return PARTIAL_DRAFT_HINT;
       if(draft.trim()){
-        pausedEditors.delete(editor);if(preparation)preparation.paused=false;requestRefresh();return "";
+        pausedEditors.delete(editor);
+        if(preparation){
+          preparation.paused=false;
+          preparation.partial="";
+          delete preparation.interruptedDraft;
+          delete preparation.failure;
+        }
+        requestRefresh();
+        return "";
       }
       if(!enabled || !fillRecommended)return "空草稿尚未准备：请开启 AI 自动填入，或先手动写好回复。";
       if(conflict())return "检测到其他回复插件，请先停用后再继续。";
@@ -263,7 +303,7 @@
       if(previous){
         if(!previous.paused && !edit.read(s.editor).trim()){
           previous.paused=true;
-          autoFillBlocked(s,"AI 准备已中断或输入框已重建，请手动推荐或重新开始；不会自动重试。");
+          autoFillBlocked(s,"AI 准备已中断或输入框已重建，请核对草稿后继续。",true);
         }
         return true;
       }
@@ -302,17 +342,22 @@
     }
     function targetArticle(s,postId) {
       const captured = s.targetCard?.article;
-      return captured?.isConnected && tweetId(captured) === postId ? captured : replyArticle(s.editor);
+      if (captured?.isConnected && tweetId(captured) === postId) return captured;
+      const current = replyArticle(s.editor);
+      return current?.isConnected && tweetId(current) === postId ? current : null;
     }
     function generationInput(s) {
       const postId = s.targetId || replyPostId(s.editor);
+      const article = targetArticle(s,postId);
       const context = readContext(s.account,postId,includeImage,() => {
         if (s.targetCard?.photo) return s.targetCard.photo;
-        return globalThis.XReplyAIContext?.photoFromArticle(targetArticle(s,postId),postId);
+        return globalThis.XReplyAIContext?.photoFromArticle(article,postId);
       });
-      const pageAuthor = s.targetCard?.pageAuthor || authorRoleFromArticle(targetArticle(s,postId),postId,s.account);
+      const pageAuthor = s.targetCard?.pageAuthor || authorRoleFromArticle(article,postId,s.account);
+      const hasVideo = context.video?.post === true || s.targetCard?.hasVideo || videoInArticle(article);
+      const video = {...context.video,post:hasVideo ? true : context.video?.post};
       const post = postText(s.post);
-      return {post,context:{...context,pageAuthor,imageRequested:includeImage}};
+      return {post,context:{...context,pageAuthor,video,imageRequested:includeImage}};
     }
     const hasGenerationMaterial = ({post,context}) => post || (context.imageFrom === "post" && context.image);
 
@@ -383,15 +428,24 @@
       else {draw(s);if(reuse && cached.error && !s.candidates.length)toast(`AI：${cached.error}`);}
     }
     function autoFillBlocked(s,text,recoverable=false) {
+      rememberIncompleteDraft(s);
+      const preparation = autoPreparations.get(s.autoReply);
+      if (preparation) {
+        preparation.failure = text;
+        preparation.paused = true;
+      }
       toast(text);
       onAutoFillBlocked(s.editor,text,recoverable);
     }
     function canAutoFill(s) {
-      const focusAllowed=document.activeElement===s.editor ||
-        document.hasFocus && !document.hasFocus() && canAutoFillUnfocused(s.editor);
-      return !document.hidden && focusAllowed &&
-        recommendedReply(s.editor) === s.autoReply &&
-        !s.dialog.querySelector(attachment);
+      if (document.hidden || recommendedReply(s.editor) !== s.autoReply || s.dialog.querySelector(attachment)) return false;
+      const active = document.activeElement;
+      const pageFocused = !document.hasFocus || document.hasFocus();
+      if (pageFocused && window.getSelection()?.isCollapsed === false) return false;
+      if (active === s.editor) return true;
+      if (!pageFocused) return canAutoFillUnfocused(s.editor);
+      // Clicking unfocusable text can leave the same composer open with focus on the body.
+      return active === document.body || active === document.documentElement || active === s.dialog;
     }
     async function recommend(editor) {
       if (interactionBlocked())return;
@@ -405,7 +459,7 @@
     function recommendationReady(s,automatic,before,version) {
       if (!valid(s)) return false;
       if (automatic && !canAutoFill(s)) {
-        autoFillBlocked(s,"AI 已返回，但当前焦点或回复条件不允许填入；请核对后手动继续。");
+        autoFillBlocked(s,"AI 已返回，但当前焦点或回复条件不允许填入，请核对后继续。",true);
         return false;
       }
       if (!s.composing && s.version===version && edit.read(s.editor)===before) return true;
@@ -431,7 +485,7 @@
         }
         const reason = videoOnly ? "这条只有视频，可点「跳过」继续。" :
           includeImage ? "本帖暂未取得可用文字或照片，可点「跳过」继续。" : "本帖缺少文字，可勾选「带图」重试，或点「跳过」。";
-        if (automatic) autoFillBlocked(s,reason);
+        if (automatic) autoFillBlocked(s,reason,true);
         else toast(reason);
         return;
       }
@@ -450,7 +504,9 @@
         s.contextUsed = result.contextUsed;
         if (!recommendationReady(s,automatic,before,version)) return;
         if (!result.ok) {
-          if (!result.cancelled) {
+          if (result.cancelled) {
+            if (automatic) autoFillBlocked(s,"AI 生成已中断。",true);
+          } else {
             const recoverable = result.code === "EMPTY_AI_OUTPUT" || result.code === "AI_OUTPUT_TOO_LONG";
             const text = retried && result.code === "EMPTY_AI_OUTPUT" ? "AI：重试一次后仍返回空内容。" : `AI：${result.error}`;
             if (automatic) autoFillBlocked(s,text,recoverable);
@@ -461,9 +517,14 @@
         let text = result.text;
         if (polishEnabled) {
           s.polishing = true;
-          const polished = await request(s,"polish",text,{post:input.post});
+          const {postId,video} = input.context;
+          const polished = await request(s,"polish",text,{post:input.post,context:{postId,video}});
           s.polishing = false;
-          if (!recommendationReady(s,automatic,before,version) || polished.cancelled) return;
+          if (!recommendationReady(s,automatic,before,version)) return;
+          if (polished.cancelled) {
+            if (automatic) autoFillBlocked(s,"AI 润色已中断。",true);
+            return;
+          }
           if (polished.ok) text = polished.text;
           s.polishOutcome = polished.ok ? "已润色" : "已用首稿";
         }
@@ -472,14 +533,18 @@
         if (automatic) {
           s.autoExpected=before+text;
           const complete=await typeDraft(s,text,before,{automatic:true});
-          if(!complete && valid(s))autoFillBlocked(s,"AI 填入未完成，已保留当前文字；请检查后手动继续，不会自动重试。");
+          if(!complete && valid(s))autoFillBlocked(s,"AI 填入未完成，已保留当前文字，请核对后继续。",true);
           return;
         }
         const value=(before && !/\s$/.test(before)?" ":"")+text;
-        const ok=await edit.write(editor,value,{expected:before,valid:()=>valid(s)&&s.version===version&&!s.composing});
+        const {signal} = s.writeController ||= new AbortController();
+        const ok=await edit.write(editor,value,{expected:before,valid:()=>valid(s)&&s.version===version&&!s.composing,signal});
         if (!ok && valid(s)) toast("推荐未完整填入，请核对草稿；不会自动重试。");
-      } catch {if(valid(s)){const text="推荐未填入，请检查草稿后重试。";if(automatic)autoFillBlocked(s,text);else toast(text);}}
-      finally {s.autoExpected=undefined;s.writing=false;s.recommending=false;s.polishing=false;requestRefresh();}
+      } catch {if(valid(s)){const text="推荐未填入，请检查草稿后重试。";if(automatic)autoFillBlocked(s,text,true);else toast(text);}}
+      finally {
+        if(current===s)rememberIncompleteDraft(s);
+        s.autoExpected=undefined;s.autoWritten=undefined;s.writing=false;s.recommending=false;s.polishing=false;requestRefresh();
+      }
     }
     async function adopt(s) {
       if (!valid(s) || s.writing || s.rewriting || s.recommending || s.composing) return;
@@ -492,6 +557,7 @@
       finally {s.writing=false;requestRefresh();}
     }
     async function typeDraft(s,suffix,before,{automatic=false}={}) {
+      const {signal} = s.writeController ||= new AbortController();
       const canType=()=>valid(s) && !s.composing && (automatic?canAutoFill(s):document.activeElement===s.editor);
       const characters=Array.from(suffix);
       let expected=before;
@@ -499,13 +565,15 @@
         let char=characters[index];
         while (char.endsWith("\n") && index+1<characters.length) char+=characters[++index];
         if (!canType() || edit.read(s.editor)!==expected) return false;
-        const ok=await edit.write(s.editor,char,{expected,valid:canType});
+        const ok=await edit.write(s.editor,char,{expected,valid:canType,signal});
         if (!ok) {if(canType()&&!automatic)toast("AI 填入已停止，请核对草稿；不会重复填入。");return false;}
         expected+=char;
+        if (automatic) s.autoWritten = expected;
         if (current !== s) return false;
+        if (index+1 === characters.length) break;
         await new Promise(resolve=>{s.wake=resolve;s.timer=setTimeout(resolve,typingDelayMin+Math.random()*(typingDelayMax-typingDelayMin));});s.wake=null;
       }
-      return true;
+      return valid(s) && edit.read(s.editor)===expected;
     }
     async function rewrite(s) {
       const before = edit.read(s.editor), version=s.version;
@@ -517,7 +585,8 @@
         if (s.version!==version || edit.read(s.editor)!==before) {toast("草稿已变化，保留你的新内容；本次改写未应用。");return;}
         if (!result.ok) {if(!result.cancelled)toast(`AI：${result.error}`);return;}
         s.writing=true;
-        const ok=await edit.write(s.editor,result.text,{replace:true,expected:before,valid:()=>valid(s)&&s.version===version&&!s.composing});
+        const {signal} = s.writeController ||= new AbortController();
+        const ok=await edit.write(s.editor,result.text,{replace:true,expected:before,valid:()=>valid(s)&&s.version===version&&!s.composing,signal});
         if (!ok) toast("改写未完整应用，请检查草稿；不会自动重试。");
         else if(notice)notice.hidden=true;
       } catch {if(valid(s))toast("改写未应用，请检查草稿后手动继续。");}
@@ -536,7 +605,8 @@
         const id = tweetId(article), account = accountHandle();
         // X can unmount the timeline card before the reply editor is ready.
         const photo = includeImage || !imageReady ? globalThis.XReplyAIContext?.photoFromArticle(article,id) : "";
-        target = {id,account,article,photo,pageAuthor:authorRoleFromArticle(article,id,account),videoOnly:videoOnlyArticle(article)};
+        const hasVideo = videoInArticle(article);
+        target = {id,account,article,photo,pageAuthor:authorRoleFromArticle(article,id,account),hasVideo,videoOnly:videoOnlyArticle(article,hasVideo)};
       }
       if (node?.closest('[data-testid="app-bar-close"]') && (current || target)) stop();
     },true);
@@ -603,7 +673,7 @@
     document.addEventListener("visibilitychange",()=>{if(document.hidden)stop();else requestRefresh();});
     window.addEventListener("pagehide",stop);
     void reload();
-    return {refresh,stop,pause,resumeAutomatic,recommend,renderOptions,fillRecommendedEnabled:()=>enabled && fillRecommended,phase:editor=>{
+    return {refresh,stop,pause,resumeAutomatic,recommend,renderOptions,draftProblem,fillRecommendedEnabled:()=>enabled && fillRecommended,phase:editor=>{
       if(!enabled)return "";
       const paused=pausedEditors.has(editor)||autoPreparations.get(current?.editor===editor?current.autoReply:recommendedReply(editor))?.paused;
       if (!current || current.editor!==editor) return paused?"paused":"";

@@ -20,6 +20,23 @@
     const supported=XReplyAIConfig.isOpenAI(get("baseUrl").value);
     get("openaiMode").hidden=!supported;get("serviceTier").disabled=!supported||saving;get("reasoningEffort").disabled=!supported||saving;
   }
+  function renderEndpoint() {
+    const value=get("baseUrl").value.trim(),preview=get("endpointPreview"),warning=get("baseUrlWarning");
+    let address="",hint="";
+    if(value){
+      try {
+        const base=new URL(value);
+        address=XReplyAIConfig.endpoint(base).href;
+        if(!base.pathname.replace(/\/+$/,""))hint="只填了域名。使用 New API 时，请在域名后加 /v1。";
+      } catch {
+        hint="请输入有效的模型接口地址。";
+      }
+    }
+    preview.querySelector("code").textContent=address;
+    preview.hidden=!address;
+    warning.textContent=hint;
+    warning.hidden=!hint;
+  }
   function renderProfiles() {
     const profileOptions = () => config.profiles.map(profile=>new Option(profile.name || "未命名配置",profile.id));
     const polish = get("polishProfile"), polishId = polish.value;
@@ -31,6 +48,7 @@
     get("profileName").value=profile.name;
     for(const field of profileFields)get(field).value=profile[field] ?? (["serviceTier","reasoningEffort"].includes(field)?"auto":"");
     renderProcessing();
+    renderEndpoint();
     get("removeProfile").disabled=config.profiles.length<=1;
     get("addProfile").disabled=config.profiles.length>=10;
   }
@@ -50,7 +68,14 @@
     for(const id of ["save","profile","addProfile","openaiProfile","removeProfile"])get(id).disabled=false;
     renderProfiles();get("polishProfile").value=config.polishProfileId;applied(config);status.textContent="";
   }).catch(error=>{status.textContent=error.message;});
-  get("settings").addEventListener("input",()=>{if(config){changed();renderProcessing();}});
+  get("settings").addEventListener("input",event=>{
+    if(!config)return;
+    changed();
+    if(event.target===get("baseUrl")){
+      renderProcessing();
+      renderEndpoint();
+    }
+  });
   for(const field of ["serviceTier","reasoningEffort"])get(field).addEventListener("change",()=>{if(config)changed();});
   get("profile").addEventListener("change",()=>{
     remember();selectedId=get("profile").value;renderProfiles();changed("已选择配置，点击保存后切换生效。尚未保存的编辑保留在本页。");

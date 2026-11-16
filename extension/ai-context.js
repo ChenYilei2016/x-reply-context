@@ -4,6 +4,7 @@
   const COMMENT_LIMIT = 3;
   const id = value => typeof value === "string" && /^\d{1,25}$/.test(value) ? value : "";
   const snippet = value => typeof value === "string" ? value.slice(0,200).trim() : "";
+  const videoFlag = value => typeof value === "boolean" ? value : undefined;
 
   function photoUrl(value) {
     if (typeof value !== "string" || value.length > 2048) return "";
@@ -43,7 +44,8 @@
       .filter(text => text && text !== parent && text !== root) : [];
     const image = photoUrl(raw?.image);
     const imageFrom = ["parent","root"].includes(raw?.imageFrom) ? raw.imageFrom : "post";
-    return { postId,pageAuthor,parent,root,comments,image,imageFrom,imageRequested:raw?.imageRequested === true };
+    const video = {post:videoFlag(raw?.video?.post),parent:videoFlag(raw?.video?.parent),root:videoFlag(raw?.video?.root)};
+    return { postId,pageAuthor,parent,root,comments,image,imageFrom,video,imageRequested:raw?.imageRequested === true };
   }
 
   function create() {
@@ -63,13 +65,14 @@
       const previous = posts.get(postId);
       const photo = photoUrl(record.aiPhoto);
       const photoBlocked = record.aiPhoto === null || (!photo && previous?.photoBlocked === true);
+      const hasVideo = previous?.hasVideo === true ? true : videoFlag(record.aiHasVideo) ?? previous?.hasVideo;
       posts.delete(postId);
       posts.set(postId,{
         parentId:id(record.parentId) || previous?.parentId || "",
         rootId:id(record.conversationId) || previous?.rootId || "",
         text:snippet(record.text) || previous?.text || "",
         image:photoBlocked ? "" : photo || previous?.image || "",
-        photoBlocked
+        photoBlocked,hasVideo
       });
       if (posts.size > POST_LIMIT) posts.delete(posts.keys().next().value);
     }
@@ -90,7 +93,8 @@
       const targetPhoto = includeImage && !post?.photoBlocked ? post?.image || photoUrl(readTargetPhoto?.()) : "";
       const image = includeImage ? targetPhoto || parent?.image || root?.image || "" : "";
       const imageFrom = targetPhoto ? "post" : parent?.image ? "parent" : "root";
-      return { postId,parent:parent?.text,root:root?.text,comments,image,imageFrom };
+      const video = {post:post?.hasVideo,parent:parent?.hasVideo,root:root?.hasVideo};
+      return { postId,parent:parent?.text,root:root?.text,comments,image,imageFrom,video };
     }
 
     return { observe,read };

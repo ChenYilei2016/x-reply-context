@@ -11,7 +11,9 @@
     const local = ["localhost","127.0.0.1"].includes(url.hostname);
     if (!(url.protocol === "https:" || url.protocol === "http:" && local) || url.username || url.password || url.search || url.hash ||
         /(^|\.)(x\.com|twitter\.com)$/.test(url.hostname)) throw new Error("请输入 HTTPS 模型 Base URL，或本机 HTTP 地址；不能使用 X 地址。");
-    url.pathname = url.pathname.replace(/\/+$/,"")+"/chat/completions";
+    const path = url.pathname.replace(/\/+$/,"");
+    const suffix = "/chat/completions";
+    url.pathname = path.endsWith(suffix) ? path : path + suffix;
     return url;
   }
   function normalize(raw) {

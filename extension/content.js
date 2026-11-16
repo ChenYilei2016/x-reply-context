@@ -5,7 +5,7 @@
   const aiContext = globalThis.XReplyAIContext?.create();
   let observedPostVideo;
   const NOTIFICATION_COLUMN = '[data-testid="primaryColumn"]:has(a[role="tab"][href^="/notifications"])';
-  const PEOPLE_LIST_PATH = /^\/[a-z0-9_]{1,15}\/(?:following|followers|verified_followers)\/?$/i;
+  const PEOPLE_LIST_PATH = /^\/[a-z0-9_]{1,15}\/(?:following|followers|verified_followers|followers_you_follow)\/?$/i;
   const PROFILE_LINK = /^(?:https:\/\/(?:x|twitter)\.com)?\/([a-z0-9_]{1,15})\/?$/i;
   const PEOPLE_NAMES = '[data-testid="UserCell"] a[href] [dir="ltr"]';
   const TWEET_NAMES = 'article[data-testid="tweet"] [data-testid="User-Name"]:not([role="link"]:not(a) *,[role="dialog"] *) a[href] [dir="ltr"]';
@@ -35,7 +35,7 @@
   let aiReplies;
   let refreshCycle;
   let timedReplies;
-  let awakeTimer, awakeUntil=0;
+  let awakeTimer, awakeUntil=0, awakeRequest=0, awakeExpiresAt=0, awakeStatus="off";
   let interactionAlert;
   let randomSkipReplyLike = false;
   let randomSkipLikeSettingLoaded = false;
@@ -71,7 +71,9 @@
     disconnected = true;
     clearTimeout(timer); timer = undefined; pending.clear(); again = false;
     observer.disconnect();
-    continuous?.stop(); aiReplies?.stop(); refreshCycle?.cancel();timedReplies?.stop("扩展连接已失效");
+    timedReplies?.stop("扩展连接已失效");
+    continuous?.stop(); aiReplies?.stop(); refreshCycle?.cancel();
+    peopleFilter?.reset();
     clearAuthorActionNotice();
     if (networkNotice) networkNotice.hidden = true;
     // Pause without resetting filters: restoring hidden rows here would move the reading position.
@@ -215,6 +217,7 @@
     try {
       const reply = await chrome.runtime.sendMessage(payload);
       if (!connected()) throw new Error("扩展连接已失效，请刷新页面");
+      if (payload.type === "TIMED_KEEP_AWAKE" && reply?.locked) return reply;
       if (payload.type === "AI_REQUEST" && (reply?.cancelled || reply?.contextUsed ||
           reply?.code === "EMPTY_AI_OUTPUT" || reply?.code === "AI_OUTPUT_TOO_LONG")) return reply;
       if (!reply?.ok) throw new Error(reply?.error || "扩展连接已断开，请刷新页面");
@@ -260,14 +263,48 @@
     invalidateAnnotations(); homeFilter.invalidate(); notificationFilter.invalidate();
   }
 
+  const awakeText = {
+    off:"常亮申请未开启",pending:"正在申请常亮…",requested:"已向 Chrome 申请常亮",
+    failed:"常亮申请失败",releasing:"正在释放常亮…",released:"本页常亮申请已释放",
+    releaseFailed:"常亮释放未确认"
+  };
+
+  function powerStatus() {
+    if (awakeStatus==="requested" && awakeExpiresAt<=Date.now()) return "常亮续期未确认";
+    return awakeText[awakeStatus];
+  }
+
   function keepAwake(until,leaving=false) {
     clearTimeout(awakeTimer);
-    if (leaving) {awakeUntil=0;return;}
+    if (leaving) {awakeUntil=0;awakeRequest++;return;}
     const remaining=until-Date.now();
     if (remaining<=0) until=0;
     if (until===0 && awakeUntil===0) return;
+    if (!until || !awakeUntil) {
+      awakeExpiresAt=0;
+      awakeStatus=until?"pending":"releasing";
+    }
     awakeUntil=until;
-    void message({type:"TIMED_KEEP_AWAKE",until}).catch(()=>{});
+    const request=++awakeRequest;
+    void message({type:"TIMED_KEEP_AWAKE",until}).then(reply=>{
+      if (request!==awakeRequest) return;
+      if (reply.locked) {
+        awakeStatus=reply.ok?"released":"releaseFailed";
+        awakeUntil=0;
+        awakeExpiresAt=0;
+        clearTimeout(awakeTimer);
+        timedReplies?.screenLocked();
+        timedReplies?.updatePowerDisplay();
+        return;
+      }
+      awakeExpiresAt=until && Number.isFinite(reply.expiresAt)?reply.expiresAt:0;
+      awakeStatus=until?"requested":"released";
+      timedReplies?.updatePowerDisplay();
+    },()=>{
+      if (request!==awakeRequest) return;
+      awakeStatus=until?"failed":"releaseFailed";
+      timedReplies?.updatePowerDisplay();
+    });
     if (until) awakeTimer=setTimeout(()=>keepAwake(until),Math.min(8000,remaining));
   }
 
@@ -285,7 +322,9 @@
             previous.observedAt === record.observedAt && previous.source === "mutation" && record.source !== "mutation")) continue;
         // Partial timeline records must not erase fields learned by an earlier response.
         const merged = { ...previous };
-        for (const [field,value] of Object.entries(record)) if (field !== "aiPhoto" && field !== "aiAccount" && value !== "") merged[field] = value;
+        for (const [field,value] of Object.entries(record)) {
+          if (field !== "aiPhoto" && field !== "aiAccount" && field !== "aiHasVideo" && value !== "") merged[field] = value;
+        }
         group[name].set(key,merged);
       }
     }
@@ -403,6 +442,13 @@
   }
 
   const profileHandle = anchor => anchor?.getAttribute("href")?.match(PROFILE_LINK)?.[1]?.toLowerCase() || "";
+  function handleFromName(name) {
+    const handle = profileHandle(name.closest("a"));
+    return handle && name.firstChild?.textContent?.trim().toLowerCase() === `@${handle}` ? handle : "";
+  }
+  const peopleFilter = globalThis.XReplyPeopleFilter?.create({
+    accountHandle,countsFor,handleFromName,isPeopleList:() => PEOPLE_LIST_PATH.test(location.pathname),storage:chrome.storage.local
+  });
 
   function nativePostMenu(article) {
     return [...(article?.querySelectorAll('[data-testid="caret"]:is(button,[role="button"])') || [])].find(button => {
@@ -637,9 +683,8 @@
       const skipped = skipAuthors?.authors(account);
       for (const name of column?.querySelectorAll(names) || []) {
         const anchor = name.closest("a");
-        const handle = profileHandle(anchor);
-        const username = name.firstChild?.textContent?.trim().toLowerCase();
-        if (!handle || username !== `@${handle}`) {
+        const handle = handleFromName(name);
+        if (!handle) {
           if (showCounts) name.querySelector(":scope > .xrc-user-counts")?.remove();
           continue;
         }
@@ -842,6 +887,7 @@
     urgentRefresh = false;
     try {
       const account = accountHandle();
+      peopleFilter?.refresh(account);
       if (account && account !== lastAccount) {
         // The composer owns its labels; initial account detection must not erase an already-open footer.
         document.querySelectorAll('article[data-testid="tweet"] .xrc-labels').forEach(node => node.remove());
@@ -897,6 +943,7 @@
   }
 
   interactionAlert = globalThis.XReplyInteractionAlert?.create({accountHandle,
+    onUnavailableReply:data=>continuous?.prepareUnavailableSkip(data),
     onPause:()=>{timedReplies?.stop("收到异常提醒，已停止");aiReplies?.pause();continuous?.pauseForAlert();refreshCycle?.cancel();},
     onRelease:()=>continuous?.stop()});
   aiReplies = globalThis.XReplyAIReplies?.create({accountHandle,connected,message,tweetId,requestRefresh:scheduleControls,interactionBlocked:()=>interactionAlert?.blocked()===true,
@@ -915,11 +962,14 @@
   refreshCycle = globalThis.XReplyRefreshCycle?.create({storage:chrome.storage,message,accountHandle,requestRefresh:scheduleControls,getTimed:()=>timedReplies,
     resume:(intent,valid)=>continuous.resumeRecommended(intent,valid),notify:text=>continuous?.notify(text)});
   timedReplies = globalThis.XReplyTimedReplies?.create({storage:chrome.storage,readState:()=>continuous?.timedState(),
-    trigger:state=>continuous?.timedSend(state),requestRefresh:scheduleControls,keepAwake,
-    onContinue:state=>aiReplies?.resumeAutomatic(state.editor)||"",
+    trigger:state=>continuous?.timedSend(state),requestRefresh:scheduleControls,keepAwake,powerStatus,
+    checkScreenLock:()=>message({type:"TIMED_CHECK_SCREEN"}).then(reply=>reply.locked),
+    onContinue:(state,reviewedDraft)=>aiReplies?.resumeAutomatic(state.editor,reviewedDraft)||"",
+    confirmDraft: draft=>window.confirm(`核对当前回复后继续本轮。此草稿会在倒计时结束后发送。\n\n${draft}`),
     onInterrupt:reason=>{aiReplies?.pause();continuous?.cancelTimedFollowup(reason);},cancelRefresh:id=>refreshCycle?.cancel(id)});
   continuous = globalThis.XReplyContinuous?.create({refreshCycle,timedReplies,skipAuthors,randomSkipLikeEnabled:()=>randomSkipReplyLike,interactionBlocked:()=>interactionAlert?.blocked()===true, accountHandle,tweetId,columnSelector:NOTIFICATION_COLUMN,message,renderLabels:(bar,row) => renderLabels(bar,row,false),renderPersonStats,requestRefresh:scheduleControls,connected,aiBusy:editor => aiReplies?.busy(editor) === true,aiRecommend:editor => aiReplies?.recommend(editor),aiPhase:editor => aiReplies?.phase(editor) || "",
     renderAiOptions:(tools,editor) => aiReplies?.renderOptions(tools,editor),
+    aiDraftProblem:(reply,draft) => aiReplies?.draftProblem(reply,draft) || "",
     aiFillRecommendedEnabled:()=>aiReplies?.fillRecommendedEnabled() === true});
 
   async function toggleWhitelistAuthor(button,target) {
@@ -1021,6 +1071,11 @@
     if (!document.hidden) schedule();
   });
   chrome.runtime.onMessage.addListener((request,sender,respond) => {
+    if (request?.type === "TIMED_SCREEN_LOCKED" && sender.id === chrome.runtime.id) {
+      timedReplies?.screenLocked();
+      respond({ok:true});
+      return;
+    }
     if (request?.type === "GET_POST_VIDEO" && sender.id === chrome.runtime.id) {
       const post = postVideo?.parsePostLink(location.href);
       const seen = Boolean(post && post.id === observedPostVideo?.id && (!request.id || post.id === request.id));
@@ -1105,7 +1160,7 @@
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
     if (!connected()) return;
-    const owned = ".xrc-labels,.xrc-user-counts,.xrc-inline-author,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice,.xrc-interaction-alert";
+    const owned = ".xrc-labels,.xrc-user-counts,.xrc-inline-author,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-people-filter,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice,.xrc-interaction-alert";
     const relevant = '[data-testid="primaryColumn"],[role="dialog"],[aria-modal="true"],a[data-testid="AppTabBar_Profile_Link"]';
     if (records.some(record => !record.target.closest?.(owned) &&
         (record.target.closest?.(relevant) || [...(record.addedNodes || []),...(record.removedNodes || [])]

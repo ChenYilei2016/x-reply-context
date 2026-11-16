@@ -9,7 +9,8 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 let timedSettingChanged, holdNext;
 const timed=XReplyTimedReplies.create({storage:{local:{get:async()=>({})},onChanged:{addListener:fn=>{timedSettingChanged=fn;}}},
  readState:()=>flow?.timedState(),trigger:state=>flow?.timedSend(state),requestRefresh:schedule,onInterrupt:reason=>flow?.cancelTimedFollowup(reason)});
-const guard=XReplyInteractionAlert.create({accountHandle:()=>account,onPause:()=>flow?.pauseForAlert(),onRelease:()=>flow?.stop()});
+const guard=XReplyInteractionAlert.create({accountHandle:()=>account,onPause:()=>flow?.pauseForAlert(),onRelease:()=>flow?.stop(),
+ onUnavailableReply:data=>flow?.prepareUnavailableSkip(data)});
 flow=XReplyContinuous.create({timedReplies:timed,randomSkipLikeEnabled:()=>randomSkipLike,interactionBlocked:()=>guard.blocked(),accountHandle:()=>account,connected:()=>true,tweetId:a=>a.dataset.id,columnSelector:'main',requestRefresh:schedule,
  message:async m=>{
   if(holdNext && !m.includeRootText && m.ids.includes('200'))await holdNext();
@@ -19,13 +20,28 @@ function open(target,current){
  if(dialog())return;
  const modal=document.createElement('div');modal.className='dialog';modal.role='dialog';modal.dataset.target=target;
  modal.innerHTML='<button data-testid="app-bar-close">关闭</button><p>本地原帖 '+target+'</p><div contenteditable="true" data-testid="tweetTextarea_0"></div><div data-testid="toolBar"><button data-testid="tweetButton">回复（仅计数）</button></div>';
- modal.querySelector('[data-testid=app-bar-close]').onclick=()=>{modal.remove();history.replaceState(null,'','/home');schedule();};
+ const closeModal=()=>{modal.remove();history.replaceState(null,'','/home');schedule();};
+ modal.querySelector('[data-testid=app-bar-close]').onclick=()=>{
+  const draft=modal.querySelector('[contenteditable]').innerText;
+  if (current.replyMode!=='unavailable' || !draft.trim()) {closeModal();return;}
+  const confirm=document.createElement('div');confirm.role='alertdialog';
+  confirm.innerHTML='<p>保存草稿？</p><button>保存草稿</button>';
+  confirm.querySelector('button').onclick=()=>{current.savedDraft=draft;confirm.remove();closeModal();};
+  document.body.append(confirm);
+ };
  modal.querySelector('[data-testid=tweetButton]').disabled=true;
  modal.querySelector('[contenteditable]').addEventListener('input',()=>{modal.querySelector('[data-testid=tweetButton]').disabled=!modal.querySelector('[contenteditable]').innerText.trim();});
  modal.querySelector('[data-testid=tweetButton]').onclick=()=>{
   current.events.push({kind:'send',id:target,at:performance.now()});
   const startedAt=Date.now(),requestId='test-'+(++sequence);void flow.receiveReply({type:'REPLY_STARTED',account:'me',parentId:target,startedAt,requestId});
   setTimeout(()=>{
+   if(current.replyMode==='unavailable') {
+    current.unavailable={account:'me',operation:'CreateTweet',targetId:target,httpStatus:200,reason:'failed',
+     code:'385',message:'You attempted to reply to a Tweet that is deleted or not visible to you.',requestId,targetUnavailable:true};
+    guard.show(current.unavailable);
+    void flow.receiveReply({type:'REPLY_RESULT',account:'me',parentId:target,startedAt,requestId,status:'failed'},null);
+    return;
+   }
    if(current.replyMode==='failed' || current.replyMode==='unknown') {
     void flow.receiveReply({type:'REPLY_RESULT',account:'me',parentId:target,startedAt,requestId,status:current.replyMode},null);return;
    }
@@ -114,7 +130,7 @@ document.querySelector('#run').onclick=async event=>{
   current=await reset();send();await wait(()=>notice().includes('稍候点赞'));document.querySelector('article[data-id="100"]').remove();
   guard.show({account:'me',operation:'FavoriteTweet',httpStatus:429});await sleep(800);
   check('卡片消失同时出现红字，不越过暂停进入下一条',guard.blocked()&&!dialog()&&!current.events.some(e=>e.kind==='like'));
-  document.querySelector('.xrc-interaction-alert button').click();
+  document.querySelector('.xrc-alert-ack').click();
   current=await reset({saveDelay:700});send();await wait(()=>current.events.some(e=>e.kind==='like'));
   await flow.receiveLike({account:'me',requestStartedAt:0,batch:{likes:[{id:'100',liked:true,source:'mutation'}]}},Promise.resolve());await sleep(120);
   check('旧点赞回执不能跳过本次保存确认',!dialog()&&!current.events.some(e=>e.kind==='like-saved'));
@@ -186,7 +202,7 @@ document.querySelector('#alert-run').onclick=async event=>{
  event.target.disabled=true;const result=document.querySelector('#alert-result'),checks=[];
  const check=(name,ok)=>{checks.push({name,ok:Boolean(ok)});if(!ok)throw Error(name);};
  const alert={account:'me',operation:'FavoriteTweet',targetId:'100',httpStatus:429,reason:'failed',code:'88',message:'Rate limit exceeded <b>test</b>',retryAfter:'60'};
- const acknowledge=()=>document.querySelector('.xrc-interaction-alert button')?.click();
+ const acknowledge=()=>document.querySelector('.xrc-alert-ack')?.click();
  result.dataset.result='running';
  try {
   let current=await reset();
@@ -211,6 +227,22 @@ document.querySelector('#alert-run').onclick=async event=>{
   acknowledge();current=await reset({replyDelay:250});document.querySelector('.xrc-flow-send').click();guard.show(alert);await sleep(1000);
   check('暂停前已在途的成功回执仍保存，但不再点赞/续开',current.replied.has('100')&&current.events.filter(e=>e.kind==='send').length===1&&!current.events.some(e=>e.kind==='like')&&!dialog());
   acknowledge();guard.show({...alert,account:'other'});check('旧账号异常不在当前账号弹出或暂停',!guard.blocked()&&!document.querySelector('.xrc-interaction-alert'));
+  current=await reset({replyMode:'unavailable'});
+  document.querySelector('.xrc-flow-send').click();
+  const skipOffer=()=>document.querySelector('.xrc-alert-next:not([hidden])');
+  await wait(skipOffer);
+  check('385 保留原草稿，等待用户选择是否跳过',dialog()?.dataset.target==='100'&&editor().innerText==='只用于本地检查'&&current.events.length===1);
+  skipOffer().click();
+  await wait(()=>dialog()?.dataset.target==='200');
+  check('手动跳过 385 保存草稿，只打开下一条且不写评论或点赞记录',current.savedDraft==='只用于本地检查'&&
+   current.events.length===1&&current.replied.size===0&&current.liked.size===0&&!guard.blocked()&&editor().innerText==='');
+  current=await reset({replyMode:'unavailable'});
+  dialog().querySelector('[data-testid=tweetButton]').click();
+  await wait(skipOffer);
+  guard.show(alert);guard.show(current.unavailable);
+  check('限流覆盖 385 跳过入口，迟到的 385 不能解除暂停',!skipOffer()&&guard.blocked()&&
+   document.querySelector('.xrc-interaction-alert strong').textContent.includes('限流'));
+  acknowledge();
   await reset();guard.show(alert); // Leave an example visible for visual inspection; fixture only.
  }catch(error){checks.push({name:error.message,ok:false});}
  finally{event.target.disabled=false;}
@@ -348,7 +380,7 @@ document.querySelector('#visible-run').onclick=async event=>{
   timed.stop();flow.stop();dialog()?.remove();
   if(focusDescriptor)Object.defineProperty(document,'hasFocus',focusDescriptor);else delete document.hasFocus;
   if(hiddenDescriptor)Object.defineProperty(document,'hidden',hiddenDescriptor);else delete document.hidden;
-  document.querySelector('.xrc-interaction-alert button')?.click();
+  document.querySelector('.xrc-alert-ack')?.click();
   timedSettingChanged({timedReplies:{newValue:{enabled:false}}},'local');event.target.disabled=false;
  }
  output.dataset.result=checks.every(item=>item.ok)?'passed':'failed';output.textContent=JSON.stringify({fixture:true,checks},null,2);

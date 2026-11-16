@@ -3,17 +3,17 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 const sources=await Promise.all(['core.js','observe.js'].map(n=>readFile(new URL('../extension/'+n,import.meta.url),'utf8')));
-async function observe({transport='fetch',operation='FavoriteTweet',status=200,payload={data:{favorite_tweet:'Done'}},network=false,switchAccount=false,raw=false}={}) {
+async function observe({transport='fetch',operation='FavoriteTweet',status=200,payload={data:{favorite_tweet:'Done'}},network=false,switchAccount=false,raw=false,retryAfter=status===429?'60':''}={}) {
  const messages=[],listeners=[],timers=[];let account='me',requests=0;
  class Xhr extends EventTarget {
   open(){} send(){requests++;}
-  getResponseHeader(){return '60';}
+  getResponseHeader(){return retryAfter || null;}
   complete(){this.status=status;this.responseType='json';this.response=payload;this.dispatchEvent(new Event(network?'error':'load'));this.dispatchEvent(new Event('loadend'));}
  }
  const location={origin:'https://x.com',href:'https://x.com/home'};
  const window={postMessage:m=>messages.push(m),addEventListener:(_n,fn)=>listeners.push(fn),fetch:async()=>{
   requests++;if(network)throw Error('offline');
-  return new Response(raw?payload:JSON.stringify(payload),{status,headers:{'content-type':'application/json','retry-after':'60'}});
+  return new Response(raw?payload:JSON.stringify(payload),{status,headers:{'content-type':'application/json',...(retryAfter?{'retry-after':retryAfter}:{})}});
  }};
  const scope=vm.createContext({window,location,URL,Request,TextDecoder,XMLHttpRequest:Xhr,
   document:{querySelector:()=>({getAttribute:()=>'/'+account})},setTimeout:fn=>timers.push(fn),clearTimeout(){}});
@@ -47,6 +47,30 @@ for(const transport of ['fetch','xhr']) {
   assert.equal((await observe({transport,switchAccount:true,status:403})).alerts.length,0);
  });
 }
+test('仅明确未发送的 HTTP 200 评论错误 385 可以跳过当前帖',async()=>{
+ const error={code:385,message:'You attempted to reply to a Tweet that is deleted or not visible to you.'};
+ for (const [transport,operation] of [['fetch','CreateTweet'],['xhr','CreateNoteTweet']]) {
+  const options={transport,operation,payload:{errors:[error]}};
+  const {messages,alerts,requests}=await observe(options);
+  const started=messages.find(message=>message.type==='REPLY_STARTED');
+  const result=messages.find(message=>message.type==='REPLY_RESULT');
+  assert.equal(requests,1);
+  assert.equal(alerts[0].targetUnavailable,true);
+  assert.equal(alerts[0].requestId,started.requestId);
+  assert.equal(result.status,'failed');
+  assert.equal(result.batch,undefined);
+  assert.equal(result.replyEvidence,undefined);
+  for (const changed of [
+   {status:429},{retryAfter:'60'},
+   {payload:{errors:[error,{code:88,message:'Rate limit exceeded'}]}},
+   {payload:{errors:[error],warnings:[{message:'Please slow down'}]}}
+  ]) {
+   const blocked=await observe({...options,...changed});
+   assert.equal(blocked.alerts.length,1);
+   assert.equal(blocked.alerts[0].targetUnavailable,undefined);
+  }
+ }
+});
 test('畸形或过大错误JSON仍保留HTTP状态，错误摘要有界',async()=>{
  assert.equal((await observe({status:503,payload:'not-json',raw:true})).alerts[0].httpStatus,503);
  const large=await observe({status:429,payload:{errors:[{message:'x'.repeat(70000)}]}});assert.equal(large.alerts[0].message,'');

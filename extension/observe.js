@@ -20,7 +20,7 @@
       const url = new URL(value, location.href);
       if (url.origin !== location.origin) return "";
       if (/^\/i\/api\/2\/notifications\/(?:all|mentions|verified)\.json$/.test(url.pathname)) return "Notifications";
-      return url.pathname.match(/^\/i\/api\/graphql\/[\w-]+\/(TweetDetail|TweetResultByRestId|TweetResultsByRestIds|UserTweets|UserTweetsAndReplies|UserRepliesTimeline|UserByScreenName|HomeTimeline|HomeLatestTimeline|NotificationsTimeline|Following|Followers|BlueVerifiedFollowers|SearchTimeline|CreateTweet|CreateNoteTweet|Likes|FavoriteTweet|UnfavoriteTweet)$/)?.[1] || "";
+      return url.pathname.match(/^\/i\/api\/graphql\/[\w-]+\/(TweetDetail|TweetResultByRestId|TweetResultsByRestIds|UserTweets|UserTweetsAndReplies|UserRepliesTimeline|UserByScreenName|HomeTimeline|HomeLatestTimeline|NotificationsTimeline|Following|Followers|BlueVerifiedFollowers|FollowersYouKnow|SearchTimeline|CreateTweet|CreateNoteTweet|Likes|FavoriteTweet|UnfavoriteTweet)$/)?.[1] || "";
     } catch { return ""; }
   }
 
@@ -100,7 +100,7 @@
     context.replyFinished = true;
     const parentId = await context.replyParent;
     if (!parentId || !context.account || context.account !== currentAccount()) return;
-    let batch, replyEvidence;
+    let batch, replyEvidence, targetUnavailable = false;
     const warning=responseWarning(payload,context);
     if (payload) {
       const result = payload.data?.[REPLY_RESULTS[context.operation]]?.tweet_results?.result;
@@ -120,12 +120,14 @@
         };
       } else {
         status = warning.hasErrors && !createdId ? "failed" : "unknown";
+        targetUnavailable = context.httpStatus === 200 && status === "failed" &&
+          warning.onlyError385 && !context.retryAfter;
         // Let the worker check the author ID for recording only. The reply flow still pauses on a partial receipt.
         if (!warning.hasErrors && evidence && (!user || user.handle === context.account)) replyEvidence = evidence;
       }
     }
     if (status!=="sent" || warning.present) {
-      await interactionAlert(context,{payload,reason:status==="sent"?"warning":status});
+      await interactionAlert(context,{warning,targetUnavailable,reason:status==="sent"?"warning":status});
     }
     window.postMessage({ channel:CHANNEL,type:"REPLY_RESULT",parentId,
       account:context.account,requestId:context.requestId,startedAt:context.observedAt,status,
@@ -137,24 +139,32 @@
   function responseWarning(payload,context) {
     const result=payload?.data?.[REPLY_RESULTS[context.operation]]?.tweet_results?.result;
     const operationResult=payload?.data?.[REPLY_RESULTS[context.operation]];
-    const errors=[payload?.errors,operationResult?.errors,result?.errors].flatMap(items=>Array.isArray(items)?items.slice(0,3):[]);
+    const errorGroups=[payload?.errors,operationResult?.errors,result?.errors];
+    const errors=errorGroups.flatMap(items=>Array.isArray(items)?items.slice(0,3):[]);
     const entries=[...errors,...[payload?.warnings,operationResult?.warnings,result?.warnings]
       .flatMap(items=>Array.isArray(items)?items.slice(0,3):[])];
     const messages=entries.map(item=>typeof item === "string" ? item : item?.message)
       .filter(text=>typeof text === "string").map(text=>text.slice(0,240));
     const code=entries.find(item=>typeof item?.code === "number" || typeof item?.code === "string")?.code;
-    return {present:entries.length>0,hasErrors:errors.length>0,message:messages.join("；").slice(0,600),code:code===undefined?"":String(code).slice(0,40)};
+    const onlyError385 = errors.length > 0 && entries.length === errors.length &&
+      errorGroups.every(items => !Array.isArray(items) || items.length <= 3) &&
+      errors.every(item => item?.code === 385 || item?.code === "385");
+    return {present:entries.length>0,hasErrors:errors.length>0,onlyError385,
+      message:messages.join("；").slice(0,600),code:code===undefined?"":String(code).slice(0,40)};
   }
 
-  async function interactionAlert(context,{status=context.httpStatus || 0,payload,reason="unknown",retryAfter=""}={}) {
+  async function interactionAlert(context,{
+    status=context.httpStatus || 0,payload,warning,reason="unknown",retryAfter=context.retryAfter,targetUnavailable=false
+  }={}) {
     if ((!context.reaction && !REPLY_RESULTS[context.operation]) || context.alerted) return;
     const targetId=await (context.reaction?context.tweetId:context.replyParent);
     if (!targetId || !context.account || context.account!==currentAccount() || context.alerted) return;
     context.alerted=true;
-    const warning=responseWarning(payload,context);
+    warning ??= responseWarning(payload,context);
     window.postMessage({channel:CHANNEL,type:"INTERACTION_ALERT",account:context.account,
       operation:context.operation,targetId,httpStatus:status,reason,code:warning.code,
-      message:warning.message,retryAfter:String(retryAfter || "").slice(0,100)},location.origin);
+      message:warning.message,retryAfter:String(retryAfter || "").slice(0,100),
+      ...(targetUnavailable ? {targetUnavailable,requestId:context.requestId} : {})},location.origin);
   }
 
   const count = value => Number.isSafeInteger(value) && value >= 0 ? value : undefined;
@@ -217,7 +227,7 @@
 
   async function accept(payload,context) {
     try {
-      if (["Following","Followers","BlueVerifiedFollowers"].includes(context.operation)) {
+      if (["Following","Followers","BlueVerifiedFollowers","FollowersYouKnow"].includes(context.operation)) {
         readPeopleListCounts(payload);
         flushUserCounts();
         return;
@@ -233,13 +243,18 @@
       const postId = location.pathname?.match(/^\/(?:i\/web|[a-z0-9_]{1,15})\/status\/(\d{1,25})(?:\/(?:video|photo)\/\d+)?\/?$/i)?.[1];
       const aiAccount = context.account || currentAccount();
       const legacyObjects = payload?.globalObjects;
-      let mp4, photos;
+      let mp4, photos, videos;
       batch ||= core.extract(payload,includeCounts ? rememberUserCounts : undefined,
         media ? (tweet,node) => {
           if (tweet.id === postId && !mp4) mp4 = media.selectMp4(node);
           const legacyAuthor = legacyObjects?.tweets?.[tweet.id] === node ? legacyObjects.users?.[tweet.authorId] : undefined;
           const photo = media.photoFromTweet(node,legacyAuthor);
           if (photo || photo === null) (photos ||= new Map()).set(tweet.id,photo);
+          const video = media.videoPresence(node);
+          if (video !== undefined) {
+            videos ||= new Map();
+            if (video || !videos.has(tweet.id)) videos.set(tweet.id,video);
+          }
         } : undefined);
       if (includeCounts) flushUserCounts();
       if (mp4 || mp4 === "" && context.operation === "TweetDetail") {
@@ -273,11 +288,16 @@
       }
       for (const tweet of batch.tweets) {
         const merged = { ...pendingTweets.get(tweet.id) };
-        if (merged.aiAccount !== aiAccount) delete merged.aiPhoto;
+        if (merged.aiAccount !== aiAccount) {
+          delete merged.aiPhoto;
+          delete merged.aiHasVideo;
+        }
         for (const [field,value] of Object.entries(tweet)) if (value !== "") merged[field] = value;
         merged.aiAccount = aiAccount;
         const photo = photos?.get(tweet.id);
         if (photo !== undefined) merged.aiPhoto = photo;
+        const video = videos?.get(tweet.id);
+        if (video !== undefined && merged.aiHasVideo !== true) merged.aiHasVideo = video;
         pendingTweets.set(tweet.id,merged);
         if (ready && pendingTweets.size >= 500) flush();
       }
@@ -351,6 +371,7 @@
         retryAfter:response.headers.get("retry-after")});
       void replyResult(context,failureStatus(response.status));return;
     }
+    if (REPLY_RESULTS[context.operation]) context.retryAfter = response.headers.get("retry-after");
     const payload = await responsePayload(response);
     if (payload) await accept(payload,context);
     else {await interactionAlert(context);void replyResult(context,"unknown");}
@@ -420,6 +441,7 @@
           void replyResult(context,failureStatus(this.status));return;
         }
         try {
+          if (REPLY_RESULTS[context.operation]) context.retryAfter = this.getResponseHeader?.("retry-after");
           const value = key => notificationNetwork ? notificationNetwork.originalXHR(this,key) : this[key];
           if (this.responseType === "json") void accept(value("response"),context);
           else if ((!this.responseType || this.responseType === "text") &&

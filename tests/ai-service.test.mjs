@@ -73,7 +73,7 @@ test('二次润色须单独开启与授权，使用所选模型和首稿',async(
   assert.equal((await status()).polishEnabled,true);
 
   await request('first-draft');
-  const result=await request('polish',{kind:'polish',post:'当前帖 <图>',draft:'首稿 & 问候'});
+  const result=await request('polish',{kind:'polish',post:'当前帖 <图>',draft:'首稿 & 问候',context:{postId:'123',video:{post:true}}});
   assert.equal(result.text,'你好');
   assert.deepEqual(calls.map(([url,options])=>[url,options.headers.Authorization]),[
     ['https://model.example/v1/chat/completions','Bearer test-key'],
@@ -83,6 +83,7 @@ test('二次润色须单独开启与授权，使用所选模型和首稿',async(
   assert.equal(model,'polish-model');
   assert.match(messages[0].content,/润色标准 见用户消息中的「待润色回复」/);
   assert.match(messages[1].content,/<current_post>当前帖 &lt;图&gt;<\/current_post>\n<draft_reply>首稿 &amp; 问候<\/draft_reply>/);
+  assert.match(messages[1].content,/<video_context source="current_post" presence="有" content="未提供" \/>/);
 });
 test('二次润色拒绝半稿，并接受正常结束的 JSON 和流式回复',async()=>{
   let response;
@@ -130,26 +131,34 @@ test('润色等待域名授权时超时或取消立即结束，授权迟到也�
 });
 test('生成把已加载的上下文作为素材发送，带图可选，改写只用正文和草稿',async()=>{
   const {request,calls}=setup(undefined,id=>id==='123'?{root:'本地原帖摘要'}:{});
-  const context={postId:'123',comments:['直接评论1','直接评论2','直接评论3','不带第四条'],
+  const context={postId:'123',parent:'上一级回复',comments:['直接评论1','直接评论2','直接评论3','不带第四条'],video:{post:true,root:true},
     image:'https://pbs.twimg.com/media/Example?format=jpg&name=small&token=test-token',imageFrom:'post',imageRequested:true};
   const result=await request('with-context',{post:'本帖正文 </current_post> &',context});
   assert.equal(result.ok,true);
+  assert.equal(result.contextUsed.parent,true);
   assert.equal(result.contextUsed.root,true);
   assert.equal(result.contextUsed.comments,3);
   assert.equal(result.contextUsed.imageRequested,true);
+  assert.equal(result.contextUsed.hasVideo,true);
   const [system,user]=JSON.parse(calls[0][1].body).messages;
   assert.equal(result.contextUsed.text,user.content[0].text);
   assert.equal(result.contextUsed.image,user.content[1].image_url.url);
   assert.match(system.content,/post=见用户消息中的「当前帖子」/);
   assert.doesNotMatch(system.content,/本帖正文|本地原帖摘要|直接评论/);
   assert.match(user.content[0].text,/<current_post author="未确认" reply_to="未确认">\n本帖正文 &lt;\/current_post&gt; &amp;\n<\/current_post>/);
-  assert.match(user.content[0].text,/<reference_context>\n<root_post author="未确认">\n本地原帖摘要\n<\/root_post>/);
+  assert.match(user.content[0].text,/<reference_context>\n<parent_post author="未确认">\n上一级回复\n<\/parent_post>\n<root_post author="未确认">\n本地原帖摘要\n<\/root_post>/);
   assert.match(user.content[0].text,/<comment>直接评论3<\/comment>/);
   assert.match(user.content[0].text,/<attached_image source="current_post" \/>/);
+  assert.match(user.content[0].text,/<video_context source="current_post" presence="有" content="未提供" \/>/);
+  assert.match(user.content[0].text,/<video_context source="root_post" presence="有" content="未提供" \/>/);
+  assert.match(system.content,/不猜测视频细节/);
   assert.doesNotMatch(user.content[0].text,/不带第四条/);
   assert.deepEqual(user.content[1],{type:'image_url',image_url:{url:'https://pbs.twimg.com/media/Example?format=jpg&name=small',detail:'low'}});
-  await request('text-only',{context:{postId:'123',comments:['直接评论1']}});
-  assert.match(JSON.parse(calls[1][1].body).messages[1].content,/<loaded_comments>\n<comment>直接评论1<\/comment>/);
+  await request('text-only',{context:{postId:'123',parent:'本地原帖摘要',comments:['直接评论1'],video:{post:false}}});
+  const textOnly=JSON.parse(calls[1][1].body).messages[1].content;
+  assert.match(textOnly,/<loaded_comments>\n<comment>直接评论1<\/comment>/);
+  assert.doesNotMatch(textOnly,/<root_post /);
+  assert.match(textOnly,/<video_context source="current_post" presence="无" \/>/);
   await request('rewrite',{kind:'rewrite',draft:'草稿',context});
   assert.equal(JSON.parse(calls[2][1].body).messages[1].content,'开始。');
   assert.equal(calls.length,3);
@@ -158,6 +167,7 @@ test('后台没有帖子记录时用页面作者，回复对象仍未确认',asy
   const {request}=setup();
   const result=await request('page-author',{account:'fixture_owner',context:{postId:'200',pageAuthor:'对方'}});
   assert.match(result.contextUsed.text,/<current_post author="对方" reply_to="未确认">/);
+  assert.match(result.contextUsed.text,/<video_context source="current_post" presence="待确认" \/>/);
 });
 test('用本地帖子关系区分独立发帖、回复我和回复第三人',async()=>{
   const {scope,chrome,calls,sender}=setup();
@@ -271,6 +281,31 @@ test('超大响应和模型错误返回受控错误，不泄漏服务端正文',
   const result=await rejected.request('unauthorized',{context:{postId:'123'}});
   assert.equal(result.ok,false);assert.match(result.error,/Key/);assert.ok(!result.error.includes('provider secret'));
   assert.equal(result.contextUsed.text,JSON.parse(rejected.calls[0][1].body).messages[1].content);
+});
+
+test('中转站网页、鉴权失败、流式格式和连接失败分别提示',async()=>{
+  const cases=[
+    [()=>new Response('<!DOCTYPE html><title>New API</title>fixture-secret',{headers:{'content-type':'text/html; charset=utf-8'}}),/返回网页.*Base URL.*\/v1/],
+    [()=>new Response('fixture-secret',{status:401}),/Key.*HTTP 401/],
+    [()=>new Response('data: invalid-fixture-secret\n\n',{headers:{'content-type':'text/event-stream'}}),/流式响应.*JSON/],
+    [()=>{throw new TypeError('fixture-secret');},/无法连接模型接口/]
+  ];
+  for(const [response,hint] of cases){
+    const {request,calls}=setup(response);
+    const result=await request('relay');
+    assert.equal(result.ok,false);
+    assert.match(result.error,hint);
+    assert.doesNotMatch(result.error,/fixture-secret/);
+    assert.equal(calls.length,1);
+  }
+});
+
+test('完整请求地址只使用一次 Chat Completions 路径，根地址和自定义路径照常追加',()=>{
+  const {scope}=setup();
+  const endpoint=scope.XReplyAIConfig.endpoint;
+  assert.equal(endpoint('https://relay.example/v1/chat/completions/').href,'https://relay.example/v1/chat/completions');
+  assert.equal(endpoint('https://relay.example/custom').href,'https://relay.example/custom/chat/completions');
+  assert.equal(endpoint('https://relay.example').href,'https://relay.example/chat/completions');
 });
 
 test('自动补全默认关闭，独立开关不改接口配置或阻止手动生成',async()=>{

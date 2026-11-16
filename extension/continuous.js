@@ -8,6 +8,7 @@
   const MAX_AUTO_VIDEO_SKIPS = 3;
   const SEND_KEY_GAP_MS = 500;
   const FEED_LABELS = {profile:"个人主页",search:"搜索",detail:"帖子详情"};
+  const AI_LABELS = {generating:"生成中…",polishing:"润色中…",rewriting:"改写中…",writing:"填入中…"};
   const QUICK_REPLIES = [
     { label:"一起加油",phrases:[
       "一起加油好兄弟","一起加油鸭","一起加油🦆","一起加油",
@@ -68,7 +69,7 @@
     return Boolean(author) && !skipped.has(author);
   }
 
-  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,renderPersonStats = () => {},requestRefresh,refreshCycle,timedReplies,skipAuthors,randomSkipLikeEnabled = () => false,interactionBlocked = () => false,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "",aiFillRecommendedEnabled = () => false,renderAiOptions }) {
+  function create({ accountHandle,tweetId,columnSelector,message,renderLabels,renderPersonStats = () => {},requestRefresh,refreshCycle,timedReplies,skipAuthors,randomSkipLikeEnabled = () => false,interactionBlocked = () => false,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "",aiDraftProblem = () => "",aiFillRecommendedEnabled = () => false,renderAiOptions }) {
     let session;
     let notice;
     let noticeTimer;
@@ -284,7 +285,11 @@
     }
 
     function currentSession(s) {
-      if (interactionBlocked() || !connected() || session !== s || accountHandle() !== s.account) return false;
+      return !interactionBlocked() && sameSessionPage(s);
+    }
+
+    function sameSessionPage(s) {
+      if (!connected() || session !== s || accountHandle() !== s.account) return false;
       const column = feedColumn(s);
       if (!column) return false;
       if (s.feed === "detail") {
@@ -443,6 +448,28 @@
       return Boolean(dialog.querySelector(EDITOR)?.innerText.trim()) || hasAttachments(dialog);
     }
 
+    function prepareUnavailableSkip({account,targetId,requestId}) {
+      const s = session;
+      const target = s?.current;
+      if (!target || s.account !== account || target.id !== targetId || !requestId ||
+          target.replyRequestId !== requestId || !sameSessionPage(s)) return;
+      if (s.attempt && (s.attempt.requestId !== requestId || s.attempt.settled)) return;
+      return release => {
+        if (s.current !== target || s.phase !== "alert-paused" || !sameSessionPage(s) || document.hidden) return false;
+        const dialog = composer();
+        const previewId = dialog && tweetId(dialog);
+        if (closeConfirmation() || dialog && (dialog !== target.dialog || !singleReply(dialog) || target.composing ||
+            previewId && previewId !== target.id || target.quickPending || draftBusy(s) || !enabled(dialog.querySelector(CLOSE)))) return false;
+        release();
+        s.attempt = null;
+        s.afterReply = null;
+        target.unavailable = true;
+        if (dialog) closeForNext(s);
+        else void advance(s);
+        return true;
+      };
+    }
+
     function autoSkipAllowed() {
       return timedPageAllowed() && !timedReplies?.isPaused?.() && !timedReplies?.isFinishing?.();
     }
@@ -494,11 +521,11 @@
       internalClose = true;
       try { close.click(); } finally { internalClose = false; }
       refresh();
-      if (autoVideo && session === s && s.phase === "closing") {
+      if ((autoVideo || s.current.unavailable) && session === s && s.phase === "closing") {
         s.timeout = setTimeout(() => {
           if (!currentSession(s) || s.phase !== "closing") return;
           const note = "X 未确认关闭回复框，请手动处理后继续。";
-          if (composer() !== dialog) { finish(note); return; }
+          if (s.current.unavailable || composer() !== dialog) { finish(note); return; }
           s.current.autoSkippedVideo = false;
           s.phase = "ready";
           s.note = note;
@@ -532,7 +559,8 @@
       if (s.phase === "refreshing") return;
       s.handled.add(s.current.id);
       if (!s.current.autoSkippedVideo) s.videoSkips = 0;
-      if (!s.current.autoSkippedVideo && refreshCycle?.due(s) && !timedReplies?.isPaused() && !timedReplies?.isFinishing?.()) {
+      if (!s.current.autoSkippedVideo && !s.current.unavailable &&
+          refreshCycle?.due(s) && !timedReplies?.isPaused() && !timedReplies?.isFinishing?.()) {
         const refreshToken = s.refreshToken = {};
         s.phase="refreshing";clearNotice();
         const valid=()=>currentSession(s)&&s.phase==="refreshing"&&s.refreshToken===refreshToken;
@@ -557,6 +585,10 @@
         if (!valid()) return false;
         if (s.current.autoSkippedVideo && (!autoSkipAllowed() || composer() || closeConfirmation())) {
           finish("页面状态已变化，已停止自动跳过。");
+          return false;
+        }
+        if (s.current.unavailable && (document.hidden || composer() || closeConfirmation())) {
+          finish("页面状态已变化，请手动选择下一条。");
           return false;
         }
         return true;
@@ -759,9 +791,24 @@
       if(!dialog?.isConnected || composer()!==dialog || !editor)return {...state,reason:"回复框已变化，已停止"};
       if(hasAttachments(dialog))return {...state,reason:"定时发送只支持纯文字，请手动处理附件或投票"};
       state.editor=editor;state.draft=editor.innerText;
-      state.ready=Boolean(state.draft.trim() && !s.current.composing && !s.current.quickPending && !draftBusy(s) &&
+      const hasText=Boolean(state.draft.trim()), aiWorking=aiBusy(editor);
+      state.draftProblem=aiWorking ? "" : aiDraftProblem(s.current,state.draft);
+      state.draftNeedsReview=Boolean(hasText && state.draftProblem);
+      state.ready=Boolean(hasText && !state.draftProblem && !aiWorking && !s.current.composing && !s.current.quickPending && !draftBusy(s) &&
         singleReply(dialog) && enabled(dialog.querySelector(SEND)));
-      state.waiting="等待草稿或AI填入完成";
+      if(!state.ready){
+        if(aiWorking){
+          const phase=aiPhase(editor);
+          state.preparingDraft=phase || "writing";
+          state.waiting=`AI ${AI_LABELS[state.preparingDraft] || "准备草稿中…"}`;
+        }else if(hasText){
+          state.preparingDraft="waiting-editor";
+          state.waiting="等待 X 回复按钮可用";
+        }else if(aiFillRecommendedEnabled()){
+          state.preparingDraft="preparing";
+          state.waiting="等待 AI 准备草稿";
+        }else state.waiting="等待手动输入草稿";
+      }
       return state;
     }
 
@@ -1005,10 +1052,9 @@
       const editor = dialog.querySelector(EDITOR);
       if (renderAiOptions) renderAiOptions(bar.querySelector(".xrc-reply-tools"),editor);
       const phase = aiPhase(editor);
-      const aiLabels={generating:"生成中…",polishing:"润色中…",rewriting:"改写中…",writing:"填入中…"};
       const aiButton=bar.querySelector(".xrc-ai-recommend");
       if (aiButton) {
-        const caption=aiButton.querySelector(".xrc-ai-caption"),label=aiLabels[phase] || "推荐评论";
+        const caption=aiButton.querySelector(".xrc-ai-caption"),label=AI_LABELS[phase] || "推荐评论";
         if (caption.textContent!==label) caption.textContent=label;
         const active=String(Boolean(phase&&phase!=="paused"));
         if (aiButton.getAttribute("aria-busy")!==active) aiButton.setAttribute("aria-busy",active);
@@ -1016,7 +1062,7 @@
       const busy = draftBusy(s) || s.current.quickPending === true;
       const source = s.feed === "home" ? (s.homeTabIndex === 1 ? "正在关注" : "为你推荐") :
         FEED_LABELS[s.feed];
-      const statusText = `${source ? source+" · " : ""}已处理 ${s.handled.size} 条 · ${phase==="paused" ? (timedReplies?.isPaused?.()?"AI 自动填入已暂停，可手动推荐或继续本轮。":"AI 自动填入已暂停，可点击推荐评论。") : phase ? `AI ${aiLabels[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
+      const statusText = `${source ? source+" · " : ""}已处理 ${s.handled.size} 条 · ${phase==="paused" ? (timedReplies?.isPaused?.()?"AI 自动填入已暂停，可手动推荐或继续本轮。":"AI 自动填入已暂停，可点击推荐评论。") : phase ? `AI ${AI_LABELS[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
       if (status.textContent !== statusText) status.textContent = statusText;
       const active=String(Boolean(phase&&phase!=="paused"));
@@ -1098,14 +1144,15 @@
       if(interactionBlocked())return;
       const s = session;
       const attempt = s?.attempt;
-      if (!s || !attempt || !currentSession(s) || data.account !== s.account ||
-          data.parentId !== attempt.parentId || !Number.isFinite(data.startedAt) ||
-          data.startedAt < attempt.clickedAt || typeof data.requestId !== "string" || data.requestId.length > 80) return;
+      if (!s || !currentSession(s) || data.account !== s.account || data.parentId !== s.current.id ||
+          !Number.isFinite(data.startedAt) || typeof data.requestId !== "string" || data.requestId.length > 80) return;
       if (data.type === "REPLY_STARTED") {
-        if (!attempt.requestId) attempt.requestId = data.requestId;
+        s.current.replyRequestId = data.requestId;
+        if (attempt && data.startedAt >= attempt.clickedAt && !attempt.requestId) attempt.requestId = data.requestId;
         return;
       }
-      if (data.type !== "REPLY_RESULT" || !attempt.requestId || data.requestId !== attempt.requestId || attempt.settled) return;
+      if (data.type !== "REPLY_RESULT" || !attempt?.requestId || data.parentId !== attempt.parentId || data.requestId !== attempt.requestId ||
+          data.startedAt < attempt.clickedAt || attempt.settled) return;
       if (!["sent","failed","unknown"].includes(data.status)) return;
       if (data.status !== "sent") {
         clearTimeout(s.timeout);
@@ -1256,7 +1303,7 @@
         requestAnimationFrame(() => { if (session === s && !composer()) finish(); });
       }
     },true);
-    return { refresh,canAutoFillUnfocused,timedState,timedSend,cancelTimedFollowup,pauseForAlert,receiveReply,receiveLike,resumeRecommended,replyPostId,replyArticle,rootOwnership,recommendedReply,skipVideo,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
+    return { refresh,canAutoFillUnfocused,timedState,timedSend,cancelTimedFollowup,pauseForAlert,prepareUnavailableSkip,receiveReply,receiveLike,resumeRecommended,replyPostId,replyArticle,rootOwnership,recommendedReply,skipVideo,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
   }
 
   globalThis.XReplyContinuous = { create,authorFromPostLink };

@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 const source=await readFile(new URL('../extension/timed-replies.js',import.meta.url),'utf8');
 const flush=()=>new Promise(r=>setImmediate(r));
-function setup(config={enabled:true,minSeconds:10,maxSeconds:20,maxAttempts:2,maxMinutes:1},wallStart=1800000000000) {
+function setup(config={enabled:true,minSeconds:10,maxSeconds:20,maxAttempts:2,maxMinutes:1},wallStart=1800000000000,checkScreenLock) {
  let clock=0,id=0,runSequence=0,listener;const timers=new Map(),events=new Map(),calls=[],interrupts=[],cancellations=[],wake=[];
  class Element {
   constructor(tag="div"){this.tag=tag;this.children=[];this.dataset={};this.isConnected=true;}
@@ -20,7 +20,7 @@ function setup(config={enabled:true,minSeconds:10,maxSeconds:20,maxAttempts:2,ma
  let trigger=s=>{calls.push({id:s.id,at:clock});state.ready=false;return true;},continueAction=()=>'';
  const controller=scope.XReplyTimedReplies.create({storage:{local:{get:async()=>({timedReplies:config})},onChanged:{addListener:f=>{listener=f;}}},
   readState:()=>state,trigger:s=>trigger(s),requestRefresh(){},onInterrupt:reason=>interrupts.push(reason),onContinue:s=>continueAction(s),cancelRefresh:id=>cancellations.push(id),
-  keepAwake:(until,leaving=false)=>wake.push({until,leaving})});
+  keepAwake:(until,leaving=false)=>wake.push({until,leaving}),checkScreenLock});
  function advance(ms){const end=clock+ms;let iterations=0;for(;;){const next=[...timers].sort((a,b)=>a[1].at-b[1].at)[0];if(!next||next[1].at>end)break;assert.ok(++iterations<1000,'no timer loop');clock=next[1].at;timers.delete(next[0]);next[1].fn();}clock=end;}
  return {controller,state,calls,timers,advance,scope,document,events,Element,interrupts,cancellations,wake,setTrigger:f=>{trigger=f;},setContinue:f=>{continueAction=f;},change:value=>listener({timedReplies:{newValue:value}},'local')};
 }
@@ -41,6 +41,22 @@ test('空草稿只等待时长截止，不轮询、不请求AI、不无限重试
  const env=setup();await flush();env.state.ready=false;env.controller.start();assert.equal(env.timers.size,1);
  env.advance(60000);assert.equal(env.calls.length,0);assert.equal(env.timers.size,0);
  env.state.ready=true;env.controller.refresh();assert.equal(env.timers.size,0);
+});
+test('AI 草稿无进展时暂停本轮，迟到的草稿须明确继续',async()=>{
+ const env=setup({enabled:true,minSeconds:3,maxSeconds:3,maxAttempts:2,maxMinutes:5});
+ await flush();
+ Object.assign(env.state,{ready:false,draft:'',preparingDraft:'generating',waiting:'AI 生成中'});
+ env.controller.start();
+ const badge=env.document.body.children.at(-1);
+ const initialDeadline=badge.querySelector('small').textContent;
+ env.advance(59999);assert.equal(env.controller.isPaused(),false);
+ env.advance(1);assert.equal(env.controller.isPaused(),true);
+ assert.match(badge.querySelector('span').textContent,/草稿.*60 秒/);
+ assert.equal(badge.querySelector('small').textContent,initialDeadline);
+ assert.equal(env.timers.size,0);
+ Object.assign(env.state,{ready:true,draft:'迟到的草稿',preparingDraft:''});
+ env.controller.refresh();env.advance(3000);assert.equal(env.calls.length,0);
+ env.controller.continueRun();env.advance(3000);assert.equal(env.calls.length,1);
 });
 test('时长截止优先于尚未到期的随机发送，不追赶补发',async()=>{
  const env=setup();await flush();env.state.ready=false;env.controller.start();env.advance(55000);
@@ -71,50 +87,106 @@ test('防休眠随运行开始、暂停、继续和时长上限，不在普通�
  assert.deepEqual(env.wake.map(value=>value.until),[1800000060000,0,1800000060000,0]);
 });
 
-test('防休眠按标签页释放，旧文档不能释放新文档，失联在租约到期后清理',async()=>{
- const events=[],session={},alarms=new Map();let now=Date.now();
- const background=await readFile(new URL('../extension/background.js',import.meta.url),'utf8');
+const background=await readFile(new URL('../extension/background.js',import.meta.url),'utf8');
+function powerFixture() {
+ const events=[],session={},alarms=new Map(),notifications=[];
+ let now=Date.now(),idleState='active',failCleanup=false,hasPower=false;
  function boot() {
-  let receive,onAlarm,onRemoved,id=0;
+  let receive,onAlarm,onRemoved,onIdle,id=0;
   const timers=new Map();
   const context=vm.createContext({URL,importScripts(){},XReplyContext:{},XReplyStorage:{create:()=>({})},XReplyRefreshCycle:{createBackground:()=>({removed:async()=>{}})},
    Date:class extends Date{static now(){return now;}},
    setTimeout:(fn,ms)=>{timers.set(++id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id),
-   chrome:{tabs:{onRemoved:{addListener:fn=>{onRemoved=fn;}}},runtime:{id:'ext',getURL:()=> 'chrome-extension://ext/',onMessage:{addListener:fn=>{receive=fn;}}},
+   chrome:{tabs:{onRemoved:{addListener:fn=>{onRemoved=fn;}},sendMessage:async(tabId,data,options)=>notifications.push({tabId,data,options})},
+    runtime:{id:'ext',getURL:()=> 'chrome-extension://ext/',onMessage:{addListener:fn=>{receive=fn;}}},
     storage:{session:{get:async()=>structuredClone(session),set:async data=>Object.assign(session,structuredClone(data)),
-     remove:async key=>{delete session[key];}}},
+     remove:async key=>{if(failCleanup)throw Error('storage cleanup failed');delete session[key];}}},
     alarms:{get:async name=>alarms.get(name),create:async(name,options)=>alarms.set(name,options),
      clear:async name=>alarms.delete(name),onAlarm:{addListener:fn=>{onAlarm=fn;}}},
-    power:{requestKeepAwake:level=>events.push(level),releaseKeepAwake:()=>events.push('release')}}});
+    idle:{queryState:(_seconds,respond)=>respond(idleState),onStateChanged:{addListener:fn=>{onIdle=fn;}}},
+    power:{requestKeepAwake:level=>{if(!hasPower)events.push(level);hasPower=true;},
+     releaseKeepAwake:()=>{if(hasPower)events.push('release');hasPower=false;}}}});
   vm.runInContext(background,context);
   const send=(tab,documentId,until,frameId=0)=>new Promise(resolve=>{
-   receive({type:'TIMED_KEEP_AWAKE',until},{id:'ext',tab:{id:tab},documentId,frameId,url:'https://x.com/home'},r=>resolve(r.ok));
+   receive({type:'TIMED_KEEP_AWAKE',until},{id:'ext',tab:{id:tab},documentId,frameId,url:'https://x.com/home'},r=>resolve(r));
   });
-  return {send,timers,onRemoved,onAlarm:()=>onAlarm({name:[...alarms.keys()][0]})};
+  return {send,timers,onRemoved,onAlarm:()=>onAlarm({name:[...alarms.keys()][0]}),
+   setIdle:state=>{idleState=state;onIdle(state);}};
  }
- const until=now+60000,first=boot();
- assert.equal(await first.send(1,'nested',until,1),false);
- assert.equal(await first.send(1,'old',until),true);
+ return {boot,session,events,alarms,notifications,now:()=>now,advance:ms=>{now+=ms;},failCleanup:value=>{failCleanup=value;}};
+}
+
+test('防休眠按标签页释放，旧文档不能释放新文档，失联在租约到期后清理',async()=>{
+ const env=powerFixture(),{boot,session,events,alarms}=env;
+ const now=env.now(),until=now+60000,first=boot();
+ assert.equal((await first.send(1,'nested',until,1)).ok,false);
+ assert.equal((await first.send(1,'old',until)).ok,true);
  await first.send(2,'other',until);
  await first.send(1,'next',until);
  await first.send(1,'old',now+1000);
  const leases=Object.values(session.timedAwakeTabs);
  assert.ok(leases.some(lease=>lease.documentId==='next'&&lease.expiresAt===now+20000),'旧页迟到续期不能覆盖新页期限');
  await first.send(1,'old',0);
- assert.deepEqual(events,['system']);assert.equal(first.timers.size,1);
+ assert.deepEqual(events,['display']);assert.equal(first.timers.size,1);
  assert.equal([...first.timers.values()][0].ms,20000);
  const restarted=boot();
  await restarted.send(2,'other',0);
- assert.deepEqual(events,['system']);
- now+=61000;boot().onAlarm();await flush();
- assert.deepEqual(events,['system','release']);assert.equal(alarms.size,0);
- await restarted.send(3,'one',now+60000);await restarted.send(3,'two',now+60000);
- restarted.onRemoved(3);await flush();assert.equal(Object.keys(session).length,0,'关闭标签删除全部文档租约');
- session.timedAwakeTabs={'4':{documentId:'legacy',expiresAt:now+20000}};
- const migrated=boot();await migrated.send(4,'new',now+60000);
+ assert.deepEqual(events,['display']);
+ env.advance(61000);
+ const cleaned=boot();cleaned.onAlarm();await flush();
+ assert.deepEqual(events,['display','release']);assert.equal(alarms.size,0);
+ await cleaned.send(3,'one',env.now()+60000);await cleaned.send(3,'two',env.now()+60000);
+ cleaned.onRemoved(3);await flush();assert.equal(Object.keys(session).length,0,'关闭标签删除全部文档租约');
+ session.timedAwakeTabs={'4':{documentId:'legacy',expiresAt:env.now()+20000}};
+ const migrated=boot();await migrated.send(4,'new',env.now()+60000);
  assert.equal(Object.values(session.timedAwakeTabs).filter(lease=>lease.tabId===4).length,2,'旧版本租约兼容迁移且不覆盖');
  await migrated.send(4,'legacy',0);assert.equal(Object.values(session.timedAwakeTabs)[0].documentId,'new');
  migrated.onRemoved(4);await flush();assert.equal(Object.keys(session).length,0);
+});
+test('释放后的清理失败不影响继续申请，锁屏释放并通知，解锁等待手动继续',async()=>{
+ const env=powerFixture(),{events,session,notifications}=env,worker=env.boot();
+ const until=env.now()+60000;
+ await worker.send(1,'page',until);
+ env.failCleanup(true);
+ assert.equal((await worker.send(1,'page',0)).ok,false);
+ env.failCleanup(false);
+ assert.equal((await worker.send(1,'page',until)).ok,true);
+ assert.deepEqual(events,['display','release','display']);
+ worker.setIdle('idle');await flush();
+ assert.equal(notifications.length,0);
+ worker.setIdle('locked');await flush();
+ assert.equal(session.timedAwakeTabs,undefined);
+ assert.deepEqual(notifications.map(item=>[item.tabId,item.data.type,item.options.documentId]),[[1,'TIMED_SCREEN_LOCKED','page']]);
+ assert.equal((await worker.send(1,'page',until)).locked,true);
+ assert.deepEqual(events,['display','release','display','release']);
+ worker.setIdle('active');await flush();
+ assert.equal(events.length,4);
+ assert.equal((await worker.send(1,'page',until)).ok,true);
+ assert.equal(events.at(-1),'display');
+});
+test('计时到点时锁屏暂停，迟到的解锁确认不能启动已暂停的一轮',async()=>{
+ let answer;
+ const env=setup({enabled:true,allowVisibleUnfocused:true,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:5},
+  undefined,()=>new Promise(resolve=>{answer=resolve;}));
+ await flush();env.controller.start();env.advance(3000);
+ answer(true);await flush();
+ assert.equal(env.controller.isPaused(),true);
+ assert.equal(env.wake.at(-1).until,0);
+ assert.equal(env.calls.length,0);
+ const badge=env.document.body.children.at(-1);
+ assert.match(badge.querySelector('span').textContent,/暂停原因.*锁屏/);
+ env.events.get('focus')();env.advance(6000);
+ assert.equal(env.calls.length,0);
+ env.controller.continueRun();env.advance(3000);
+ const late=answer;
+ env.controller.screenLocked();late(false);await flush();
+ assert.equal(env.calls.length,0);
+ assert.equal(env.controller.isPaused(),true);
+ env.controller.continueRun();env.advance(3000);
+ answer(false);await flush();
+ assert.equal(env.calls.length,1,'解锁后显式继续，按原等待时间进入正常路径');
+ env.controller.stop('本地检查结束');
+ assert.match(badge.querySelector('span').textContent,/停止原因.*本地检查结束/);
 });
 test('最后一次发送收尾期间保留防休眠，完成后释放，不再触发下一次',async()=>{
  const env=setup({enabled:true,minSeconds:3,maxSeconds:3,maxAttempts:1,maxMinutes:1});

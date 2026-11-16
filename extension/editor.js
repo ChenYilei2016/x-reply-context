@@ -1,10 +1,20 @@
 (() => {
   "use strict";
   const read = editor => editor?.innerText.replace(/\n$/,"") || "";
-  const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+  function frame(signal) {
+    if (signal?.aborted) return Promise.resolve(false);
+    return new Promise(resolve => {
+      const abort = () => {cancelAnimationFrame(frameId);resolve(false);};
+      const frameId = requestAnimationFrame(() => {
+        signal?.removeEventListener("abort",abort);
+        resolve(true);
+      });
+      signal?.addEventListener("abort",abort,{once:true});
+    });
+  }
   const writing = new WeakSet();
-  async function insert(editor,text,{replace = false,expected = read(editor),valid = () => true} = {}) {
-    if (!editor?.isConnected || !valid() || read(editor) !== expected || editor.getAttribute("aria-disabled") === "true") return false;
+  async function insert(editor,text,{replace = false,expected = read(editor),valid = () => true,signal} = {}) {
+    if (signal?.aborted || !editor?.isConnected || !valid() || read(editor) !== expected || editor.getAttribute("aria-disabled") === "true") return false;
     editor.focus({preventScroll:true});
     const range = document.createRange(); range.selectNodeContents(editor);
     if (!replace) range.collapse(false);
@@ -15,14 +25,14 @@
       // Draft reads its own selection state on paste. Notify it before the next frame,
       // rather than racing the browser's deferred selectionchange event.
       document.dispatchEvent(new Event("selectionchange"));
-      await frame();
+      if (!await frame(signal) || signal?.aborted) return false;
       if (!valid() || !editor.isConnected || read(editor) !== expected || !editor.contains(selection.anchorNode) ||
           (replace ? selection.toString().replace(/\n$/,"") !== expected : !selection.isCollapsed)) return false;
       const data = new DataTransfer(); data.setData("text/plain",text);
       const paste = new ClipboardEvent("paste",{bubbles:true,cancelable:true,clipboardData:data});
       editor.dispatchEvent(paste);
       if (!paste.defaultPrevented) return false; // No native fallback on a controlled editor.
-      await frame();
+      if (!await frame(signal) || signal?.aborted) return false;
     } else if (!document.execCommand("insertText",false,text)) return false;
     return editor.isConnected && read(editor) === (replace ? text : expected+text);
   }
