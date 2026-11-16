@@ -3,6 +3,7 @@
   "use strict";
 
   const { MaterialCategory } = globalThis.XReplyMaterialModel;
+  const { time: formatTime } = globalThis.XReplyFormat;
   const $ = id => document.getElementById(id);
   let status = null;
   let busy = false;
@@ -21,11 +22,6 @@
   }
 
   // ---------- 格式化 ----------
-
-  function formatTime(value) {
-    if (!value) return "—";
-    return new Date(value).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  }
 
   function describeState(state) {
     if (!state) return { text: "尚未拉取", error: false };

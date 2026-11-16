@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>选题雷达 · 回过了</title>
+  <link rel="stylesheet" href="radar.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="radar.html"><span>✓</span>回过了 · 创作</a>
+    <p class="nav-label">选题</p>
+    <nav aria-label="视图">
+      <button type="button" data-view="all" aria-pressed="true">选题雷达</button>
+      <button type="button" data-view="saved" aria-pressed="false">我的收藏</button>
+      <button type="button" data-view="hidden" aria-pressed="false">已隐藏</button>
+    </nav>
+    <p class="nav-label">设置</p>
+    <nav aria-label="其他页面">
+      <a href="channels.html" target="_blank" rel="noopener">素材渠道 ↗</a>
+      <a href="../creation.html" target="_blank" rel="noopener">旧版写作面板 ↗</a>
+      <a href="../ai-settings.html" target="_blank" rel="noopener">AI 设置 ↗</a>
+    </nav>
+  </aside>
+
+  <main class="workspace">
+    <header class="topbar">
+      <div>
+        <h1 id="view-title">选题雷达</h1>
+        <p id="summary" class="muted" role="status">正在读取素材…</p>
+      </div>
+      <button type="button" id="pull" class="primary">拉取最新</button>
+    </header>
+
+    <div class="toolbar">
+      <div id="category-tabs" class="tabs" role="tablist" aria-label="分类"></div>
+      <div class="filters">
+        <select id="kind" aria-label="素材类型">
+          <option value="all">全部类型</option>
+          <option value="x_post">含 X 帖子</option>
+          <option value="article">含文章</option>
+          <option value="hot_topic">含热榜</option>
+        </select>
+        <select id="window" aria-label="时间范围">
+          <option value="24">24 小时</option>
+          <option value="48" selected>48 小时</option>
+          <option value="72">72 小时</option>
+        </select>
+        <select id="sort" aria-label="排序"></select>
+        <input id="query" type="search" placeholder="搜索标题、正文或作者" maxlength="100">
+      </div>
+    </div>
+
+    <p id="status" class="status" role="status"></p>
+    <ol id="topics" class="topics"></ol>
+    <div class="more"><button type="button" id="more" hidden>加载更多</button></div>
+  </main>
+
+  <aside id="drawer" class="drawer" hidden aria-labelledby="drawer-title">
+    <header class="drawer-head">
+      <h2 id="drawer-title"></h2>
+      <button type="button" id="drawer-close" aria-label="关闭详情">关闭</button>
+    </header>
+    <p id="drawer-meta" class="muted"></p>
+    <div id="drawer-members" class="members"></div>
+  </aside>
+
+  <footer id="basket" class="basket" hidden aria-label="已选素材">
+    <strong id="basket-count"></strong>
+    <ul id="basket-items" class="basket-items"></ul>
+    <button type="button" id="basket-copy" class="primary">复制为素材文本</button>
+    <button type="button" id="basket-clear">清空</button>
+  </footer>
+
+  <template id="topic-template">
+    <li class="topic">
+      <span class="rank"></span>
+      <div class="topic-body">
+        <button type="button" class="topic-title"></button>
+        <div class="topic-badges"></div>
+        <p class="topic-metrics"></p>
+      </div>
+      <div class="topic-actions">
+        <button type="button" class="pick">选入</button>
+        <button type="button" class="save">收藏</button>
+        <button type="button" class="hide">隐藏</button>
+      </div>
+    </li>
+  </template>
+
+  <template id="member-template">
+    <article class="member">
+      <p class="member-head"></p>
+      <p class="member-author"></p>
+      <p class="member-text"></p>
+      <p class="member-metrics"></p>
+      <p class="member-note"></p>
+      <div class="member-actions">
+        <a class="open" target="_blank" rel="noopener noreferrer">打开原文 ↗</a>
+        <button type="button" class="pick">选入</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="material-model.js"></script>
+  <script src="material-db.js"></script>
+  <script src="format.js"></script>
+  <script src="topic-cluster.js"></script>
+  <script src="radar-ranking.js"></script>
+  <script src="radar-filters.js"></script>
+  <script src="radar.js"></script>
+</body>
+</html>

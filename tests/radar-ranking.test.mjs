@@ -7,7 +7,7 @@ const scope = vm.createContext({URL});
 for (const file of ['material-model.js', 'topic-cluster.js', 'radar-ranking.js']) {
   vm.runInContext(await readFile(new URL(`../extension/creation/${file}`, import.meta.url), 'utf8'), scope);
 }
-const {XReplyMaterialModel: model, XReplyTopicCluster: {cluster}, XReplyRadarRanking: {RadarSort, rank, compositeScore}} = scope;
+const {XReplyMaterialModel: model, XReplyTopicCluster: {cluster}, XReplyRadarRanking: {RadarSort, rank, compositeScore, channelPercentiles}} = scope;
 const HOUR = 3600_000;
 const NOW = Date.parse('2026-11-16T12:00:00Z');
 const normalize = (raw, channelId, extra = {}) => model.normalize(raw, {channelId, now: NOW, ...extra}).material;
@@ -46,12 +46,25 @@ test('排序方式：缺少指标的排在后面，最新按时间', () => {
   assert.equal(RadarSort.from('velocity').label, '流速');
 });
 
-test('综合分各项有上限，旧话题不加新鲜度', () => {
-  const base = {sourceCount: 1, maxVelocity: null, bestRank: null, maxBreakout: null, latestAt: NOW - 48 * HOUR};
+test('综合分：渠道内百分位、跨渠道印证、爆文倍数有上限，按账号定位加权', () => {
+  const base = {category: 'ai', sourceCount: 1, channelTop: 0, maxBreakout: null, latestAt: NOW - 48 * HOUR};
   assert.equal(compositeScore(base, NOW), 0);
   assert.equal(compositeScore({...base, maxBreakout: 1e9}, NOW), 2);
-  assert.equal(compositeScore({...base, bestRank: 1}, NOW), 2.5);
-  assert.equal(compositeScore({...base, bestRank: 1000}, NOW), 0);
+  assert.equal(compositeScore({...base, channelTop: 1}, NOW), 3);
   assert.equal(compositeScore({...base, latestAt: NOW - HOUR}, NOW), 1);
   assert.equal(compositeScore({...base, sourceCount: 3}, NOW), 3);
+  assert.ok(Math.abs(compositeScore({...base, channelTop: 1, category: 'entertainment'}, NOW) - 1.8) < 1e-9, '娱乐按 0.6 加权');
+});
+
+test('渠道内百分位：不同渠道各自排序，单位不可比的指标不跨渠道比较', () => {
+  const bili = [5e6, 1e5].map((views, index) => normalize({id: `bilibili:${index}`, kind: 'hot_topic', url: `https://www.bilibili.com/video/${index}`,
+    title: `视频${index}`, category: 'entertainment', publishedAt: NOW - HOUR, metrics: {views}}, 'bilibili-popular'));
+  const news = [1, 5].map(hours => normalize({id: `https://openai.com/${hours}`, kind: 'article', url: `https://openai.com/${hours}`,
+    title: `公告${hours}`, category: 'ai', publishedAt: NOW - hours * HOUR}, 'openai-news'));
+  const percentiles = channelPercentiles([...bili, ...news], NOW, model);
+  assert.equal(percentiles.get('bilibili:0'), 1);
+  assert.equal(percentiles.get('bilibili:1'), 0.5);
+  assert.equal(percentiles.get('https://openai.com/1'), 1, '没有指标的渠道按新鲜度排，最新的也是本渠道第一');
+  const topics = rank([...bili, ...news], {now: NOW, model, cluster});
+  assert.equal(topics[0].leader.id, 'https://openai.com/1', 'AI 渠道第一名在定位加权后排在娱乐第一名之前');
 });

@@ -50,6 +50,35 @@ try {
   const capture = await chrome.evaluate(page, "document.getElementById('x-capture-state').textContent");
   check("X 浏览采集显示累计入库", /累计新增 2 条/.test(capture), capture);
 
+
+  // 选题雷达：同一事件跨热榜、新闻和 X 帖子合并为一个话题，详情与选材可用。
+  const { targetId: radarTarget } = await chrome.send("Target.createTarget", { url: `chrome-extension://${id}/creation/radar.html` });
+  const radar = await chrome.attach(target => target.targetId === radarTarget);
+  await waitFor(() => chrome.evaluate(radar, "typeof XReplyMaterialDB === 'object' && document.readyState === 'complete'").catch(() => false), 10000, "雷达页未加载");
+  await chrome.evaluate(radar, `(async () => {
+    const model = XReplyMaterialModel, now = Date.now(), hour = 3600000;
+    const make = (raw, channelId, source) => model.normalize(raw, { channelId, now, metricsSource: source && model.MetricsSource.from(source) }).material;
+    await XReplyMaterialDB.create().upsertMany([
+      make({ id: "baidu:黄仁勋辞任英伟达CEO", kind: "hot_topic", url: "https://www.baidu.com/s?wd=1", title: "黄仁勋辞任英伟达CEO", metrics: { rank: 2 } }, "baidu-hot"),
+      make({ id: "https://www.ithome.com/0/1.htm", kind: "article", url: "https://www.ithome.com/0/1.htm", title: "英伟达宣布黄仁勋辞任CEO，董事会启动接班", publishedAt: new Date(now - 3 * hour).toISOString() }, "ithome"),
+      make({ id: "x:9101", kind: "x_post", url: "https://x.com/bob/status/9101", text: "黄仁勋辞任英伟达CEO了？太突然", publishedAt: new Date(now - 2 * hour).toISOString(),
+        author: { handle: "bob", followers: 3000 }, metrics: { views: 240000 } }, "x-observed", "x_observed"),
+      make({ id: "https://www.ithome.com/0/2.htm", kind: "article", url: "https://www.ithome.com/0/2.htm", title: "某手机品牌秋季新品发布会定档", publishedAt: new Date(now - hour).toISOString() }, "ithome")
+    ]);
+    location.reload();
+  })()`).catch(() => {});
+  const radarReady = await waitFor(() => chrome.evaluate(radar, "document.querySelectorAll('#topics .topic').length").catch(() => 0), 10000, "雷达话题未渲染")
+    .catch(error => error.message);
+  check("雷达渲染话题列表", Number(radarReady) >= 3, radarReady);
+  const first = await chrome.evaluate(radar, "(() => { const t = document.querySelector('#topics .topic'); return { title: t.querySelector('.topic-title').textContent, badges: t.querySelector('.topic-badges').textContent }; })()");
+  check("跨渠道话题合并并排在第一", first.title === "黄仁勋辞任英伟达CEO" && first.badges.includes("3 个来源"), JSON.stringify(first));
+  await chrome.evaluate(radar, "document.querySelector('#topics .topic .topic-title').click()");
+  const drawer = await chrome.evaluate(radar, "({ hidden: document.getElementById('drawer').hidden, members: document.querySelectorAll('#drawer-members .member').length })");
+  check("详情抽屉列出 3 条成员素材", !drawer.hidden && drawer.members === 3, JSON.stringify(drawer));
+  await chrome.evaluate(radar, "document.querySelector('#drawer-members .member .pick').click()");
+  const basket = await waitFor(() => chrome.evaluate(radar, "document.getElementById('basket').hidden ? '' : document.getElementById('basket-count').textContent"), 5000, "选材栏未出现")
+    .catch(error => error.message);
+  check("选入素材后出现选材栏", basket === "已选 1/3", basket);
 } finally {
   await chrome.stop();
 }
