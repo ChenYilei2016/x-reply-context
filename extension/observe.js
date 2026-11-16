@@ -2,6 +2,7 @@
   "use strict";
   const core = globalThis.XReplyContext;
   const media = globalThis.XReplyObserveMedia;
+  const capture = globalThis.XReplyXCapture;
   const CHANNEL = "x-reply-context-v1";
   const MAX_BYTES = 8 * 1024 * 1024;
   const REPLY_RESULTS = { CreateTweet:"create_tweet",CreateNoteTweet:"notetweet_create" };
@@ -13,6 +14,12 @@
   let ready = false;
   let timer;
   let replySequence = 0;
+  // 创作素材：时间线中的帖子与指标合批后交给扩展；桥接未就绪时保留到下一次。
+  const creationPosts = capture?.createCollector({ send: posts => {
+    if (!ready) return false;
+    window.postMessage({ channel:CHANNEL,type:"CREATION_X_POSTS",account:currentAccount(),posts },location.origin);
+    return true;
+  } });
   const failureStatus = status => status >= 400 && status < 500 && status !== 408 ? "failed" : "unknown";
 
   function operationFor(value) {
@@ -244,17 +251,22 @@
       const aiAccount = context.account || currentAccount();
       const legacyObjects = payload?.globalObjects;
       let mp4, photos, videos;
+      const observeMedia = media ? (tweet,node) => {
+        if (tweet.id === postId && !mp4) mp4 = media.selectMp4(node);
+        const legacyAuthor = legacyObjects?.tweets?.[tweet.id] === node ? legacyObjects.users?.[tweet.authorId] : undefined;
+        const photo = media.photoFromTweet(node,legacyAuthor);
+        if (photo || photo === null) (photos ||= new Map()).set(tweet.id,photo);
+        const video = media.videoPresence(node);
+        if (video !== undefined) {
+          videos ||= new Map();
+          if (video || !videos.has(tweet.id)) videos.set(tweet.id,video);
+        }
+      } : undefined;
+      const observeCreation = includeCounts ? creationPosts : undefined;
       batch ||= core.extract(payload,includeCounts ? rememberUserCounts : undefined,
-        media ? (tweet,node) => {
-          if (tweet.id === postId && !mp4) mp4 = media.selectMp4(node);
-          const legacyAuthor = legacyObjects?.tweets?.[tweet.id] === node ? legacyObjects.users?.[tweet.authorId] : undefined;
-          const photo = media.photoFromTweet(node,legacyAuthor);
-          if (photo || photo === null) (photos ||= new Map()).set(tweet.id,photo);
-          const video = media.videoPresence(node);
-          if (video !== undefined) {
-            videos ||= new Map();
-            if (video || !videos.has(tweet.id)) videos.set(tweet.id,video);
-          }
+        observeMedia || observeCreation ? (tweet,node) => {
+          observeMedia?.(tweet,node);
+          observeCreation?.add(tweet,node);
         } : undefined);
       if (includeCounts) flushUserCounts();
       if (mp4 || mp4 === "" && context.operation === "TweetDetail") {

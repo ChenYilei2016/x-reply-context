@@ -16,7 +16,7 @@
       "matches": ["https://x.com/*", "https://twitter.com/*"],
       "run_at": "document_start",
       "world": "MAIN",
-      "js": ["core.js", "notification-network.js", "observe-media.js", "observe.js"]
+      "js": ["core.js", "notification-network.js", "observe-media.js", "creation/x-capture.js", "observe.js"]
     },
     {
       "matches": ["https://x.com/*", "https://twitter.com/*"],
