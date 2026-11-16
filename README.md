@@ -8,9 +8,9 @@
 
 一个 Chrome 扩展，帮你看清互动记录、逐条处理回复。写好后可以「评论点赞下条」，也可以打开「伴随主页」看看对方的帖子，原来的通知和草稿留在原处。
 
-**当前版本 0.27.1** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
+**当前版本 0.28.0** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
 
-[**下载安装包**](dist/x-reply-context-0.27.1.zip) · [快速安装](#快速安装) · [功能一览](#功能一览) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
+[**下载安装包**](dist/x-reply-context-0.28.0.zip) · [快速安装](#快速安装) · [功能一览](#功能一览) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
 
 *A Chrome extension for X interaction context, user-confirmed reply-then-like, and a reusable native profile window.*
 
@@ -20,7 +20,7 @@
 
 | 能力 | 用途 | 说明 |
 | --- | --- | --- |
-| **创作工作台 / 素材渠道** | X 浏览采集、你的 bot、AI 一手动态、热榜等 10 个渠道自动汇集素材；按所选素材生成帖子草稿 | [详情](docs/guide/creation.md) |
+| **选题雷达 / 素材渠道** | 10 个渠道自动汇集素材，同一事件合并成话题，按账号定位综合排序；X 帖子显示流速标签 | [详情](docs/guide/creation.md) |
 | **评论点赞下条 / 伴随主页 / 连续回复** | 写好回复后一键发送、点赞并打开下一条；可选定时触发 | [详情](docs/guide/replies.md) |
 | **通知标签与筛选** | 原帖归属、已回 / 已点、双方互动次数；点赞、关注、转发分别过滤 | [详情](docs/guide/notifications.md) |
 | **互动分析** | 按人对照「我评他 / 他评我」，管理跳过名单与白名单 | [详情](docs/guide/interaction-report.md) |
@@ -30,7 +30,7 @@
 
 ## 快速安装
 
-1. 下载并解压 [0.27.1 安装包](dist/x-reply-context-0.27.1.zip)。也可用 **Code → Download ZIP** 下载源码。
+1. 下载并解压 [0.28.0 安装包](dist/x-reply-context-0.28.0.zip)。也可用 **Code → Download ZIP** 下载源码。
 2. 在 Chrome 打开 `chrome://extensions`，开启右上角「开发者模式」。
 3. 点击「加载已解压的扩展程序」：安装包选择包含 `manifest.json` 的文件夹；源码选择 **`extension/`**。
 4. 完整刷新已打开的 X 页面。建议将「回过了」固定到工具栏，方便调整筛选开关。
