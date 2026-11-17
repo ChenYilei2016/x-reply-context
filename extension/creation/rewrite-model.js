@@ -12,11 +12,11 @@
   }
 
   const RewriteStyle = Object.freeze(defineEnum([
-    { id: "standard", label: "标准改写", guide: "保留原文的核心信息和大致顺序，换成我的表达，并加入一句我的判断。" },
-    { id: "hook", label: "钩子开头", guide: "第一句用强钩子抓人（反差、悬念、数字或提问），随后给信息和判断。" },
-    { id: "viral", label: "X 爆文体", guide: "X 爆款写法：短句、分行、节奏快；开头一句亮观点，中间 2～4 个要点，结尾一句金句或提问。" },
-    { id: "narrative", label: "叙事表达", guide: "用讲故事的方式：从场景或人物切入，按发生顺序展开，最后落到观点。" },
-    { id: "newsflash", label: "热点快讯", guide: "快讯写法：第一句说清发生了什么，随后 2～3 个关键信息点，最后一句说明对普通人的影响。" }
+    { id: "standard", label: "标准改写", guide: "保留核心信息和大致顺序，换成我的说法，并加入一句我自己的判断。" },
+    { id: "hook", label: "钩子开头", guide: "第一句用强钩子抓人（反差、悬念、具体数字或一个好问题），随后给信息和判断。" },
+    { id: "viral", label: "X 爆文体", guide: "第一句亮观点或反差；中间 2～4 个要点，每个一两句、单独成行；结尾一句有力的判断或一个问题。" },
+    { id: "narrative", label: "叙事表达", guide: "从一个具体场景或人物切入，按发生顺序展开，最后落到我的观点。" },
+    { id: "newsflash", label: "热点快讯", guide: "第一句说清谁做了什么，随后 2～3 个关键信息点，最后一句说明对普通用户或开发者的影响。" }
   ]));
 
   /** 长度：same 为接近原文的信息量，其余为目标字数。 */
@@ -42,15 +42,15 @@
 
   /** 可编辑的写作要求（默认值）。“原文的我是原作者”属于事实约束，固定在任务说明里，不随写作要求修改。 */
   const DEFAULT_GUIDE = [
-    "这是二次创作，不是同义词替换：保留核心事实和信息量，用我的人设和视角重新组织，并加入我的判断。",
-    "不照搬原文句子，不沿用原文独特的比喻和金句原话。",
-    "几个候选的开头手法要不同。",
+    "这是二次创作，不是同义改写：保留核心事实和信息量，用我的视角重新组织，加入我自己的判断或补充。",
+    "不照搬原句，不沿用原作者独特的比喻和金句。几个候选的开头手法各不相同。",
+    prompt.VOICE_RULES,
     prompt.X_POST_RULES
   ].join("\n");
-  const AUTHOR_RULE = "原文里的“我”是原作者：不要把原作者的经历写成我的经历，需要时写成“看到有人说”“某某提到”。";
+  const AUTHOR_RULE = "原内容里的“我”是原作者，不是我：不要把原作者的经历、身份和观点写成我的；需要提到时写成“有人说”，有作者账号时写成“@作者 提到”。";
 
-  const LOCALIZE_RULE = "原文主要不是中文：先理解原意，再用地道的中文重写，不逐句直译；产品名、人名和专有名词保留原文或通用译名。";
-  const FUSION_RULE = "多条素材讲同一话题时融合观点、去掉重复、按逻辑重组；不相关时只改写最主要的一条，不强行拼接。";
+  const LOCALIZE_RULE = "原内容主要不是中文：先理解原意，再用地道的中文重写，不逐句直译、不带翻译腔；产品名、人名和专有名词保留原文或通用译名。";
+  const FUSION_RULE = "多条内容讲同一件事时融合信息、去掉重复、按逻辑重组；不相关时只改写最主要的一条，不强行拼接。";
 
   /**
    * 构建改写请求（后台调用，输入来自页面，需要校验）。
@@ -71,7 +71,7 @@
     const localized = needsLocalization(texts);
     const chars = length.chars ?? sameLengthChars(texts, localized);
     const task = [
-      `任务：把 <materials> 中的${materials.length > 1 ? "多条内容融合" : "内容"}改写成我自己的 X 帖子（「${format.label}」），写 ${CANDIDATE_COUNT} 个候选，每条约 ${chars} 字。`,
+      `把 <materials> 中的${materials.length > 1 ? "多条内容融合" : "内容"}改写成我自己的 X 帖子（「${format.label}」），写 ${CANDIDATE_COUNT} 个候选，每条约 ${chars} 字。`,
       AUTHOR_RULE,
       `风格「${style.label}」：${style.guide}`,
       ...(format.quotesSource ? [format.guide] : []),
@@ -82,8 +82,8 @@
       ...(instructions ? [`本次要求：${instructions}`] : [])
     ].join("\n");
     return {
-      prompt: [prompt.nowLine(now), persona, task, prompt.guideSection(guide, DEFAULT_GUIDE), prompt.SHARED_RULES,
-        prompt.candidatesOutput(CANDIDATE_COUNT)].join("\n\n"),
+      prompt: [prompt.nowLine(now), prompt.section("persona", persona), prompt.section("task", task), prompt.guideSection(guide, DEFAULT_GUIDE),
+        prompt.section("rules", prompt.SHARED_RULES), prompt.candidatesOutput(CANDIDATE_COUNT)].join("\n\n"),
       content: ["<materials>", ...materials.map(prompt.materialXml), "</materials>", ...prompt.samplesXml(samples)].join("\n")
     };
   }

@@ -18,7 +18,7 @@ test('构建请求：形态、字数范围、角度、样本、附加要求和�
   const request = buildRequest({...base(), angle: {type: 'contrarian', hook: '开源不等于免费', outline: ['许可证', '算力']},
     samples: ['我的旧帖 <b>'], instructions: '结尾抛个问题'}, {now: NOW});
   assert.match(request.prompt, /3 条可以直接发在 X 上的「中短帖观点」候选，每条约 150～400 字/);
-  assert.match(request.prompt, /本次角度：反常识。参考钩子：开源不等于免费/);
+  assert.match(request.prompt, /本次角度：反常识。参考第一句：开源不等于免费/);
   assert.match(request.prompt, /1\. 许可证；2\. 算力/);
   assert.match(request.prompt, /280 加权字符/);
   assert.match(request.prompt, /本次要求：结尾抛个问题/);
@@ -27,7 +27,9 @@ test('构建请求：形态、字数范围、角度、样本、附加要求和�
   const plain = buildRequest({...base(), format: 'quote'}, {now: NOW});
   assert.match(plain.prompt, /「引用转发」/);
   assert.match(plain.prompt, /正文里不要放原帖链接/);
-  assert.doesNotMatch(plain.prompt, /本次角度|<samples>/);
+  assert.match(plain.prompt, /读者能同时看到被引用的帖子/);
+  assert.doesNotMatch(plain.prompt, /本次角度|SAMPLES_HINT|过去表现好的帖子/);
+  assert.doesNotMatch(plain.content, /<samples>/);
 });
 
 test('构建请求：拒绝无效形态、角度、样本数量和过长要求', () => {
@@ -73,4 +75,16 @@ test('形态：引用转发附原帖链接，优先选中素材里的 X 帖子',
   assert.equal(PostFormat.quoteTarget(quote, [{kind: 'note', url: ''}]), null, '只有粘贴内容时没有可引用的原帖');
   assert.equal(PostFormat.quoteTarget(quote, [{kind: 'note', url: ''}, material()]), 'https://github.com/a/b');
   assert.equal(PostFormat.DEFAULT.id, 'short_opinion');
+});
+
+test('人设：空或旧版默认值时用当前默认人设，改过的保留', () => {
+  const {resolvePersona} = scope.XReplyDraftModel;
+  const old = ['你在为一个中文 X 账号写帖子，账号定位是「小娱乐、大 AI 科技」：用轻松、有梗但不油腻的口吻聊 AI、科技和产品。',
+    '观点鲜明，敢下判断，但不夸大、不标题党；像懂行的朋友聊天，不像新闻通稿或客服。',
+    '不虚构亲身经历，不冒充业内人士，不攻击个人。'].join('\n');
+  assert.equal(resolvePersona(old), DEFAULT_PERSONA);
+  assert.equal(resolvePersona(''), DEFAULT_PERSONA);
+  assert.equal(resolvePersona(undefined), DEFAULT_PERSONA);
+  assert.equal(resolvePersona('我自己的人设'), '我自己的人设');
+  assert.match(DEFAULT_PERSONA, /读者是关注 AI 的中文用户/);
 });

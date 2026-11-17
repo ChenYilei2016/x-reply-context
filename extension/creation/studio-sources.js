@@ -68,7 +68,7 @@
     function sources() {
       const list = [];
       if (parsed.body) {
-        list.push({ key: "paste", library: null, prompt: { kind: "note", title: "", text: parsed.body, url: "", source: "粘贴内容",
+        list.push({ key: "paste", library: null, prompt: { kind: "note", title: "", text: parsed.body, url: "", source: "",
           coverage: input.coverageOf(parsed.body), publishedAt: null, author: "" } });
       }
       for (const { url } of parsed.links) {

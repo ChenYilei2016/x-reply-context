@@ -20,7 +20,9 @@ test('构建请求：素材与参考帖编号、转义、人设与规则；校�
   assert.match(request.prompt, /测试人设/);
   assert.match(request.prompt, /2026-11-17T04:00:00.000Z/);
   assert.match(request.prompt, /反常识/);
-  assert.match(request.prompt, /只使用素材支持的事实/);
+  assert.match(request.prompt, /<rules>\n只写 <materials> 里有的事实/);
+  assert.match(request.prompt, /读者看不到你收到的资料/, '正文不提资料本身');
+  assert.match(request.prompt, /<persona>\n测试人设\n<\/persona>/);
   assert.match(request.content, /<material id="M1" kind="文章" source="OpenAI" coverage="摘要"/);
   assert.match(request.content, /id="M2" kind="X 帖子".*author="@b" views="5000"/);
   assert.match(request.content, /&lt;script&gt;/);

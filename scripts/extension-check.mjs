@@ -376,17 +376,17 @@ try {
     source.dispatchEvent(new Event("input"));
     document.getElementById("write").click();
   })()`);
-  await waitFor(() => mockModel.requests.at(-1)?.messages?.[1]?.content.includes("粘贴内容") || null, 20000, "粘贴内容的请求未发出").catch(() => {});
+  await waitFor(() => mockModel.requests.at(-1)?.messages?.[1]?.content.includes("开源模型的价格战才刚开始") || null, 20000, "粘贴内容的请求未发出").catch(() => {});
   const pasted = await waitFor(() => chrome.evaluate(studio, `(() => {
     const chips = [...document.querySelectorAll("#source-chips .chip")].map(chip => chip.textContent);
     return !document.getElementById("write").disabled && { chips };
   })()`).catch(() => null), 15000, "粘贴内容未生成").catch(error => error.message);
   const pastedRequest = mockModel.requests.at(-1)?.messages || [];
-  check("不选素材：粘贴正文和文章链接直接改写，链接正文被读取", pasted?.chips?.length === 1 && pasted.chips[0].includes("已读取") &&
-    pastedRequest[1]?.content.includes('kind="粘贴内容"') && pastedRequest[1].content.includes("某公司开源新模型，价格只有一半") &&
+  check("不选素材：粘贴正文和文章链接直接改写，链接正文被读取，未知字段不写进提示词", pasted?.chips?.length === 1 && pasted.chips[0].includes("已读取") &&
+    pastedRequest[1]?.content.includes('<material id="M1" coverage=') && !pastedRequest[1].content.includes("未知") && pastedRequest[1].content.includes("某公司开源新模型，价格只有一半") &&
     pastedRequest[1].content.includes("https://news.example/a"), JSON.stringify({ pasted, content: pastedRequest[1]?.content.slice(0, 200) }));
-  check("写作设置里修改的写作要求进入提示词，固定规则保留", pastedRequest[0]?.content.includes("写作要求：\n每句话都要短，像发朋友圈。") &&
-    pastedRequest[0].content.includes("只使用素材支持的事实"), (pastedRequest[0]?.content || "").slice(0, 160));
+  check("写作设置里修改的写作要求进入提示词，固定规则保留", pastedRequest[0]?.content.includes("<writing_guide>\n每句话都要短，像发朋友圈。") &&
+    pastedRequest[0].content.includes("只写 <materials> 里有的事实") && pastedRequest[0].content.includes("读者看不到你收到的资料"), (pastedRequest[0]?.content || "").slice(0, 160));
 } finally {
   await chrome.stop();
   mockModel.server.close();

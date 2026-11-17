@@ -92,7 +92,7 @@ test('改写请求带上用户改过的写作要求', async () => {
   const result = await service.handle({type: 'AI_REQUEST', kind: 'studio', task: 'rewrite', id: 'rw',
     input: {materials: [material], style: 'hook', length: 'same', format: 'short_opinion', persona: '人设'}}, studio);
   assert.equal(result.ok, true);
-  assert.match(JSON.parse(calls[0][1].body).messages[0].content, /写作要求：\n每句话都要短。/);
+  assert.match(JSON.parse(calls[0][1].body).messages[0].content, /<writing_guide>\n每句话都要短。<\/writing_guide>|<writing_guide>\n每句话都要短。\n<\/writing_guide>/);
 });
 
 test('同一个连接，不同功能用不同模型：未填时用连接的默认模型', async () => {

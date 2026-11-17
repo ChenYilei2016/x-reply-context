@@ -32,13 +32,13 @@
   /** 可编辑的写作要求（默认值）；任务说明与字段格式固定，保证结果能解析。 */
   const DEFAULT_GUIDE = [
     "角度之间要有明显区别，优先选适合中短帖、能引发讨论的切入点。",
-    "钩子是帖子第一句，要具体、有信息量，不超过 60 字。",
-    "风险提示写事实不足、时效已过、容易引战等情况。",
+    "钩子就是发出去的帖子第一句：具体、有信息量、像人说的话，不超过 60 字。",
+    "风险提示是写给我看的，不进帖子：写事实不足、时效已过、容易引战等情况。",
     "不要声称全网无人写过，不要给出热度或潜力评分。"
   ].join("\n");
 
   const TASK = () => [
-    `任务：为 <materials> 中的素材找 ${ANGLE_LIMITS.min}～${ANGLE_LIMITS.max} 个适合发 X 中短帖的写作角度。`,
+    `为 <materials> 中的内容找 ${ANGLE_LIMITS.min}～${ANGLE_LIMITS.max} 个适合发 X 中短帖的写作角度。`,
     "每个角度包含：",
     `- type：${AngleType.labels()} 之一`,
     "- hook：帖子第一句的钩子，不超过 60 字",
@@ -61,7 +61,8 @@
     const references = prompt.checkReferences(input?.references);
     const persona = prompt.checkPersona(input?.persona);
     return {
-      prompt: [prompt.nowLine(now), persona, TASK(), prompt.guideSection(guide, DEFAULT_GUIDE), prompt.SHARED_RULES, OUTPUT_FORMAT].join("\n\n"),
+      prompt: [prompt.nowLine(now), prompt.section("persona", persona), prompt.section("task", TASK()), prompt.guideSection(guide, DEFAULT_GUIDE),
+        prompt.section("rules", prompt.SHARED_RULES), OUTPUT_FORMAT].join("\n\n"),
       content: [
         "<materials>", ...materials.map(prompt.materialXml), "</materials>",
         "<references>", ...(references.length ? references.map(prompt.referenceXml) : ["（没有同话题的 X 帖子）"]), "</references>"

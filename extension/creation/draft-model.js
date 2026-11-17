@@ -10,12 +10,28 @@
   const DRAFT_TEXT_LIMIT = 4000;
   const SAMPLE_LIMITS = Object.freeze({ ...prompt.SAMPLE_LIMITS, ownWindow: 60 * DAY });
 
-  /** 默认人设：只写账号定位，不含任何个人信息；用户可在工作台修改。 */
+  /**
+   * 默认人设：角色、读者、口吻、立场四件事，不含任何个人信息；用户可在写作台修改。
+   * 事实与安全约束在固定规则里，这里不重复。
+   */
   const DEFAULT_PERSONA = [
+    "你是一个中文 X（推特）账号的主笔。账号定位「小娱乐、大 AI 科技」：用好玩、好懂的方式讲 AI 和科技圈正在发生的事。",
+    "读者是关注 AI 的中文用户，有从业者，也有爱尝鲜的普通人。他们刷时间线很快，一条帖子只给一两秒，所以第一句必须让人停下来。",
+    "口吻像一个懂行、说话直接、偶尔毒舌的朋友：口语、短句、有判断；可以玩梗和自嘲，但不油腻、不端着、不堆术语。",
+    "立场：敢下判断，也坦白不确定的地方；不吹不黑，不制造焦虑，不攻击个人。"
+  ].join("\n");
+  /** 之前版本的默认人设：用户没改过时（存的仍是旧默认值）自动换成新的默认人设。 */
+  const PREVIOUS_PERSONAS = Object.freeze([[
     "你在为一个中文 X 账号写帖子，账号定位是「小娱乐、大 AI 科技」：用轻松、有梗但不油腻的口吻聊 AI、科技和产品。",
     "观点鲜明，敢下判断，但不夸大、不标题党；像懂行的朋友聊天，不像新闻通稿或客服。",
     "不虚构亲身经历，不冒充业内人士，不攻击个人。"
-  ].join("\n");
+  ].join("\n")]);
+
+  /** 存储里的人设 → 实际使用的人设：空或旧版默认值时用当前默认。 */
+  function resolvePersona(saved) {
+    const value = typeof saved === "string" ? saved.trim() : "";
+    return !value || PREVIOUS_PERSONAS.includes(value) ? DEFAULT_PERSONA : saved;
+  }
 
   const FORMATS = Object.freeze([
     Object.freeze({
@@ -24,7 +40,7 @@
     }),
     Object.freeze({
       id: "quote", label: "引用转发", min: 50, max: 150, quotesSource: true,
-      guide: "引用原帖发表看法：不复述原帖，直接给出态度、补充信息或反差点。正文里不要放原帖链接，发布时会附上。"
+      guide: "引用原帖发表看法：读者能同时看到被引用的帖子，所以不复述它，直接给出态度、补充信息或反差点。正文里不要放原帖链接，发布时会附上。"
     })
   ]);
 
@@ -74,16 +90,17 @@
   function angleLines(angle) {
     if (!angle) return [];
     return [
-      `本次角度：${angle.type.label}。参考钩子：${angle.hook}`,
+      `本次角度：${angle.type.label}。参考第一句：${angle.hook}`,
       ...(angle.outline.length ? [`提纲：${angle.outline.map((item, index) => `${index + 1}. ${item}`).join("；")}`] : []),
-      "按这个角度写，钩子可以改写得更有力。"
+      "按这个角度写，第一句可以改得更有力。"
     ];
   }
 
   /** 可编辑的写作要求（默认值）。 */
   const DEFAULT_GUIDE = [
-    "几条候选的开头要用不同手法（例如提问、反差、数字、场景），正文不要互相复制。",
-    "先给结论或态度，再给事实依据，最后落到对读者的意义。",
+    "开头：第一句就给读者停下来的理由，例如反差、具体数字、明确的判断或一个好问题；几条候选的开头手法各不相同，正文不要互相复制。",
+    "结构：先给结论或态度，再给事实依据，最后落到这件事对读者意味着什么。",
+    prompt.VOICE_RULES,
     prompt.X_POST_RULES
   ].join("\n");
 
@@ -102,7 +119,7 @@
     const instructions = prompt.checkInstructions(input.instructions);
     const benchmark = prompt.checkBenchmark(input.benchmark);
     const task = [
-      `任务：根据 <materials> 写 ${CANDIDATE_COUNT} 条可以直接发在 X 上的「${format.label}」候选，每条约 ${format.min}～${format.max} 字。`,
+      `根据 <materials> 写 ${CANDIDATE_COUNT} 条可以直接发在 X 上的「${format.label}」候选，每条约 ${format.min}～${format.max} 字。`,
       format.guide,
       ...angleLines(angle),
       ...prompt.benchmarkLines(benchmark),
@@ -110,8 +127,8 @@
       ...(instructions ? [`本次要求：${instructions}`] : [])
     ].join("\n");
     return {
-      prompt: [prompt.nowLine(now), persona, task, prompt.guideSection(guide, DEFAULT_GUIDE), prompt.SHARED_RULES,
-        prompt.candidatesOutput(CANDIDATE_COUNT)].join("\n\n"),
+      prompt: [prompt.nowLine(now), prompt.section("persona", persona), prompt.section("task", task), prompt.guideSection(guide, DEFAULT_GUIDE),
+        prompt.section("rules", prompt.SHARED_RULES), prompt.candidatesOutput(CANDIDATE_COUNT)].join("\n\n"),
       content: ["<materials>", ...materials.map(prompt.materialXml), "</materials>", ...prompt.samplesXml(samples)].join("\n")
     };
   }
@@ -143,6 +160,6 @@
   }
 
   globalThis.XReplyDraftModel = Object.freeze({
-    PostFormat, DEFAULT_PERSONA, DEFAULT_GUIDE, CANDIDATE_COUNT, SAMPLE_LIMITS, selectSamples, buildRequest, parse
+    PostFormat, DEFAULT_PERSONA, resolvePersona, DEFAULT_GUIDE, CANDIDATE_COUNT, SAMPLE_LIMITS, selectSamples, buildRequest, parse
   });
 })();

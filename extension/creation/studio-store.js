@@ -72,7 +72,7 @@
       const saved = (await storage.get(PROFILE_KEY))[PROFILE_KEY] || {};
       const strings = value => Array.isArray(value) ? value.filter(item => typeof item === "string") : [];
       return {
-        persona: typeof saved.persona === "string" && saved.persona.trim() ? saved.persona : draftModel.DEFAULT_PERSONA,
+        persona: draftModel.resolvePersona(saved.persona),
         manualSamples: strings(saved.manualSamples).slice(0, MANUAL_SAMPLE_LIMIT),
         excludedSampleIds: strings(saved.excludedSampleIds).slice(0, OWN_SCAN_LIMIT)
       };
@@ -80,8 +80,9 @@
 
     function saveProfile(value) {
       if (value.persona.length > prompt.LIMITS.persona) throw new Error(`人设最多 ${prompt.LIMITS.persona} 字。`);
+      // 与默认人设相同时存空：以后默认人设升级，没改过的用户自动用上新版。
       return storage.set({ [PROFILE_KEY]: {
-        persona: value.persona,
+        persona: value.persona.trim() === draftModel.DEFAULT_PERSONA ? "" : value.persona,
         manualSamples: value.manualSamples.slice(0, MANUAL_SAMPLE_LIMIT),
         excludedSampleIds: value.excludedSampleIds.slice(0, OWN_SCAN_LIMIT)
       } });

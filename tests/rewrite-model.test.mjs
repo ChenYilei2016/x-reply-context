@@ -19,10 +19,12 @@ test('改写请求：风格、长度、原创约束、人设与 X 规则', () =>
   const request = buildRequest(base({style: 'viral', samples: ['我的旧帖'], instructions: '语气再冲一点'}), {now: NOW});
   assert.match(request.prompt, /我的人设/);
   assert.match(request.prompt, /把 <materials> 中的内容改写成我自己的 X 帖子（「中短帖观点」），写 3 个候选，每条约 \d+ 字/);
-  assert.match(request.prompt, /不是同义词替换/);
-  assert.match(request.prompt, /原文里的“我”是原作者/);
+  assert.match(request.prompt, /不是同义改写/);
+  assert.match(request.prompt, /原内容里的“我”是原作者，不是我/);
   assert.match(request.prompt, /风格「X 爆文体」/);
   assert.match(request.prompt, /280 加权字符/);
+  assert.match(request.prompt, /避开 AI 腔：不用“值得注意的是”/);
+  assert.match(request.prompt, /输出前逐条自查/);
   assert.match(request.prompt, /本次要求：语气再冲一点/);
   assert.match(request.prompt, /"drafts"/);
   assert.match(request.content, /<material id="M1" kind="X 帖子" source="X 手动选入"/);
