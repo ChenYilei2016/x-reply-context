@@ -8,9 +8,9 @@
 
 一个 Chrome 扩展，帮你看清互动记录、逐条处理回复。写好后可以「评论点赞下条」，也可以打开「伴随主页」看看对方的帖子，原来的通知和草稿留在原处。
 
-**当前版本 0.34.0** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
+**当前版本 0.35.0** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
 
-[**下载安装包**](dist/x-reply-context-0.34.0.zip) · [快速安装](#快速安装) · [功能一览](#功能一览) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
+[**下载安装包**](dist/x-reply-context-0.35.0.zip) · [快速安装](#快速安装) · [功能一览](#功能一览) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
 
 *A Chrome extension for X interaction context, user-confirmed reply-then-like, and a reusable native profile window.*
 
@@ -24,7 +24,7 @@
 | **一键改写** | X 帖子下方「改写」「选入」，点击时才读取那一条；5 种改写风格、按原文长度、英文本地化、多篇融合，3 个候选并提示与原文的重合度 | [详情](docs/guide/creation.md#一键改写-x-上的爆款0310) |
 | **对标风格** | 选一位博主的 3～10 条帖子，AI 拆解出选题、开头手法、结构和语气，存成模板，改写和成稿时一键套用 | [详情](docs/guide/creation.md#对标风格0320) |
 | **AI 配图** | 8 种风格、3 种比例；成稿模型按正文写出图提示词（可改），再用你的 OpenAI 兼容出图 API 生成，可下载或复制 | [详情](docs/guide/creation.md#ai-配图0330) |
-| **写作台** | 单栏流程：直接粘贴正文或链接（自动读取正文）、也可用已选素材；AI 改写或找角度写，3 个候选，加权字数与首屏标线，写作要求可改，一键生图 | [详情](docs/guide/creation.md#写作台0340-起为单栏) |
+| **写作台** | 左右两栏：直接粘贴正文或链接（自动读取正文）、也可用已选素材；AI 改写或找角度写，3 个候选卡片对比，正文自查与一键精修，加权字数与首屏标线，写作要求可改，一键生图 | [详情](docs/guide/creation.md#写作台0350-起为左右两栏) |
 | **草稿与复盘** | 一键打开预填好的 X 发帖页；bot 带回自己的帖子后自动标为已发，按角度和形态统计浏览与点赞，好帖子反哺写作样本 | [详情](docs/guide/creation.md#草稿与复盘0300) |
 | **评论点赞下条 / 伴随主页 / 连续回复** | 写好回复后一键发送、点赞并打开下一条；可选定时触发 | [详情](docs/guide/replies.md) |
 | **通知标签与筛选** | 原帖归属、已回 / 已点、双方互动次数；点赞、关注、转发分别过滤 | [详情](docs/guide/notifications.md) |
@@ -35,7 +35,7 @@
 
 ## 快速安装
 
-1. 下载并解压 [0.34.0 安装包](dist/x-reply-context-0.34.0.zip)。也可用 **Code → Download ZIP** 下载源码。
+1. 下载并解压 [0.35.0 安装包](dist/x-reply-context-0.35.0.zip)。也可用 **Code → Download ZIP** 下载源码。
 2. 在 Chrome 打开 `chrome://extensions`，开启右上角「开发者模式」。
 3. 点击「加载已解压的扩展程序」：安装包选择包含 `manifest.json` 的文件夹；源码选择 **`extension/`**。
 4. 完整刷新已打开的 X 页面。建议将「回过了」固定到工具栏，方便调整筛选开关。
