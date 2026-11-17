@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 
-const files = ['ai-config.js', 'ai-context.js', 'creation-model.js', 'ai-service.js',
+const files = ['ai-config.js', 'ai-context.js', 'ai-service.js',
   'creation/compose-prompt.js', 'creation/angle-model.js', 'creation/draft-model.js'];
 const sources = await Promise.all(files.map(name => readFile(new URL(`../extension/${name}`, import.meta.url), 'utf8')));
 const profiles = [
@@ -36,7 +36,8 @@ const anglesRequest = (extra = {}) => ({type: 'AI_REQUEST', kind: 'studio', step
 
 test('写作台请求只接受写作台页面和已知步骤，输入无效时不发请求', async () => {
   const {service, calls} = setup();
-  assert.match((await service.handle(anglesRequest(), {url: 'chrome-extension://test/creation.html', tab: {id: 1}})).error, /仅写作台/);
+  assert.match((await service.handle(anglesRequest(), {url: 'chrome-extension://test/creation/radar.html', tab: {id: 1}})).error, /仅写作台/);
+  assert.match((await service.handle(anglesRequest({kind: 'compose'}), studio)).error, /无效/, '旧版写作面板的请求类型已移除');
   assert.match((await service.handle(anglesRequest(), {url: 'https://x.com/home', tab: {id: 1}})).error, /仅写作台/);
   assert.match((await service.handle(anglesRequest({step: 'publish'}), studio)).error, /未知的创作步骤/);
   assert.match((await service.handle(anglesRequest({step: 'toString'}), studio)).error, /未知的创作步骤/);

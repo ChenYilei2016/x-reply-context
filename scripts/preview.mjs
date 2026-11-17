@@ -18,14 +18,6 @@ http.createServer(async (request,response) => {
         .replace('<script src="ai-settings.js"></script>','<script src="/tests/ai-settings-fixture.js"></script><script src="/extension/ai-settings.js"></script>'));
       return;
     }
-    if (pathname === "/tests/creation-preview.html") {
-      const template=await readFile(path.join(root,"extension/creation.html"),"utf8");
-      response.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});
-      response.end(template.replace('href="creation.css"','href="/extension/creation.css"')
-        .replaceAll('src="creation-','src="/extension/creation-')
-        .replace('<script src="creation.js"></script>','<script src="/tests/creation-fixture.js"></script><script src="/extension/creation.js"></script>'));
-      return;
-    }
     if (pathname === "/tests/popup-preview.html") {
       const template=await readFile(path.join(root,"extension/popup.html"),"utf8");
       response.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});

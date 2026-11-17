@@ -12,6 +12,10 @@
   const RETIRED_LOCAL_KEYS = Object.freeze(["creationXCaptureEnabled", "creationVelocityBadge"]);
   const RETIRED_SESSION_KEYS = Object.freeze(["creationPendingSaves"]);
 
+  /** 0.26.0 旧版写作面板：草稿迁入草稿库，其余缓存（新闻、标记、偏好）随旧面板一起删除。 */
+  const LEGACY_DRAFTS_KEY = "creationDrafts";
+  const LEGACY_KEYS = Object.freeze([LEGACY_DRAFTS_KEY, "creationNews", "creationMarks", "creationPreferences"]);
+
   /** 去掉素材中的 X 浏览采集来源；只来自该渠道的素材删除，其余降为渠道报告的指标。 */
   function withoutRetiredXChannel(material) {
     if (!material.channelIds.includes(RETIRED_X_CHANNEL)) return material;
@@ -47,10 +51,21 @@
       return result;
     }
 
-    /** 安装或更新时：建立定时器（Chrome 持久保存，Service Worker 重启后仍在），清理已下线功能的数据。 */
+    /** 旧草稿写入草稿库后再删除旧键；写入失败时旧数据保留，下次更新再试。重复执行不会产生重复草稿（编号固定）。 */
+    async function migrateLegacyDrafts(now = Date.now()) {
+      const saved = (await chrome.storage.local.get(LEGACY_DRAFTS_KEY))[LEGACY_DRAFTS_KEY];
+      const drafts = (Array.isArray(saved) ? saved : []).map(old => globalThis.XReplyDraftRecord.fromLegacy(old, now)).filter(Boolean);
+      if (drafts.length) await db.putDrafts(drafts);
+      await chrome.storage.local.remove([...LEGACY_KEYS]);
+      return drafts.length;
+    }
+
+    /** 安装或更新时：建立定时器（Chrome 持久保存，Service Worker 重启后仍在），清理已下线功能的数据，迁移旧草稿。 */
     async function handleInstalled() {
       await ensureAlarm();
-      return retireXCapture();
+      const retired = await retireXCapture();
+      const migratedDrafts = await migrateLegacyDrafts();
+      return { ...retired, migratedDrafts };
     }
 
     const runScheduled = () => scheduler.run();

@@ -1,8 +1,8 @@
-importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-context.js","creation-model.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js","post-video.js","video-download.js","reply-skip-authors.js","interaction-report-data.js");
+importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-context.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js","post-video.js","video-download.js","reply-skip-authors.js","interaction-report-data.js");
 importScripts("creation/material-model.js","creation/material-db.js","creation/feed-parser.js","creation/channel-http.js",
   "creation/channel-registry.js","creation/channels/rss-channels.js","creation/channels/hot-list-channels.js",
   "creation/channels/github-trending.js","creation/channels/bot-feed.js","creation/channel-scheduler.js","creation/creation-background.js",
-  "creation/compose-prompt.js","creation/angle-model.js","creation/draft-model.js");
+  "creation/compose-prompt.js","creation/angle-model.js","creation/draft-model.js","creation/draft-record.js");
 let aiService;
 let companion;
 let refreshCycle;

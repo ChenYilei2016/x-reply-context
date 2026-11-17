@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
-const sources=await Promise.all(['ai-config.js','ai-context.js','creation-model.js','ai-service.js'].map(name=>readFile(new URL(`../extension/${name}`,import.meta.url),'utf8')));
+const sources=await Promise.all(['ai-config.js','ai-context.js','ai-service.js'].map(name=>readFile(new URL(`../extension/${name}`,import.meta.url),'utf8')));
 const config={enabled:true,baseUrl:'https://model.example/v1',apiKey:'test-key',model:'test-model',generatePrompt:'post=${post}',rewritePrompt:'post=${post};draft=${draft}'};
 function setup(fetchImpl=async()=>new Response(JSON.stringify({choices:[{message:{content:'<reply>你好。</reply>'}}]}),{headers:{'content-type':'application/json'}}),readThread) {
   let settings=structuredClone(config);const preferences={},changed=[],calls=[];
@@ -16,28 +16,6 @@ function setup(fetchImpl=async()=>new Response(JSON.stringify({choices:[{message
   const request=(id,extra={})=>service.handle({type:'AI_REQUEST',id,kind:'generate',post:'一条帖子',draft:'',...extra},sender);
   return {service,sender,request,calls,chrome,scope};
 }
-const creationRequest = () => ({type:'AI_REQUEST',kind:'compose',id:'creation-one',action:'draft',style:'developer',length:300,
-  prompt:'独立的创作人设',instructions:'保留关键事实',materials:[{title:'测试新闻',text:'这是测试新闻中明确提供的事实。'.repeat(15),url:'https://www.ithome.com/1/027/001.htm',source:'IT之家',publishedAt:'2026-11-16T00:00:00Z',coverage:'body'}]});
-test('创作仅扩展工作台可调用，复用接口但不要求开启评论、不继承评论长度和人设',async()=>{
-  const {service,sender,calls,chrome}=setup(async()=>new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:'<reply>'+ '创作内容'.repeat(40)+'</reply>'}}]}),{headers:{'content-type':'application/json'}}));
-  assert.equal((await service.handle(creationRequest(),sender)).ok,false);assert.equal(calls.length,0);
-  const page={...sender,url:'chrome-extension://test/creation.html'};
-  await chrome.storage.local.set({aiConfig:{...config,enabled:false,maxReplyLength:10}});
-  const state=await service.handle({type:'AI_CREATION_STATUS'},page);
-  assert.equal(state.configured,true);assert.equal(state.apiKey,undefined);assert.equal(state.permitted,true);
-  const response=await service.handle(creationRequest(),page);assert.equal(response.ok,true);assert.ok(response.text.length>10);
-  const body=JSON.parse(calls[0][1].body);assert.match(body.messages[0].content,/独立的创作人设/);assert.doesNotMatch(body.messages[0].content,/post=|回复时/);
-  assert.match(body.messages[1].content,/<creation_material>/);assert.match(body.messages[1].content,/测试新闻/);
-});
-test('创作拒绝空素材、超量和截断响应，错误保留创作语义',async()=>{
-  const {service,calls}=setup(async()=>new Response(JSON.stringify({choices:[{finish_reason:'length',message:{content:'<reply>半篇'}}]}),{headers:{'content-type':'application/json'}}));
-  const sender={url:'chrome-extension://test/creation.html',tab:{id:2}};
-  for(const invalid of [{materials:[]},{materials:Array(4).fill(creationRequest().materials[0])},{length:1},{materials:[{...creationRequest().materials[0],text:'只有标题'}]}]) {
-    assert.equal((await service.handle({...creationRequest(),...invalid},sender)).ok,false);
-  }
-  assert.equal(calls.length,0);
-  const result=await service.handle(creationRequest(),sender);assert.equal(result.ok,false);assert.match(result.error,/创作模型未完整返回/);
-});
 test('自带API请求只发模型地址，模板/输出清理兼容，网页拿不到Key',async()=>{
   const {service,sender,request,calls,chrome,scope}=setup();
   const result=await request('one');assert.equal(result.text,'你好');
