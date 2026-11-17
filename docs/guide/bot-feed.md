@@ -68,6 +68,6 @@ scripts/feed-service.sh status    # 查看服务、feed.json 更新时间和 HTT
 | `metrics` | 否 | `views`、`likes`、`reposts`、`replies`、`quotes`、`bookmarks`、`rank`，非负整数 |
 | `media` | 否 | 最多 4 个 `{ "type": "image" | "video" | "gif", "url": "https://…" }` |
 | `tags` / `note` / `lang` | 否 | 分类标签、推荐理由、语言 |
-| `own` | 否 | `true` 表示是你自己发的帖子，保留 90 天，后续用作风格样本和复盘 |
+| `own` | 否 | `true` 表示是你自己发的帖子：保留 90 天，作为写作台的样本候选，并按正文自动关联到「草稿与复盘」里的草稿、提供复盘数据。请尽量带上 `metrics` 并定期更新同一 `id` 的数字 |
 
 bot 报告的指标标记为「渠道报告」。同一条内容被多个渠道带来时自动合并，保留更完整的正文和更可信的指标。

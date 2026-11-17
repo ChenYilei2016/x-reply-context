@@ -179,8 +179,8 @@ bot 返回的指标标记为 `channel_reported`。等你在 X 上刷到同一条
 ## 9. 发布与复盘
 
 - 用 `https://x.com/intent/post?text=…` 预填正文；引用转发时附上原帖链接。仍由你在 X 页面点击发布。正文太长导致链接超长时，退回到复制粘贴。
-- **自动关联**：现有拦截能看到 `CreateTweet` / `CreateNoteTweet` 的响应，正文与草稿一致时，草稿标记为“已发”并记下帖子 ID。
-- **复盘**：你之后浏览到自己的帖子时顺带更新数据。草稿库显示每条已发帖子的浏览、点赞，以及 24 小时快照，并按角度类型和形态统计平均表现。
+- **自动关联**（0.30.0 实现时调整）：不读取 X 页面的 `CreateTweet` 响应（与 0.28.1 不在 X 页面抓取的决定一致）。bot feed 带回自己的帖子（`own: true`）后按正文相似度（双字 Dice ≥ 0.85，忽略链接、空白、标点）匹配回草稿；也可手动粘贴帖子链接。
+- **复盘**：数据来自 bot feed 中自己帖子的多次汇报（`own: true`），没有时手动录入。草稿库显示每条已发帖子的浏览、点赞，以及 24 小时快照，并按角度类型和形态统计平均表现。
 
 ## 10. 模块划分
 
@@ -195,9 +195,9 @@ bot 返回的指标标记为 `channel_reported`。等你在 X 上刷到同一条
 | ~~`creation/x-capture.js`~~ | ~~从 X 响应提取帖子指标~~（0.28.1 已下线） |
 | `creation/topic-cluster.js` | 话题聚合 |
 | `creation/compose-prompt.js`、`angle-model.js`、`draft-model.js` | 提示词公共片段与 JSON 容错提取；角度的构建、解析与参考帖对照；成稿形态、样本与候选解析 |
-| `creation/x-text.js` | 加权字数、首屏位置（intent 链接在 T12 补充） |
-| `creation/publish-link.js` | 已发帖关联、复盘数据 |
-| `creation/radar.*`、`channels.*`、`studio.*` | 选题雷达、渠道设置、写作台各自一页；`workbench.css` 为共用样式，`studio-store.js` 负责写作台的数据读取与本地保存 |
+| `creation/x-text.js` | 加权字数、首屏位置 |
+| `creation/draft-record.js`、`publish-link.js`、`review-model.js`、`drafts-store.js` | 草稿状态与流转；预填发帖与已发帖关联；复盘数据与统计；草稿页的存取与同步 |
+| `creation/radar.*`、`channels.*`、`studio.*`、`drafts.*` | 选题雷达、渠道设置、写作台、草稿与复盘各自一页；`workbench.css` 为共用样式，`studio-store.js` 负责写作台的数据读取与本地保存 |
 
 存储从 `chrome.storage.local` 改为 IndexedDB：X 采集每天可能有几千条，按采集时间和流速建索引，分页读取，不一次全量加载。0.26.0 的草稿首次打开时自动迁移。
 
@@ -256,11 +256,11 @@ bot 返回的指标标记为 `channel_reported`。等你在 X 上刷到同一条
 | T10 | 结构化角度：JSON 输出与容错解析；对照已采集帖子标出“已有人写／新角度”，潜力只依据真实数据 | T7 | 单测覆盖解析和对照逻辑 |
 | T11 | 成稿：形态枚举、3 个候选、人设、爆款样本、每步选模型（AI 设置新增映射）、编辑区加权字数与首屏标线 `x-text.js` | T10 | 用真实素材出稿；字数计算与 X 规则一致 |
 
-### 0.30.0 发布与复盘
+### 0.30.0 发布与复盘（已完成）
 
 | 编号 | 任务 | 依赖 | 完成标准 |
 | --- | --- | --- | --- |
-| T12 | 预填发布与已发关联：intent 链接、`CreateTweet` 正文匹配草稿、草稿状态流转 | T11 | 真实发一条后自动关联 |
+| T12 | 预填发布与已发关联：intent 链接、~~`CreateTweet`~~ bot feed 自己的帖子按正文匹配草稿（见第 9 节）、草稿状态流转 | T11 | 真实发一条后自动关联 |
 | T13 | 复盘：已发帖子的数据来自 bot feed（`own: true`）或手动录入，按角度和形态统计；高表现帖子进入爆款样本 | T12 | 复盘页有真实数据 |
 | T14 | 迁移与收尾：迁移 0.26.0 草稿，删除旧工作台代码，更新 guide | T8 T11 | 旧草稿可见，旧代码无残留 |
 
