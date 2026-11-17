@@ -41,12 +41,13 @@
 
   /**
    * 新建草稿。
-   * @param fields { text, format, angle?: {type, hook}, materials?: [{id, title, url}], quoteUrl? }
+   * @param fields { text, format, angle?: {type, hook}, rewrite?: {style}, materials?: [{id, title, url}], quoteUrl? }
    */
   function create(fields, now = Date.now(), id = `d:${crypto.randomUUID()}`) {
     return {
       id, text: checkText(fields.text), format: clip(fields.format, 40) || DEFAULT_FORMAT,
       angle: fields.angle?.type ? { type: clip(fields.angle.type, 40), hook: clip(fields.angle.hook, 120) } : null,
+      rewrite: fields.rewrite?.style ? { style: clip(fields.rewrite.style, 40) } : null,
       materials: materialRefs(fields.materials), quoteUrl: clip(fields.quoteUrl, 2048) || null,
       status: DRAFT.id, origin: "studio", createdAt: now, updatedAt: now,
       publishOpenedAt: null, post: null, metrics: null, views24h: null, manualMetrics: null

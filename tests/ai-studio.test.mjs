@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 
 const files = ['ai-config.js', 'ai-context.js', 'ai-service.js',
-  'creation/compose-prompt.js', 'creation/angle-model.js', 'creation/draft-model.js'];
+  'creation/compose-prompt.js', 'creation/angle-model.js', 'creation/draft-model.js', 'creation/rewrite-model.js'];
 const sources = await Promise.all(files.map(name => readFile(new URL(`../extension/${name}`, import.meta.url), 'utf8')));
 const profiles = [
   {id: 'main', name: '主用', baseUrl: 'https://model.example/v1', apiKey: 'main-key', model: 'writer'},
@@ -31,7 +31,7 @@ function setup(fetchImpl = async () => reply('<reply>{"angles":[]}</reply>')) {
 const studio = {url: 'chrome-extension://test/creation/studio.html', tab: {id: 3}};
 const material = {kind: 'article', title: '新模型发布', text: '官方介绍了推理能力。', url: 'https://openai.com/news/1', source: 'OpenAI',
   coverage: 'excerpt', publishedAt: Date.now()};
-const anglesRequest = (extra = {}) => ({type: 'AI_REQUEST', kind: 'studio', step: 'angles', id: 'angles-1',
+const anglesRequest = (extra = {}) => ({type: 'AI_REQUEST', kind: 'studio', task: 'angles', id: 'angles-1',
   input: {materials: [material], references: [], persona: '写作台人设'}, ...extra});
 
 test('写作台请求只接受写作台页面和已知步骤，输入无效时不发请求', async () => {
@@ -39,8 +39,8 @@ test('写作台请求只接受写作台页面和已知步骤，输入无效时�
   assert.match((await service.handle(anglesRequest(), {url: 'chrome-extension://test/creation/radar.html', tab: {id: 1}})).error, /仅写作台/);
   assert.match((await service.handle(anglesRequest({kind: 'compose'}), studio)).error, /无效/, '旧版写作面板的请求类型已移除');
   assert.match((await service.handle(anglesRequest(), {url: 'https://x.com/home', tab: {id: 1}})).error, /仅写作台/);
-  assert.match((await service.handle(anglesRequest({step: 'publish'}), studio)).error, /未知的创作步骤/);
-  assert.match((await service.handle(anglesRequest({step: 'toString'}), studio)).error, /未知的创作步骤/);
+  assert.match((await service.handle(anglesRequest({task: 'publish'}), studio)).error, /未知的创作任务/);
+  assert.match((await service.handle(anglesRequest({task: 'toString'}), studio)).error, /未知的创作任务/);
   assert.match((await service.handle(anglesRequest({input: {materials: [], persona: 'p'}}), studio)).error, /1～3/);
   assert.equal(calls.length, 0);
 });
@@ -58,11 +58,17 @@ test('找角度用单独指定的 API，不要求开启 AI 回复；成稿未指
   assert.match(body.messages[0].content, /写作台人设/);
   assert.match(body.messages[1].content, /<material id="M1"/);
 
-  const drafts = await service.handle({type: 'AI_REQUEST', kind: 'studio', step: 'drafts', id: 'drafts-1',
+  const drafts = await service.handle({type: 'AI_REQUEST', kind: 'studio', task: 'drafts', id: 'drafts-1',
     input: {materials: [material], format: 'short_opinion', persona: '写作台人设'}}, studio);
   assert.equal(drafts.ok, true);
   assert.equal(calls[1][0], 'https://model.example/v1/chat/completions');
   assert.match(JSON.parse(calls[1][1].body).messages[0].content, /「中短帖观点」/);
+
+  const rewrite = await service.handle({type: 'AI_REQUEST', kind: 'studio', task: 'rewrite', id: 'rewrite-1',
+    input: {materials: [material], style: 'hook', length: 'same', format: 'short_opinion', persona: '写作台人设'}}, studio);
+  assert.equal(rewrite.ok, true);
+  assert.equal(calls[2][0], 'https://model.example/v1/chat/completions', '改写与成稿共用「成稿」的 API');
+  assert.match(JSON.parse(calls[2][1].body).messages[0].content, /风格「钩子开头」/);
 });
 
 test('截断的响应不当作结果', async () => {
@@ -77,6 +83,7 @@ test('创作模型状态：每步的配置名、模型与授权情况，不返�
   const {service} = setup();
   assert.equal((await service.handle({type: 'AI_STUDIO_STATUS'}, {url: 'https://x.com/', tab: {id: 1}})).ok, false);
   const status = await service.handle({type: 'AI_STUDIO_STATUS'}, studio);
+  assert.deepEqual({...status.tasks}, {angles: 'angles', drafts: 'drafts', rewrite: 'drafts'});
   assert.deepEqual(JSON.parse(JSON.stringify(status.steps.map(step => [step.id, step.name, step.model, step.permitted]))),
     [['angles', '推理', 'reasoner', true], ['drafts', '主用', 'writer', true]]);
   assert.equal(JSON.stringify(status).includes('key'), false);

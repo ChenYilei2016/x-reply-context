@@ -227,13 +227,14 @@ try {
   check("X 帖子操作栏出现「改写」「选入」，引用帖内不加", buttons === 2 && inQuote === 0, `${buttons}/${inQuote}`);
   await chrome.evaluate(xPage, "document.querySelector('.xrc-post-rewrite').click()");
   const picked = await waitFor(() => chrome.evaluate(worker, `(async () => {
-    const { creationBasket, creationStudioIntent } = await chrome.storage.local.get(["creationBasket", "creationStudioIntent"]);
+    const { creationBasket } = await chrome.storage.local.get("creationBasket");
     const material = await XReplyMaterialDB.create().get("x:1890000000000000001");
-    return material && creationStudioIntent && { basket: creationBasket, intent: creationStudioIntent?.mode, channel: material.channelIds[0], saved: material.marks.saved,
+    // 改写意图由写作台读取后即删除，这里以已选素材换成这一条作为完成标志；写作台切换模式在后面单独检查。
+    return material && creationBasket?.[0] === material.id && { basket: creationBasket, channel: material.channelIds[0], saved: material.marks.saved,
       views: material.metrics?.views, text: material.text };
   })()`).catch(() => null), 10000, "点击后素材未入库").catch(error => error.message);
   check("点「改写」后帖子入库（X 手动选入、已收藏）并带入写作台", picked?.channel === "x-pick" && picked.saved === true && picked.views === 250000 &&
-    JSON.stringify(picked.basket) === JSON.stringify(["x:1890000000000000001"]) && picked.intent === "rewrite" && picked.text.startsWith("Agents are"),
+    JSON.stringify(picked.basket) === JSON.stringify(["x:1890000000000000001"]) && picked.text.startsWith("Agents are"),
     JSON.stringify(picked));
   const toast = await waitFor(() => chrome.evaluate(xPage, "document.querySelector('.xrc-post-toast')?.textContent || ''"), 5000, "没有提示")
     .catch(error => error.message);
@@ -242,6 +243,36 @@ try {
   const removed = await waitFor(() => chrome.evaluate(xPage, "document.querySelectorAll('.xrc-post-actions').length === 0"), 5000, "关闭后按钮未移除")
     .catch(error => error.message);
   check("在弹窗关闭后按钮立即移除", removed === true, removed);
+
+  // 写作台改写模式：从 X 点「改写」后自动切到改写；英文原文提示本地化；生成后保存的草稿记录改写风格。
+  const rewriteMode = await waitFor(() => chrome.evaluate(studio, `(() => {
+    const selected = document.querySelector("#compose-modes [aria-selected=true]")?.dataset.mode;
+    const materials = document.querySelectorAll("#materials .material").length;
+    return selected === "rewrite" && materials === 1 && { hint: document.getElementById("rewrite-hint").textContent,
+      styleVisible: !document.getElementById("rewrite-style").hidden, status: document.getElementById("status").textContent };
+  })()`).catch(() => null), 10000, "写作台没有切到改写模式").catch(error => error.message);
+  check("从 X 点「改写」后写作台切到改写模式，英文原文提示本地化", rewriteMode?.styleVisible && rewriteMode.hint.includes("本地化") &&
+    rewriteMode.status.includes("已带入 X 帖子"), JSON.stringify(rewriteMode));
+  await chrome.evaluate(studio, `(() => {
+    window.confirm = () => true; // 检查进程内替换确认框，页面原有候选会被替换
+    const style = document.getElementById("rewrite-style");
+    style.value = "hook"; style.dispatchEvent(new Event("change"));
+    document.getElementById("write").click();
+  })()`);
+  const rewritten = await waitFor(() => chrome.evaluate(studio, `(() => {
+    const tabs = document.querySelectorAll("#candidates button");
+    return tabs.length === 3 && document.getElementById("editor").value.startsWith("黄仁勋") &&
+      { originalityHidden: document.getElementById("originality").hidden };
+  })()`).catch(() => null), 15000, "改写候选未出现").catch(error => error.message);
+  const rewriteRequest = mockModel.requests.at(-1)?.messages[0].content || "";
+  check("改写出 3 个候选：提示词含风格、原创约束与本地化，跨语言不算重合度", rewritten?.originalityHidden === true &&
+    rewriteRequest.includes("风格「钩子开头」") && rewriteRequest.includes("不是同义词替换") && rewriteRequest.includes("地道的中文"),
+    JSON.stringify(rewritten));
+  await chrome.evaluate(studio, "document.getElementById('save-draft').click()");
+  const rewriteDraft = await waitFor(() => chrome.evaluate(worker,
+    "XReplyMaterialDB.create().drafts().then(list => list.find(draft => draft.rewrite)?.rewrite?.style || '')"), 5000, "改写草稿未保存")
+    .catch(error => error.message);
+  check("保存的改写草稿记录改写风格（复盘按“改写 · 风格”分组）", rewriteDraft === "hook", rewriteDraft);
 } finally {
   await chrome.stop();
   mockModel.server.close();

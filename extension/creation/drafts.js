@@ -5,6 +5,7 @@
   const format = globalThis.XReplyFormat;
   const { AngleType } = globalThis.XReplyAngleModel;
   const { PostFormat } = globalThis.XReplyDraftModel;
+  const { RewriteStyle } = globalThis.XReplyRewriteModel;
   const xText = globalThis.XReplyXText;
   const record = globalThis.XReplyDraftRecord;
   const { DraftStatus } = record;
@@ -52,7 +53,12 @@
   }
 
   const publishText = draft => draft.quoteUrl ? `${draft.text.trimEnd()}\n${draft.quoteUrl}` : draft.text;
-  const angleLabel = type => type === review.NO_ANGLE ? "未选角度" : AngleType.from(type)?.label || type;
+  /** 复盘分组名：角度类型、“改写 · 风格”或未选角度。 */
+  function approachLabel(key) {
+    if (key === review.NO_ANGLE) return "未选角度";
+    if (key.startsWith(review.REWRITE_PREFIX)) return `改写 · ${RewriteStyle.from(key.slice(review.REWRITE_PREFIX.length))?.label || "未知风格"}`;
+    return AngleType.from(key)?.label || key;
+  }
   const formatLabel = id => PostFormat.from(id)?.label || id;
 
   /** 先落盘该草稿未保存的输入，再取最新版本（渲染时的闭包可能已过期）。 */
@@ -111,7 +117,7 @@
         return row;
       }));
     };
-    fill($("by-angle"), summary.byAngle, angleLabel);
+    fill($("by-angle"), summary.byAngle, approachLabel);
     fill($("by-format"), summary.byFormat, formatLabel);
   }
 
@@ -139,7 +145,8 @@
   function renderHead(node, draft) {
     const status = DraftStatus.from(draft.status);
     const parts = [element("span", status.label, `badge status-${status.id}`), element("span", formatLabel(draft.format), "badge")];
-    if (draft.angle) parts.push(element("span", `${angleLabel(draft.angle.type)} · ${draft.angle.hook}`, "badge"));
+    if (draft.angle) parts.push(element("span", `${approachLabel(draft.angle.type)} · ${draft.angle.hook}`, "badge"));
+    else if (draft.rewrite) parts.push(element("span", approachLabel(review.approachOf(draft)), "badge"));
     if (draft.origin === "legacy") parts.push(element("span", "旧版迁移", "badge"));
     parts.push(element("span", `更新于 ${format.time(draft.updatedAt)}`));
     node.querySelector(".draft-head").replaceChildren(...parts);

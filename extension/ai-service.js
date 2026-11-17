@@ -42,9 +42,11 @@
   const STUDIO_TIMEOUT = 90000;
   const STUDIO_OUTPUT_LIMIT = 12000;
   const STUDIO_TEMPERATURE = 0.9;
+  /** 写作台任务 → 提示词构建；每个任务用哪个步骤的 API 见 XReplyAIConfig.creationTasks。 */
   const studioBuilders = {
     angles: input => globalThis.XReplyAngleModel.buildRequest(input),
-    drafts: input => globalThis.XReplyDraftModel.buildRequest(input)
+    drafts: input => globalThis.XReplyDraftModel.buildRequest(input),
+    rewrite: input => globalThis.XReplyRewriteModel.buildRequest(input)
   };
   const outputError = (code,message) => Object.assign(new Error(message),{code});
   const ASSISTANT_HEADER = /<\|im_start\|>assistant(?=\s|$)|<\|start_header_id\|>assistant<\|end_header_id\|>/gi;
@@ -273,7 +275,7 @@
           return {id:step.id,label:step.label,name:profile.name,model:profile.model,configured,origin,
             permitted:configured && await chrome.permissions.contains({origins:[origin]})};
         }));
-        return {ok:true,steps};
+        return {ok:true,steps,tasks:config.creationTasks};
       }
       if (message.type === "AI_CONFIG_GET" || message.type === "AI_CONFIG_SAVE") {
         if (!settingsPage(sender)) return {ok:false,error:"仅设置页可以操作 AI 配置。"};
@@ -294,9 +296,9 @@
       let studio;
       if (message.type === "AI_REQUEST" && message.kind === "studio") {
         if (!studioPage(sender)) return {ok:false,error:"仅写作台可以发起创作请求。"};
-        const build = Object.hasOwn(studioBuilders,message.step) ? studioBuilders[message.step] : null;
-        if (!build) return {ok:false,error:"未知的创作步骤。"};
-        try { studio={...build(message.input),step:message.step}; }
+        const build = Object.hasOwn(studioBuilders,message.task) ? studioBuilders[message.task] : null;
+        if (!build) return {ok:false,error:"未知的创作任务。"};
+        try { studio={...build(message.input),task:message.task,step:config.creationTasks[message.task]}; }
         catch(error) {return {ok:false,error:error.message};}
       }
       const context = (message.kind === "generate" || polishing) && message.context && typeof message.context === "object" ?

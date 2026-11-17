@@ -3,6 +3,8 @@
 (() => {
   "use strict";
 
+  const { similarity } = globalThis.XReplyTextSimilarity;
+
   const INTENT_BASE = "https://x.com/intent/post";
   const COMPOSE_URL = "https://x.com/compose/post";
   /** 预填链接的最大长度；超过时只打开空白发帖页，正文走剪贴板。 */
@@ -31,32 +33,6 @@
       `已打开 X 发帖页并预填正文${copied ? "（也已复制）" : ""}。` :
       copied ? "正文太长无法预填，已复制正文并打开发帖页，请粘贴。" : "正文太长无法预填，复制也失败了，请回到本页手动复制正文。";
     return { prefilled: intent.prefilled, copied, message };
-  }
-
-  /** 匹配用的正文：去链接、空白、标点，统一大小写，只留文字和数字。 */
-  function normalizeForMatch(text) {
-    return String(text ?? "").normalize("NFKC").replace(/https?:\/\/\S+/gi, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-  }
-
-  function bigrams(text) {
-    const counts = new Map();
-    for (let index = 0; index < text.length - 1; index++) {
-      const gram = text.slice(index, index + 2);
-      counts.set(gram, (counts.get(gram) || 0) + 1);
-    }
-    return counts;
-  }
-
-  /** Dice 系数（按双字计数），0～1；完全相同为 1。 */
-  function similarity(a, b) {
-    const left = normalizeForMatch(a), right = normalizeForMatch(b);
-    if (!left || !right) return 0;
-    if (left === right) return 1;
-    if (left.length < 2 || right.length < 2) return 0;
-    const leftGrams = bigrams(left), rightGrams = bigrams(right);
-    let shared = 0;
-    for (const [gram, count] of leftGrams) shared += Math.min(count, rightGrams.get(gram) || 0);
-    return (2 * shared) / (left.length - 1 + right.length - 1);
   }
 
   /** 素材库里的帖子 id 形如 x:123，取出帖子编号。 */
@@ -95,5 +71,5 @@
     });
   }
 
-  globalThis.XReplyPublishLink = Object.freeze({ intentUrl, openCompose, similarity, findMatches, postIdOf, MATCH_THRESHOLD, INTENT_URL_LIMIT });
+  globalThis.XReplyPublishLink = Object.freeze({ intentUrl, openCompose, findMatches, postIdOf, MATCH_THRESHOLD, INTENT_URL_LIMIT });
 })();

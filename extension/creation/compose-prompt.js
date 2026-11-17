@@ -113,6 +113,36 @@
     return `<reference ${attributes.join(" ")}>${xml(item.text)}</reference>`;
   }
 
+  /** 写 X 帖子共用的规则：首屏、标签、语气。 */
+  const X_POST_RULES = [
+    "X 时间线只显示前约 140 个汉字（280 加权字符），钩子和核心信息必须放在这之前。",
+    "话题标签最多 1 个，不堆 emoji，不用“家人们”“震惊”这类营销腔。"
+  ].join("\n");
+
+  const SAMPLE_LIMITS = Object.freeze({ count: 5, text: 600 });
+
+  /** 样本：最多 5 条，每条截到 600 字。 */
+  function checkSamples(samples) {
+    if (samples === undefined) return [];
+    if (!Array.isArray(samples) || samples.length > SAMPLE_LIMITS.count) throw new Error(`样本最多 ${SAMPLE_LIMITS.count} 条。`);
+    return samples.filter(text => typeof text === "string" && text.trim()).map(text => text.trim().slice(0, SAMPLE_LIMITS.text));
+  }
+
+  const INSTRUCTIONS_LIMIT = 500;
+
+  function checkInstructions(value) {
+    if (value === undefined) return "";
+    if (typeof value !== "string" || value.length > INSTRUCTIONS_LIMIT) throw new Error(`附加要求最多 ${INSTRUCTIONS_LIMIT} 字。`);
+    return value.trim();
+  }
+
+  const SAMPLES_HINT = "<samples> 是我过去表现好的帖子，只学习语气、节奏和排版，不照搬内容和观点。";
+  const samplesXml = samples => samples.length ? ["<samples>", ...samples.map(text => `<sample>${xml(text)}</sample>`), "</samples>"] : [];
+
+  /** 候选稿的输出格式（成稿与改写共用，结果用同一个解析器）。 */
+  const candidatesOutput = count =>
+    `只输出 <reply>{"drafts":[{"hook_style":"","text":""}]}</reply>，drafts 恰好 ${count} 条，hook_style 用几个字说明开头手法，text 是完整正文；reply 内是合法 JSON，不要输出其他内容。`;
+
   const nowLine = now => `当前时间：${new Date(now).toISOString()}（UTC）。`;
 
   const STALE_AFTER = 48 * 60 * 60 * 1000;
@@ -169,6 +199,7 @@
   globalThis.XReplyComposePrompt = Object.freeze({
     LIMITS, SHARED_RULES, xml, toPromptMaterial, toPromptReference,
     checkMaterials, checkReferences, checkPersona, materialXml, referenceXml, nowLine, materialWarnings,
+    X_POST_RULES, SAMPLE_LIMITS, INSTRUCTIONS_LIMIT, SAMPLES_HINT, checkSamples, checkInstructions, samplesXml, candidatesOutput,
     extractJson, stringList, indexList
   });
 })();

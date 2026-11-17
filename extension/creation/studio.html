@@ -27,7 +27,7 @@
     <header class="topbar">
       <div>
         <h1>写作台</h1>
-        <p class="muted">选题 → 角度 → 3 个候选 → 编辑 → 去 X 发布。发布仍由你在 X 上点。</p>
+        <p class="muted">选题或在 X 上点「改写」→ 角度或改写风格 → 3 个候选 → 编辑 → 去 X 发布。发布仍由你在 X 上点。</p>
       </div>
     </header>
     <p id="status" class="status" role="status"></p>
@@ -79,17 +79,25 @@
             <h2 id="drafts-title">成稿</h2>
             <span class="model" data-step="drafts"></span>
           </header>
+          <div id="compose-modes" class="modes" role="tablist" aria-label="写法">
+            <button type="button" role="tab" data-mode="angle">按角度写</button>
+            <button type="button" role="tab" data-mode="rewrite">改写原帖</button>
+          </div>
           <div class="draft-controls">
+            <select id="rewrite-style" aria-label="改写风格" data-mode-only="rewrite"></select>
+            <select id="rewrite-length" aria-label="改写长度" data-mode-only="rewrite"></select>
             <select id="format" aria-label="帖子形态"></select>
             <input id="instructions" maxlength="500" placeholder="本次附加要求（可选），例如：结尾抛一个问题">
             <button type="button" id="write" class="primary">生成 3 个候选</button>
             <button type="button" id="cancel" hidden>取消</button>
           </div>
+          <p id="rewrite-hint" class="muted" data-mode-only="rewrite"></p>
           <p id="angle-chip" class="angle-chip" hidden><span></span><button type="button" id="angle-clear">不用角度</button></p>
           <div id="candidates" class="candidates" role="tablist" aria-label="候选稿"></div>
           <div id="editor-area" hidden>
             <textarea id="editor" rows="10" aria-label="正文编辑"></textarea>
             <p id="meter" class="meter" role="status"></p>
+            <p id="originality" class="originality" hidden></p>
             <p id="quote-target" class="muted" hidden></p>
             <div id="fold-preview" class="fold-preview" aria-label="首屏预览"></div>
             <div class="row">
@@ -123,8 +131,10 @@
   <script src="compose-prompt.js"></script>
   <script src="angle-model.js"></script>
   <script src="draft-model.js"></script>
+  <script src="rewrite-model.js"></script>
   <script src="x-text.js"></script>
   <script src="draft-record.js"></script>
+  <script src="text-similarity.js"></script>
   <script src="publish-link.js"></script>
   <script src="review-model.js"></script>
   <script src="drafts-store.js"></script>

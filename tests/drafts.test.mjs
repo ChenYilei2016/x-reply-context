@@ -4,10 +4,10 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 
 const scope = vm.createContext({URL, crypto});
-for (const file of ['draft-record.js', 'publish-link.js', 'review-model.js']) {
+for (const file of ['text-similarity.js', 'draft-record.js', 'publish-link.js', 'review-model.js']) {
   vm.runInContext(await readFile(new URL(`../extension/creation/${file}`, import.meta.url), 'utf8'), scope);
 }
-const {XReplyDraftRecord: record, XReplyPublishLink: publish, XReplyReviewModel: review} = scope;
+const {XReplyDraftRecord: record, XReplyPublishLink: publish, XReplyReviewModel: review, XReplyTextSimilarity: text} = scope;
 const {DraftStatus} = record;
 const HOUR = 3600_000;
 const NOW = Date.parse('2026-11-17T04:00:00Z');
@@ -29,6 +29,8 @@ test('状态流转：保存 → 打开发帖页 → 关联 → 撤销；已发�
   const created = draft();
   assert.equal(created.status, 'draft');
   assert.equal(created.angle.type, 'contrarian');
+  assert.equal(created.rewrite, null);
+  assert.deepEqual(plain(record.create({text: '改写稿', rewrite: {style: 'hook'}}, NOW, 'd:r').rewrite), {style: 'hook'});
   const edited = record.withText(created, '改过的正文', NOW + 1);
   assert.equal(edited.updatedAt, NOW + 1);
   const pending = record.markPending(edited, NOW + 2);
@@ -74,10 +76,17 @@ test('预填链接：正文编码进 intent；过长时退回空白发帖页', (
 });
 
 test('正文相似度：忽略链接、空白和标点；不同内容相似度低', () => {
-  assert.equal(publish.similarity('黄仁勋辞任 CEO，但他没离开英伟达。', '黄仁勋辞任CEO 但他没离开英伟达 https://t.co/abc'), 1);
-  assert.ok(publish.similarity('黄仁勋辞任 CEO，但他没离开英伟达。今天聊聊接班', '黄仁勋辞任 CEO，但他没有离开英伟达。今天聊聊接班') >= publish.MATCH_THRESHOLD);
-  assert.ok(publish.similarity('黄仁勋辞任 CEO', '苹果发布新手机') < 0.2);
-  assert.equal(publish.similarity('', 'a'), 0);
+  assert.equal(text.similarity('黄仁勋辞任 CEO，但他没离开英伟达。', '黄仁勋辞任CEO 但他没离开英伟达 https://t.co/abc'), 1);
+  assert.ok(text.similarity('黄仁勋辞任 CEO，但他没离开英伟达。今天聊聊接班', '黄仁勋辞任 CEO，但他没有离开英伟达。今天聊聊接班') >= publish.MATCH_THRESHOLD);
+  assert.ok(text.similarity('黄仁勋辞任 CEO', '苹果发布新手机') < 0.2);
+  assert.equal(text.similarity('', 'a'), 0);
+});
+
+test('包含度：改写稿照搬原文的比例，不受原文长短影响', () => {
+  const source = '英伟达今日公告，创始人黄仁勋将卸任首席执行官，转任董事长，继续负责公司战略与关键客户关系。'.repeat(3);
+  assert.equal(text.containment('创始人黄仁勋将卸任首席执行官', source), 1);
+  assert.ok(text.containment('皮衣教主交棒了，但方向盘还在他手里', source) < 0.15);
+  assert.equal(text.containment('a', source), 0);
 });
 
 test('自动关联：只匹配自己的帖子、等待中的草稿和时间窗内的帖子，每条只配一次', () => {
@@ -119,15 +128,16 @@ test('复盘统计：按角度和形态分组，没有数据的计篇数不计�
     return views === null ? base : {...base, metrics: {views, likes: views / 100}};
   };
   const drafts = [make('d:11', 'contrarian', 'short_opinion', 10000), make('d:12', 'contrarian', 'quote', 2000),
-    make('d:13', null, 'short_opinion', null), make('d:14', 'roast', 'short_opinion', 30000), draft({id: 'd:15'})];
+    make('d:13', null, 'short_opinion', null), make('d:14', 'roast', 'short_opinion', 30000), draft({id: 'd:15'}),
+    {...make('d:16', null, 'short_opinion', 4000), rewrite: {style: 'hook'}}];
   const summary = review.summarize(drafts);
-  assert.equal(summary.published, 4);
-  assert.equal(summary.measured, 3);
-  assert.equal(summary.avgViews, 14000);
+  assert.equal(summary.published, 5);
+  assert.equal(summary.measured, 4);
+  assert.equal(summary.avgViews, 11500);
   assert.deepEqual(plain(summary.byAngle.map(group => [group.key, group.count, group.avgViews, group.bestViews])),
-    [['roast', 1, 30000, 30000], ['contrarian', 2, 6000, 10000], ['none', 1, null, null]]);
-  assert.deepEqual(plain(summary.byFormat.map(group => [group.key, group.count, group.measured])), [['short_opinion', 3, 2], ['quote', 1, 1]]);
+    [['roast', 1, 30000, 30000], ['contrarian', 2, 6000, 10000], ['rewrite:hook', 1, 4000, 4000], ['none', 1, null, null]]);
+  assert.deepEqual(plain(summary.byFormat.map(group => [group.key, group.count, group.measured])), [['short_opinion', 4, 3], ['quote', 1, 1]]);
   const samples = review.asOwnPosts(drafts);
-  assert.deepEqual(plain(samples.map(post => [post.id, post.metrics.views])), [['x:11', 10000], ['x:12', 2000], ['x:14', 30000]]);
+  assert.deepEqual(plain(samples.map(post => [post.id, post.metrics.views])), [['x:11', 10000], ['x:12', 2000], ['x:14', 30000], ['x:16', 4000]]);
   assert.equal(samples[0].own, true);
 });

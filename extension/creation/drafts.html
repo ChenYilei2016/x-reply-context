@@ -37,7 +37,7 @@
       <h2 id="review-title">复盘</h2>
       <div id="tiles" class="tiles"></div>
       <div class="tables">
-        <table id="by-angle"><caption>按角度</caption><thead><tr><th>角度</th><th>篇数</th><th>平均浏览</th><th>平均点赞</th><th>最高浏览</th></tr></thead><tbody></tbody></table>
+        <table id="by-angle"><caption>按角度与改写风格</caption><thead><tr><th>写法</th><th>篇数</th><th>平均浏览</th><th>平均点赞</th><th>最高浏览</th></tr></thead><tbody></tbody></table>
         <table id="by-format"><caption>按形态</caption><thead><tr><th>形态</th><th>篇数</th><th>平均浏览</th><th>平均点赞</th><th>最高浏览</th></tr></thead><tbody></tbody></table>
       </div>
       <p class="muted">数据优先用 bot feed 中你自己帖子（<code>own: true</code>）的数字，没有时用手动录入。没有数据的帖子计入篇数，不计入平均。已发且有浏览数据的帖子会自动作为写作台的样本候选。</p>
@@ -66,8 +66,10 @@
   <script src="compose-prompt.js"></script>
   <script src="angle-model.js"></script>
   <script src="draft-model.js"></script>
+  <script src="rewrite-model.js"></script>
   <script src="x-text.js"></script>
   <script src="draft-record.js"></script>
+  <script src="text-similarity.js"></script>
   <script src="publish-link.js"></script>
   <script src="review-model.js"></script>
   <script src="drafts-store.js"></script>

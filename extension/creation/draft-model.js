@@ -8,8 +8,7 @@
   const DAY = 24 * 60 * 60 * 1000;
   const CANDIDATE_COUNT = 3;
   const DRAFT_TEXT_LIMIT = 4000;
-  const INSTRUCTIONS_LIMIT = 500;
-  const SAMPLE_LIMITS = Object.freeze({ count: 5, text: 600, ownWindow: 60 * DAY });
+  const SAMPLE_LIMITS = Object.freeze({ ...prompt.SAMPLE_LIMITS, ownWindow: 60 * DAY });
 
   /** 默认人设：只写账号定位，不含任何个人信息；用户可在工作台修改。 */
   const DEFAULT_PERSONA = [
@@ -71,18 +70,6 @@
     return { type, hook, outline: prompt.stringList(angle.outline, 4, 120) };
   }
 
-  function checkSamples(samples) {
-    if (samples === undefined) return [];
-    if (!Array.isArray(samples) || samples.length > SAMPLE_LIMITS.count) throw new Error(`样本最多 ${SAMPLE_LIMITS.count} 条。`);
-    return samples.filter(text => typeof text === "string" && text.trim()).map(text => text.trim().slice(0, SAMPLE_LIMITS.text));
-  }
-
-  function checkInstructions(value) {
-    if (value === undefined) return "";
-    if (typeof value !== "string" || value.length > INSTRUCTIONS_LIMIT) throw new Error(`附加要求最多 ${INSTRUCTIONS_LIMIT} 字。`);
-    return value.trim();
-  }
-
   function angleLines(angle) {
     if (!angle) return [];
     return [
@@ -91,9 +78,6 @@
       "按这个角度写，钩子可以改写得更有力。"
     ];
   }
-
-  const outputFormat = () =>
-    `只输出 <reply>{"drafts":[{"hook_style":"","text":""}]}</reply>，drafts 恰好 ${CANDIDATE_COUNT} 条，hook_style 用几个字说明开头手法，text 是完整正文；reply 内是合法 JSON，不要输出其他内容。`;
 
   /**
    * 构建成稿请求（后台调用，输入来自页面，需要校验）。
@@ -105,23 +89,20 @@
     if (!format) throw new Error("请选择帖子形态。");
     const persona = prompt.checkPersona(input.persona);
     const angle = checkAngle(input.angle);
-    const samples = checkSamples(input.samples);
-    const instructions = checkInstructions(input.instructions);
+    const samples = prompt.checkSamples(input.samples);
+    const instructions = prompt.checkInstructions(input.instructions);
     const task = [
       `任务：根据 <materials> 写 ${CANDIDATE_COUNT} 条可以直接发在 X 上的「${format.label}」候选，每条约 ${format.min}～${format.max} 字。`,
       format.guide,
       `${CANDIDATE_COUNT} 条的开头要用不同手法（例如提问、反差、数字、场景），正文不要互相复制。`,
       ...angleLines(angle),
-      "X 时间线只显示前约 140 个汉字（280 加权字符），钩子和核心信息必须放在这之前。",
-      "话题标签最多 1 个，不堆 emoji，不用“家人们”“震惊”这类营销腔。",
-      ...(samples.length ? ["<samples> 是我过去表现好的帖子，只学习语气、节奏和排版，不照搬内容和观点。"] : []),
+      prompt.X_POST_RULES,
+      ...(samples.length ? [prompt.SAMPLES_HINT] : []),
       ...(instructions ? [`本次要求：${instructions}`] : [])
     ].join("\n");
-    const content = ["<materials>", ...materials.map(prompt.materialXml), "</materials>"];
-    if (samples.length) content.push("<samples>", ...samples.map(text => `<sample>${prompt.xml(text)}</sample>`), "</samples>");
     return {
-      prompt: [prompt.nowLine(now), persona, task, prompt.SHARED_RULES, outputFormat()].join("\n\n"),
-      content: content.join("\n")
+      prompt: [prompt.nowLine(now), persona, task, prompt.SHARED_RULES, prompt.candidatesOutput(CANDIDATE_COUNT)].join("\n\n"),
+      content: ["<materials>", ...materials.map(prompt.materialXml), "</materials>", ...prompt.samplesXml(samples)].join("\n")
     };
   }
 
@@ -152,6 +133,6 @@
   }
 
   globalThis.XReplyDraftModel = Object.freeze({
-    PostFormat, DEFAULT_PERSONA, CANDIDATE_COUNT, SAMPLE_LIMITS, INSTRUCTIONS_LIMIT, selectSamples, buildRequest, parse
+    PostFormat, DEFAULT_PERSONA, CANDIDATE_COUNT, SAMPLE_LIMITS, selectSamples, buildRequest, parse
   });
 })();

@@ -44,6 +44,8 @@
     Object.freeze({id:"angles",label:"找角度"}),
     Object.freeze({id:"drafts",label:"成稿"})
   ]);
+  /** 写作台的任务及其使用哪个步骤的 API：改写与成稿共用「成稿」。 */
+  const creationTasks = Object.freeze({angles:"angles",drafts:"drafts",rewrite:"drafts"});
   /** 只保留仍然存在的配置编号；配置被删除后该步骤回到“跟随当前配置”。 */
   function creationProfileIds(raw,profiles) {
     return Object.fromEntries(creationSteps.map(step=>{
@@ -113,5 +115,5 @@
     return [...new Set(profiles.map(profile=>originPattern(endpoint(profile.baseUrl))))];
   }
   globalThis.XReplyAIConfig = { isOpenAI,defaults,endpoint,normalize,normalizeProfiles,activeConfig,openAIPreset,originPattern,polishProfile,requiredOrigins,
-    creationSteps,creationProfile };
+    creationSteps,creationTasks,creationProfile };
 })();

@@ -6,6 +6,10 @@
   const FIRST_DAY = 24 * HOUR;
   const METRIC_FIELDS = Object.freeze(["views", "likes", "reposts", "replies"]);
   const NO_ANGLE = "none";
+  const REWRITE_PREFIX = "rewrite:";
+
+  /** 复盘分组：按角度写的用角度类型，改写的用“rewrite:风格”，都没有的归入未选角度。 */
+  const approachOf = draft => draft.angle?.type || (draft.rewrite ? `${REWRITE_PREFIX}${draft.rewrite.style}` : NO_ANGLE);
 
   const MetricsOrigin = Object.freeze({
     FEED: Object.freeze({ id: "feed", label: "bot 汇报" }),
@@ -67,14 +71,14 @@
 
   /**
    * 按角度类型和帖子形态统计已发草稿。没有数据的帖子计入篇数，不计入平均值。
-   * @returns {{ published, measured, avgViews, byAngle, byFormat }} 分组的 key 为角度类型 id（未选角度为 "none"）和形态 id
+   * @returns {{ published, measured, avgViews, byAngle, byFormat }} byAngle 的 key 见 approachOf，byFormat 的 key 为形态 id
    */
   function summarize(drafts) {
     const entries = drafts.filter(draft => draft.status === "published").map(draft => ({ draft, metrics: effectiveMetrics(draft) }));
     const views = entries.map(entry => entry.metrics?.views).filter(Number.isFinite);
     return {
       published: entries.length, measured: views.length, avgViews: average(views),
-      byAngle: groupStats(entries, draft => draft.angle?.type || NO_ANGLE),
+      byAngle: groupStats(entries, approachOf),
       byFormat: groupStats(entries, draft => draft.format)
     };
   }
@@ -87,5 +91,5 @@
     }));
   }
 
-  globalThis.XReplyReviewModel = Object.freeze({ MetricsOrigin, NO_ANGLE, firstDayViews, refresh, effectiveMetrics, summarize, asOwnPosts });
+  globalThis.XReplyReviewModel = Object.freeze({ MetricsOrigin, NO_ANGLE, REWRITE_PREFIX, approachOf, firstDayViews, refresh, effectiveMetrics, summarize, asOwnPosts });
 })();

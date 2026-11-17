@@ -6,6 +6,8 @@
   const BASKET_KEY = "creationBasket";
   const PROFILE_KEY = "creationStudioProfile";
   const SESSION_KEY = "creationStudioSession";
+  /** 从 X 页面点「改写」时后台写入的一次性意图：写作台读取后删除。 */
+  const INTENT_KEY = "creationStudioIntent";
 
   const HOUR = 60 * 60 * 1000;
   const DAY = 24 * HOUR;
@@ -102,9 +104,21 @@
       if (area === "local" && changes[BASKET_KEY]) listener();
     });
 
+    /** 取出并删除待处理的意图（例如切到改写模式）；没有时返回 null。 */
+    async function takeIntent() {
+      const intent = (await storage.get(INTENT_KEY))[INTENT_KEY];
+      if (!intent) return null;
+      await storage.remove(INTENT_KEY);
+      return intent;
+    }
+
+    const onIntent = listener => chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === "local" && changes[INTENT_KEY]?.newValue) listener();
+    });
+
     return {
       basketIds, saveBasket, basketMaterials, referencePosts, ownPosts, markUsed,
-      profile, saveProfile, session, saveSession, onBasketChanged,
+      profile, saveProfile, session, saveSession, onBasketChanged, takeIntent, onIntent,
       MANUAL_SAMPLE_LIMIT
     };
   }
