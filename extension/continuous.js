@@ -95,10 +95,21 @@
       return document.querySelector(s.feed === "notifications" ? columnSelector : PRIMARY_COLUMN);
     }
 
+    function homeTabs(primary) {
+      const tablist = primary?.querySelector('[role="tablist"]') || primary;
+      return Array.from(tablist?.querySelectorAll('[role="tab"]') || []);
+    }
+
     function selectedHomeTab(primary) {
-      const tabs = Array.from(primary?.querySelectorAll('[role="tab"]') || []);
-      const index = tabs.findIndex(tab => tab.getAttribute("aria-selected") === "true");
-      return index === 0 || index === 1 ? index : -1;
+      return homeTabs(primary).findIndex(tab => tab.getAttribute("aria-selected") === "true");
+    }
+
+    function homeTabLabel(tab) {
+      return (tab?.textContent || "").replace(/\s+/g," ").trim();
+    }
+
+    function homeTabKey(tab) {
+      return tabPath(tab) || homeTabLabel(tab);
     }
 
     function tabPath(tab) {
@@ -299,9 +310,10 @@
       }
       if (s.feed === "home") {
         if (!/^\/(?:home|compose)(?:\/|$)/.test(location.pathname)) return false;
-        const tabs = [...column.querySelectorAll('[role="tab"]')];
+        const tabs = homeTabs(column);
         const selected = tabs.find(tab => tab.getAttribute("aria-selected") === "true");
-        return tabs.length > 0 && (!selected || selected === tabs[s.homeTabIndex]);
+        const original = tabs[s.homeTabIndex];
+        return Boolean(original && homeTabKey(original) === s.homeTabKey && (!selected || selected === original));
       }
       if (s.feed === "search") {
         if (location.pathname === "/search" || location.pathname.startsWith("/hashtag/")) {
@@ -344,11 +356,14 @@
       const detailId = feed === "detail" ? detailPostId(location.pathname) : "";
       const detailColumn = detailId ? article.closest(PRIMARY_COLUMN) : null;
       if (feed === "detail" && (!detailColumn || composer())) return;
+      const homeTabIndex = feed === "home" ? selectedHomeTab(document.querySelector(PRIMARY_COLUMN)) : -1;
+      const homeTab = homeTabs(document.querySelector(PRIMARY_COLUMN))[homeTabIndex];
+      if (feed === "home" && (!homeTab || !homeTabKey(homeTab))) return;
       if(!restoring)refreshCycle?.cancel();
       finish("",{preserveTimed:restoring});
       const s = session = {
         profile,searchKey:search,detailId,detailColumn,
-        account,feed,homeTabIndex:feed === "home" ? selectedHomeTab(document.querySelector(PRIMARY_COLUMN)) : -1,
+        account,feed,homeTabIndex,homeTabKey:homeTabKey(homeTab),homeTabLabel:homeTabLabel(homeTab),
         handled:new Set(),current:replyTarget(id,article,mountedCards({feed})),phase:detailId ? "opening" : "ready",
         note:NEXT_NOTE,attempt:null
       };
@@ -363,7 +378,7 @@
       if (skipAuthors && !await skipAuthors.ready()) throw new Error("跳过名单暂不可用，请刷新 X 后再试。");
       if (interactionBlocked() || !valid() || session || location.pathname !== "/home") return "paused";
       const primary=document.querySelector(PRIMARY_COLUMN);
-      const tabs=Array.from(primary?.querySelectorAll('[role="tab"]') || []);
+      const tabs=homeTabs(primary);
       if (!tabs.length) return "waiting";
       const selected=selectedHomeTab(primary);
       if (selected!==0) {
@@ -1060,7 +1075,7 @@
         if (aiButton.getAttribute("aria-busy")!==active) aiButton.setAttribute("aria-busy",active);
       }
       const busy = draftBusy(s) || s.current.quickPending === true;
-      const source = s.feed === "home" ? (s.homeTabIndex === 1 ? "正在关注" : "为你推荐") :
+      const source = s.feed === "home" ? s.homeTabLabel :
         FEED_LABELS[s.feed];
       const statusText = `${source ? source+" · " : ""}已处理 ${s.handled.size} 条 · ${phase==="paused" ? (timedReplies?.isPaused?.()?"AI 自动填入已暂停，可手动推荐或继续本轮。":"AI 自动填入已暂停，可点击推荐评论。") : phase ? `AI ${AI_LABELS[phase]}请稍候` : busy ? "回复正在填入，完成后可继续。" : s.note}`;
       const status = bar.querySelector(".xrc-flow-status");
@@ -1198,8 +1213,8 @@
       if(!internalTimedSend && target?.closest('[data-testid="tweetButton"],.xrc-flow-skip'))timedReplies?.stop("已转为手动操作");
       const tab = target?.closest('[role="tab"]');
       if (tab && session?.feed === "home") {
-        const tabs = Array.from(feedColumn(session)?.querySelectorAll('[role="tab"]') || []);
-        if (tabs.includes(tab) && tab !== tabs[session.homeTabIndex]) finish();
+        const tabs = homeTabs(feedColumn(session));
+        if (tabs.includes(tab) && (tab !== tabs[session.homeTabIndex] || homeTabKey(tab) !== session.homeTabKey)) finish();
       }
       if (tab && session?.feed === "search" && feedColumn(session)?.contains(tab) &&
           searchKey(tab.getAttribute("href")) !== session.searchKey) finish();
