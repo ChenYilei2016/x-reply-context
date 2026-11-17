@@ -42,10 +42,11 @@
   /** 创作工作台的步骤：每步可单独指定 API 配置，未指定时跟随当前配置。 */
   const creationSteps = Object.freeze([
     Object.freeze({id:"angles",label:"找角度"}),
-    Object.freeze({id:"drafts",label:"成稿"})
+    Object.freeze({id:"drafts",label:"成稿"}),
+    Object.freeze({id:"styles",label:"拆解风格"})
   ]);
   /** 写作台的任务及其使用哪个步骤的 API：改写与成稿共用「成稿」。 */
-  const creationTasks = Object.freeze({angles:"angles",drafts:"drafts",rewrite:"drafts"});
+  const creationTasks = Object.freeze({angles:"angles",drafts:"drafts",rewrite:"drafts",styles:"styles"});
   /** 只保留仍然存在的配置编号；配置被删除后该步骤回到“跟随当前配置”。 */
   function creationProfileIds(raw,profiles) {
     return Object.fromEntries(creationSteps.map(step=>{

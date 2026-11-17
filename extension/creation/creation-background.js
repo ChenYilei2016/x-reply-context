@@ -97,7 +97,7 @@
 
     /**
      * 用户在 X 上点「改写」或「选入」：帖子写入素材库并收藏（不会被低浏览规则清理）。
-     * 改写：已选素材换成这一条，写作台切到改写模式并打开；选入：加入已选素材（最多 3 条）。
+     * 改写：已选素材换成这一条，写作台切到改写模式并打开；选入：加入已选素材（最多 3 条），已选满时只收藏。
      */
     async function pickPost(message, sender) {
       if (!PICK_ACTIONS.includes(message.action)) throw new Error("未知操作");
@@ -113,8 +113,8 @@
         await openStudio(sender);
         return { basketCount: 1, alreadyPicked };
       }
-      if (alreadyPicked) return { basketCount: basket.length, alreadyPicked };
-      if (basket.length >= BASKET_LIMIT) throw new Error(`已选满 ${BASKET_LIMIT} 条，请先在写作台移出一条。`);
+      // 已选满时只收藏（例如收集同一位博主的帖子用于拆解风格），不挤掉已选素材。
+      if (alreadyPicked || basket.length >= BASKET_LIMIT) return { basketCount: basket.length, alreadyPicked, savedOnly: !alreadyPicked };
       await chrome.storage.local.set({ [BASKET_KEY]: [...basket, material.id] });
       return { basketCount: basket.length + 1, alreadyPicked };
     }

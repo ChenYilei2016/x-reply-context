@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>对标风格 · 回过了</title>
+  <link rel="stylesheet" href="workbench.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="radar.html"><span>✓</span>回过了 · 创作</a>
+    <p class="nav-label">创作</p>
+    <nav aria-label="创作">
+      <a href="radar.html">选题雷达</a>
+      <a href="studio.html">写作台</a>
+      <a href="styles.html" aria-current="page">对标风格</a>
+      <a href="drafts.html">草稿与复盘</a>
+    </nav>
+    <p class="nav-label">设置</p>
+    <nav aria-label="其他页面">
+      <a href="channels.html" target="_blank" rel="noopener">素材渠道 ↗</a>
+      <a href="../ai-settings.html" target="_blank" rel="noopener">AI 设置 ↗</a>
+    </nav>
+  </aside>
+
+  <main class="workspace">
+    <header class="topbar">
+      <div>
+        <h1>对标风格</h1>
+        <p class="muted">选一位博主的 3～10 条帖子，让 AI 拆解出可复用的写法，存成风格模板；写作台改写和成稿时可以套用。</p>
+      </div>
+    </header>
+    <p id="status" class="status" role="status"></p>
+
+    <div class="columns">
+      <section class="panel" aria-labelledby="pick-title">
+        <header class="panel-head">
+          <h2 id="pick-title">选择帖子</h2>
+          <span class="model" data-step="styles"></span>
+        </header>
+        <div id="source-modes" class="modes" role="tablist" aria-label="帖子来源">
+          <button type="button" role="tab" data-source="library">素材库里的博主</button>
+          <button type="button" role="tab" data-source="manual">手动粘贴</button>
+        </div>
+        <div data-source-only="library">
+          <p class="muted">在 X 上对博主的帖子点「选入」就会收进素材库（已选素材满 3 条时只收藏）。这里列出近 90 天素材库里的 X 帖子作者，不含你自己。</p>
+          <select id="author" aria-label="博主"></select>
+          <ol id="posts" class="posts"></ol>
+        </div>
+        <div data-source-only="manual" hidden>
+          <label for="manual-name">博主名称</label>
+          <input id="manual-name" maxlength="60" placeholder="例如：某 AI 效率博主">
+          <label for="manual-posts">帖子正文</label>
+          <textarea id="manual-posts" rows="12" spellcheck="false" placeholder="粘贴 3～10 条帖子，每条之间单独一行写 ---"></textarea>
+        </div>
+        <div class="row">
+          <button type="button" id="distill" class="primary">拆解风格</button>
+          <button type="button" id="cancel" hidden>取消</button>
+          <span id="selection" class="muted"></span>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="templates-title">
+        <header class="panel-head">
+          <h2 id="templates-title">我的风格模板</h2>
+          <span id="template-count" class="muted"></span>
+        </header>
+        <ol id="templates" class="templates"></ol>
+      </section>
+    </div>
+  </main>
+
+  <template id="template-card">
+    <li class="template">
+      <details>
+        <summary><strong class="template-name"></strong> <span class="template-source muted"></span></summary>
+        <div class="template-body">
+          <label>名称<input class="field-name" maxlength="40"></label>
+          <label>定位<textarea class="field-positioning" rows="2" maxlength="200"></textarea></label>
+          <label><span>常写选题 <span class="muted">（每行一条）</span></span><textarea class="field-topics" rows="3"></textarea></label>
+          <label><span>开头手法 <span class="muted">（每行一条）</span></span><textarea class="field-hooks" rows="4"></textarea></label>
+          <ul class="examples"></ul>
+          <label>结构<textarea class="field-structure" rows="2" maxlength="300"></textarea></label>
+          <label>语气用词<textarea class="field-tone" rows="2" maxlength="200"></textarea></label>
+          <label><span>避免 <span class="muted">（每行一条）</span></span><textarea class="field-avoid" rows="3"></textarea></label>
+          <div class="row">
+            <button type="button" class="save primary">保存修改</button>
+            <button type="button" class="remove">删除</button>
+          </div>
+        </div>
+      </details>
+    </li>
+  </template>
+
+  <script src="material-model.js"></script>
+  <script src="material-db.js"></script>
+  <script src="format.js"></script>
+  <script src="text-similarity.js"></script>
+  <script src="compose-prompt.js"></script>
+  <script src="style-model.js"></script>
+  <script src="style-store.js"></script>
+  <script src="model-client.js"></script>
+  <script src="styles.js"></script>
+</body>
+</html>

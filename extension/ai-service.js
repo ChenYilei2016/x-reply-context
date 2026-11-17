@@ -38,7 +38,8 @@
       "这是当前准备回复时的本地时间，不是帖子发布时间。问候语和时段表达以此为准，不要照搬旧帖中过时的问候；无需刻意问候或在回复中复述时间。";
   }
   /** 创作工作台：角度与成稿请求由各自的模型模块构建提示词；输出为 JSON，放宽长度并降低随机性。 */
-  const STUDIO_PAGE = "creation/studio.html";
+  /** 可以发起创作请求的页面：写作台、对标风格。 */
+  const STUDIO_PAGES = Object.freeze(["creation/studio.html","creation/styles.html"]);
   const STUDIO_TIMEOUT = 90000;
   const STUDIO_OUTPUT_LIMIT = 12000;
   const STUDIO_TEMPERATURE = 0.9;
@@ -46,7 +47,8 @@
   const studioBuilders = {
     angles: input => globalThis.XReplyAngleModel.buildRequest(input),
     drafts: input => globalThis.XReplyDraftModel.buildRequest(input),
-    rewrite: input => globalThis.XReplyRewriteModel.buildRequest(input)
+    rewrite: input => globalThis.XReplyRewriteModel.buildRequest(input),
+    styles: input => globalThis.XReplyStyleModel.buildRequest(input)
   };
   const outputError = (code,message) => Object.assign(new Error(message),{code});
   const ASSISTANT_HEADER = /<\|im_start\|>assistant(?=\s|$)|<\|start_header_id\|>assistant<\|end_header_id\|>/gi;
@@ -141,7 +143,7 @@
     const waiting = [], jobs = new Map();
     const owner = sender => `${sender.tab?.id ?? "settings"}:${sender.frameId || 0}:${sender.documentId || sender.url}`;
     const settingsPage = sender => sender.url === chrome.runtime.getURL("ai-settings.html");
-    const studioPage = sender => sender.url === chrome.runtime.getURL(STUDIO_PAGE);
+    const studioPage = sender => STUDIO_PAGES.some(page => sender.url === chrome.runtime.getURL(page));
     const load = () => cached ||= chrome.storage.local.get("aiConfig").then(saved => config.normalizeProfiles(saved.aiConfig)).catch(error => {cached=undefined;throw error;});
     function removeWaiting(job) {
       const index = waiting.indexOf(job);
@@ -266,7 +268,7 @@
           configured:Boolean(saved.baseUrl && saved.apiKey && saved.model)};
       }
       if (message.type === "AI_STUDIO_STATUS") {
-        if (!studioPage(sender)) return {ok:false,error:"仅写作台可以读取创作模型状态。"};
+        if (!studioPage(sender)) return {ok:false,error:"仅写作台和对标风格页可以读取创作模型状态。"};
         const settings=await load();
         const steps=await Promise.all(config.creationSteps.map(async step=>{
           const profile=config.creationProfile(settings,step.id);
@@ -295,7 +297,7 @@
       const polishing = message.kind === "polish";
       let studio;
       if (message.type === "AI_REQUEST" && message.kind === "studio") {
-        if (!studioPage(sender)) return {ok:false,error:"仅写作台可以发起创作请求。"};
+        if (!studioPage(sender)) return {ok:false,error:"仅写作台和对标风格页可以发起创作请求。"};
         const build = Object.hasOwn(studioBuilders,message.task) ? studioBuilders[message.task] : null;
         if (!build) return {ok:false,error:"未知的创作任务。"};
         try { studio={...build(message.input),task:message.task,step:config.creationTasks[message.task]}; }

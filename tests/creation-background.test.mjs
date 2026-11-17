@@ -102,7 +102,7 @@ test('X 页面「改写」：写入素材库并收藏，已选素材换成这一
   assert.equal(chrome.tabs.created.length, 1);
 });
 
-test('X 页面「选入」：追加到已选素材，重复不追加，满 3 条时提示', async () => {
+test('X 页面「选入」：追加到已选素材，重复不追加，满 3 条时只收藏', async () => {
   const {scope, chrome, local} = setup();
   local.creationBasket = ['a'];
   const service = scope.XReplyCreationBackground.create(chrome);
@@ -112,7 +112,9 @@ test('X 页面「选入」：追加到已选素材，重复不追加，满 3 条
   assert.equal(again.alreadyPicked, true);
   assert.equal(again.basketCount, 2);
   assert.equal((await pick('12')).basketCount, 3);
-  await assert.rejects(pick('13'), /已选满 3 条/);
+  const full = await pick('13');
+  assert.equal(full.savedOnly, true);
+  assert.equal(full.basketCount, 3);
   assert.deepEqual([...local.creationBasket], ['a', 'x:11', 'x:12']);
   assert.equal(chrome.tabs.created.length, 0, '选入不打开写作台');
 });

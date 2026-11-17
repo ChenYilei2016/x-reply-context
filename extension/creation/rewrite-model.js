@@ -51,7 +51,7 @@
 
   /**
    * 构建改写请求（后台调用，输入来自页面，需要校验）。
-   * @param input { materials, style, length, format, persona, samples?, instructions? }
+   * @param input { materials, style, length, format, persona, samples?, instructions?, benchmark? }
    */
   function buildRequest(input, now = Date.now()) {
     const materials = prompt.checkMaterials(input?.materials);
@@ -62,6 +62,7 @@
     const persona = prompt.checkPersona(input.persona);
     const samples = prompt.checkSamples(input.samples);
     const instructions = prompt.checkInstructions(input.instructions);
+    const benchmark = prompt.checkBenchmark(input.benchmark);
     const texts = materials.map(item => [item.title, item.text].filter(Boolean).join("\n"));
     const localized = needsLocalization(texts);
     const chars = length.chars ?? sameLengthChars(texts, localized);
@@ -73,6 +74,7 @@
       ...(materials.length > 1 ? [FUSION_RULE] : []),
       ...(localized ? [LOCALIZE_RULE] : []),
       `${CANDIDATE_COUNT} 个候选的开头手法要不同。`,
+      ...prompt.benchmarkLines(benchmark),
       prompt.X_POST_RULES,
       ...(samples.length ? [prompt.SAMPLES_HINT] : []),
       ...(instructions ? [`本次要求：${instructions}`] : [])

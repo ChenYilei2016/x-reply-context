@@ -14,6 +14,7 @@
     <nav aria-label="创作">
       <a href="radar.html">选题雷达</a>
       <a href="studio.html" aria-current="page">写作台</a>
+      <a href="styles.html">对标风格</a>
       <a href="drafts.html">草稿与复盘</a>
     </nav>
     <p class="nav-label">设置</p>
@@ -87,6 +88,7 @@
             <select id="rewrite-style" aria-label="改写风格" data-mode-only="rewrite"></select>
             <select id="rewrite-length" aria-label="改写长度" data-mode-only="rewrite"></select>
             <select id="format" aria-label="帖子形态"></select>
+            <select id="benchmark" aria-label="风格模板"></select>
             <input id="instructions" maxlength="500" placeholder="本次附加要求（可选），例如：结尾抛一个问题">
             <button type="button" id="write" class="primary">生成 3 个候选</button>
             <button type="button" id="cancel" hidden>取消</button>
@@ -138,6 +140,9 @@
   <script src="publish-link.js"></script>
   <script src="review-model.js"></script>
   <script src="drafts-store.js"></script>
+  <script src="style-model.js"></script>
+  <script src="style-store.js"></script>
+  <script src="model-client.js"></script>
   <script src="studio-store.js"></script>
   <script src="studio.js"></script>
 </body>

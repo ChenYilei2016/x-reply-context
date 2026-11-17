@@ -81,7 +81,7 @@
 
   /**
    * 构建成稿请求（后台调用，输入来自页面，需要校验）。
-   * @param input { materials, format, persona, angle?, samples?, instructions? }
+   * @param input { materials, format, persona, angle?, samples?, instructions?, benchmark? }
    */
   function buildRequest(input, now = Date.now()) {
     const materials = prompt.checkMaterials(input?.materials);
@@ -91,11 +91,13 @@
     const angle = checkAngle(input.angle);
     const samples = prompt.checkSamples(input.samples);
     const instructions = prompt.checkInstructions(input.instructions);
+    const benchmark = prompt.checkBenchmark(input.benchmark);
     const task = [
       `任务：根据 <materials> 写 ${CANDIDATE_COUNT} 条可以直接发在 X 上的「${format.label}」候选，每条约 ${format.min}～${format.max} 字。`,
       format.guide,
       `${CANDIDATE_COUNT} 条的开头要用不同手法（例如提问、反差、数字、场景），正文不要互相复制。`,
       ...angleLines(angle),
+      ...prompt.benchmarkLines(benchmark),
       prompt.X_POST_RULES,
       ...(samples.length ? [prompt.SAMPLES_HINT] : []),
       ...(instructions ? [`本次要求：${instructions}`] : [])

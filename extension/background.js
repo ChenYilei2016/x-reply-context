@@ -2,7 +2,7 @@ importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-
 importScripts("creation/material-model.js","creation/material-db.js","creation/feed-parser.js","creation/channel-http.js",
   "creation/channel-registry.js","creation/channels/rss-channels.js","creation/channels/hot-list-channels.js",
   "creation/channels/github-trending.js","creation/channels/bot-feed.js","creation/channel-scheduler.js","creation/creation-background.js",
-  "creation/compose-prompt.js","creation/angle-model.js","creation/draft-model.js","creation/rewrite-model.js","creation/draft-record.js");
+  "creation/compose-prompt.js","creation/angle-model.js","creation/draft-model.js","creation/rewrite-model.js","creation/style-model.js","creation/draft-record.js");
 let aiService;
 let companion;
 let refreshCycle;

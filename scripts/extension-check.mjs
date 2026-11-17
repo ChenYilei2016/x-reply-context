@@ -27,6 +27,8 @@ function startMockModel() {
     { hook_style: "提问", text: "英伟达下一任 CEO 会是谁？" },
     { hook_style: "数字", text: "三十年，一家公司，一件皮衣。" }
   ] };
+  const style = { positioning: "AI 效率博主", topics: ["AI 工具"], hooks: [{ pattern: "先抛反常识结论", example: "模型越强，提示词越该写短" }],
+    structure: "结论 → 理由 → 行动建议", tone: "口语短句", avoid: ["堆砌术语"] };
   const server = http.createServer((request, response) => {
     response.setHeader("Access-Control-Allow-Origin", "*");
     response.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
@@ -36,7 +38,9 @@ function startMockModel() {
     request.on("end", () => {
       const parsed = JSON.parse(body);
       requests.push(parsed);
-      const content = `<reply>${JSON.stringify(parsed.messages[0].content.includes("写作角度") ? angles : drafts)}</reply>`;
+      const system = parsed.messages[0].content;
+      const result = system.includes("写作角度") ? angles : system.includes("拆解 <posts>") ? style : drafts;
+      const content = `<reply>${JSON.stringify(result)}</reply>`;
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }));
     });
@@ -273,6 +277,41 @@ try {
     "XReplyMaterialDB.create().drafts().then(list => list.find(draft => draft.rewrite)?.rewrite?.style || '')"), 5000, "改写草稿未保存")
     .catch(error => error.message);
   check("保存的改写草稿记录改写风格（复盘按“改写 · 风格”分组）", rewriteDraft === "hook", rewriteDraft);
+
+  // 对标风格：素材库里同一博主的 3 条帖子 → 拆解成模板（示例原句可在帖子中找到）→ 写作台套用。
+  await chrome.evaluate(worker, `(async () => {
+    const now = Date.now();
+    const texts = ["AI 不会取代你，但会用 AI 的人会。", "别再收藏提示词了，真正拉开差距的是工作流。", "一个反常识：模型越强，提示词越该写短。"];
+    await XReplyMaterialDB.create().upsertMany(texts.map((text, index) => XReplyMaterialModel.normalize({ id: "x:880" + index, kind: "x_post",
+      url: "https://x.com/bob/status/880" + index, text, author: { handle: "bob", name: "鲍勃" }, metrics: { views: 1000 * (index + 1) } },
+      { channelId: "x-pick", now }).material));
+  })()`);
+  const { targetId: stylesTarget } = await chrome.send("Target.createTarget", { url: `chrome-extension://${id}/creation/styles.html` });
+  const stylesPage = await chrome.attach(target => target.targetId === stylesTarget);
+  const author = await waitFor(() => chrome.evaluate(stylesPage,
+    "document.getElementById('author').value === 'bob' && document.querySelectorAll('#posts input:checked').length >= 3 && !document.getElementById('distill').disabled")
+    .catch(() => false), 10000, "对标风格页没有列出博主").catch(error => error.message);
+  check("对标风格页按博主列出素材库里的帖子并默认勾选", author === true, author);
+  await chrome.evaluate(stylesPage, "document.getElementById('distill').click()");
+  const template = await waitFor(() => chrome.evaluate(stylesPage, `(() => {
+    const card = document.querySelector("#templates .template");
+    return card && { name: card.querySelector(".template-name").textContent, open: card.querySelector("details").open,
+      hooks: card.querySelector(".field-hooks").value, examples: card.querySelector(".examples").textContent };
+  })()`).catch(() => null), 15000, "模板未生成").catch(error => error.message);
+  check("拆解出风格模板，示例原句来自所选帖子", template?.name === "@bob 的风格" && template.open && template.hooks === "先抛反常识结论" &&
+    template.examples.includes("模型越强"), JSON.stringify(template));
+  const benchmarkOption = await waitFor(() => chrome.evaluate(studio,
+    "[...document.getElementById('benchmark').options].find(option => option.textContent.includes('@bob 的风格'))?.value || ''"), 5000, "写作台没有出现模板")
+    .catch(error => error.message);
+  await chrome.evaluate(studio, `(() => {
+    const select = document.getElementById("benchmark");
+    select.value = ${JSON.stringify(benchmarkOption)}; select.dispatchEvent(new Event("change"));
+    document.getElementById("write").click();
+  })()`);
+  await waitFor(() => mockModel.requests.at(-1)?.messages[0].content.includes("参考对标风格") || null, 15000, "套用模板的请求未发出").catch(() => {});
+  const benchmarkRequest = mockModel.requests.at(-1)?.messages[0].content || "";
+  check("写作台选用风格模板后，提示词带上写法规则但不带示例原句", benchmarkRequest.includes("参考对标风格「@bob 的风格」") &&
+    benchmarkRequest.includes("开头手法：先抛反常识结论") && !benchmarkRequest.includes("模型越强"), benchmarkRequest.slice(0, 120));
 } finally {
   await chrome.stop();
   mockModel.server.close();

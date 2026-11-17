@@ -139,6 +139,33 @@
   const SAMPLES_HINT = "<samples> 是我过去表现好的帖子，只学习语气、节奏和排版，不照搬内容和观点。";
   const samplesXml = samples => samples.length ? ["<samples>", ...samples.map(text => `<sample>${xml(text)}</sample>`), "</samples>"] : [];
 
+  /**
+   * 对标风格模板（成稿与改写可选）：校验字段并裁剪，没有时返回 null。
+   * @param raw { name, positioning, topics[], hooks[]（手法句式）, structure, tone, avoid[] }
+   */
+  function checkBenchmark(raw) {
+    if (raw === undefined || raw === null) return null;
+    const name = clip(raw.name, 40);
+    const benchmark = {
+      name, positioning: clip(raw.positioning, 200), topics: stringList(raw.topics, 6, 60), hooks: stringList(raw.hooks, 6, 60),
+      structure: clip(raw.structure, 300), tone: clip(raw.tone, 200), avoid: stringList(raw.avoid, 6, 80)
+    };
+    if (!name || !(benchmark.positioning || benchmark.hooks.length || benchmark.structure || benchmark.tone)) throw new Error("所选风格模板内容为空。");
+    return benchmark;
+  }
+
+  /** 风格模板的提示词：只学写法，不照搬内容；与人设冲突时以人设为准。 */
+  function benchmarkLines(benchmark) {
+    if (!benchmark) return [];
+    const join = items => items.join("；");
+    return [
+      `参考对标风格「${benchmark.name}」，只学写法，不照搬其内容和原句；与我的人设冲突时以人设为准：`,
+      ...[["定位", benchmark.positioning], ["常写选题", join(benchmark.topics)], ["开头手法", join(benchmark.hooks)],
+        ["结构", benchmark.structure], ["语气用词", benchmark.tone], ["避免", join(benchmark.avoid)]]
+        .filter(([, value]) => value).map(([label, value]) => `- ${label}：${value}`)
+    ];
+  }
+
   /** 候选稿的输出格式（成稿与改写共用，结果用同一个解析器）。 */
   const candidatesOutput = count =>
     `只输出 <reply>{"drafts":[{"hook_style":"","text":""}]}</reply>，drafts 恰好 ${count} 条，hook_style 用几个字说明开头手法，text 是完整正文；reply 内是合法 JSON，不要输出其他内容。`;
@@ -199,7 +226,7 @@
   globalThis.XReplyComposePrompt = Object.freeze({
     LIMITS, SHARED_RULES, xml, toPromptMaterial, toPromptReference,
     checkMaterials, checkReferences, checkPersona, materialXml, referenceXml, nowLine, materialWarnings,
-    X_POST_RULES, SAMPLE_LIMITS, INSTRUCTIONS_LIMIT, SAMPLES_HINT, checkSamples, checkInstructions, samplesXml, candidatesOutput,
+    checkBenchmark, benchmarkLines, X_POST_RULES, SAMPLE_LIMITS, INSTRUCTIONS_LIMIT, SAMPLES_HINT, checkSamples, checkInstructions, samplesXml, candidatesOutput,
     extractJson, stringList, indexList
   });
 })();

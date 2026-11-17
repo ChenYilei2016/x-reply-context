@@ -15,6 +15,9 @@
   const db = globalThis.XReplyMaterialDB.create();
   const store = globalThis.XReplyStudioStore.create({ db, cluster: globalThis.XReplyTopicCluster.cluster, draftModel, prompt });
   const drafts = globalThis.XReplyDraftsStore.create({ db });
+  const styleModel = globalThis.XReplyStyleModel;
+  const styleTemplates = globalThis.XReplyStyleStore.create();
+  const ai = globalThis.XReplyModelClient.create({ onChange: () => render(), onError: error => setStatus(error.message, true) });
 
   const SAVE_DELAY = 400;
   const ANGLES_HINT = "模型按 JSON 返回 3～5 个角度，并对照同话题的 X 帖子标出“已有人写”。潜力只看同角度参考帖的真实数据。";
@@ -26,11 +29,10 @@
   const $ = id => document.getElementById(id);
   const state = {
     materialIds: [], materials: [], missing: [], references: [], channelNames: {},
-    profile: null, ownPosts: [], steps: {}, tasks: {},
+    profile: null, ownPosts: [], templates: [], benchmarkId: "",
     angles: [], angleIndex: null, angleMaterialKey: "",
     composeMode: ComposeMode.ANGLE, rewriteStyle: RewriteStyle.DEFAULT.id, rewriteLength: RewriteLength.DEFAULT.id,
-    formatId: PostFormat.DEFAULT.id, instructions: "", candidates: [], candidateIndex: 0,
-    pending: null
+    formatId: PostFormat.DEFAULT.id, instructions: "", candidates: [], candidateIndex: 0
   };
   const timers = {};
 
@@ -80,13 +82,6 @@
     if (status?.ok) for (const channel of [...status.channels, ...status.manualChannels]) state.channelNames[channel.id] = channel.name;
   }
 
-  async function loadModels() {
-    const status = await chrome.runtime.sendMessage({ type: "AI_STUDIO_STATUS" });
-    if (!status?.ok) throw new Error(status?.error || "读取创作模型状态失败");
-    state.steps = Object.fromEntries(status.steps.map(step => [step.id, step]));
-    state.tasks = status.tasks;
-  }
-
   async function loadMaterials() {
     state.materialIds = await store.basketIds();
     const { materials, missing } = await store.basketMaterials(state.materialIds);
@@ -113,6 +108,7 @@
     if (Object.values(ComposeMode).includes(saved.composeMode)) state.composeMode = saved.composeMode;
     if (RewriteStyle.from(saved.rewriteStyle)) state.rewriteStyle = saved.rewriteStyle;
     if (RewriteLength.from(saved.rewriteLength)) state.rewriteLength = saved.rewriteLength;
+    if (typeof saved.benchmarkId === "string") state.benchmarkId = saved.benchmarkId;
     if (typeof saved.instructions === "string") state.instructions = saved.instructions;
     if (Array.isArray(saved.candidates)) {
       state.candidates = saved.candidates.filter(item => typeof item?.text === "string" && typeof item.original === "string");
@@ -122,7 +118,7 @@
 
   const saveSession = () => store.saveSession({
     angles: state.angles, angleMaterialKey: state.angleMaterialKey, angleIndex: state.angleIndex,
-    composeMode: state.composeMode, rewriteStyle: state.rewriteStyle, rewriteLength: state.rewriteLength,
+    composeMode: state.composeMode, rewriteStyle: state.rewriteStyle, rewriteLength: state.rewriteLength, benchmarkId: state.benchmarkId,
     formatId: state.formatId, instructions: state.instructions, candidates: state.candidates, candidateIndex: state.candidateIndex
   });
 
@@ -152,7 +148,7 @@
     const actions = element("div", undefined, "row");
     const remove = element("button", "移出");
     remove.type = "button";
-    remove.disabled = Boolean(state.pending);
+    remove.disabled = Boolean(ai.pending);
     remove.addEventListener("click", () => void removeMaterial(material.id).catch(error => setStatus(error.message, true)));
     actions.append(link("打开原文 ↗", material.url), remove);
     const metrics = materialMetrics(material);
@@ -206,27 +202,6 @@
     $("samples-restore").textContent = `恢复已排除的 ${excluded} 条`;
   }
 
-  // ---------- 渲染：模型状态 ----------
-
-  function renderModels() {
-    for (const container of document.querySelectorAll(".model[data-step]")) {
-      const step = state.steps[container.dataset.step];
-      container.replaceChildren();
-      if (!step) continue;
-      if (!step.configured) {
-        container.append("模型未配置 · ", link("去 AI 设置", "../ai-settings.html"));
-        continue;
-      }
-      container.append(`${step.name} · ${step.model}`);
-      if (!step.permitted) {
-        const authorize = element("button", "授权模型域名", "small");
-        authorize.type = "button";
-        authorize.addEventListener("click", () => void authorize(step).catch(error => setStatus(error.message, true)));
-        container.append(" ", authorize);
-      }
-    }
-  }
-
   // ---------- 渲染：角度 ----------
 
   function potentialText(angle) {
@@ -257,7 +232,7 @@
     node.querySelector(".angle-risk").hidden = !angle.risk;
     node.querySelector(".angle-potential").textContent = potentialText(angle);
     const use = node.querySelector(".use");
-    use.disabled = Boolean(state.pending);
+    use.disabled = Boolean(ai.pending);
     use.addEventListener("click", () => void writeDrafts(index));
     return node;
   }
@@ -267,8 +242,8 @@
     const stale = state.angles.length > 0 && !anglesCurrent();
     $("angles-hint").hidden = state.angles.length > 0 && !stale;
     $("angles-hint").textContent = stale ? STALE_ANGLES_HINT : ANGLES_HINT;
-    $("find-angles").disabled = Boolean(state.pending) || !state.materials.length;
-    $("find-angles").textContent = state.pending?.task === "angles" ? "正在找角度…" : state.angles.length ? "重新找角度" : "找角度";
+    $("find-angles").disabled = Boolean(ai.pending) || !state.materials.length;
+    $("find-angles").textContent = ai.pending?.task === "angles" ? "正在找角度…" : state.angles.length ? "重新找角度" : "找角度";
   }
 
   // ---------- 渲染：成稿与编辑 ----------
@@ -293,11 +268,14 @@
     $("angle-chip").hidden = !angle;
     if (angle) $("angle-chip").firstElementChild.textContent = `角度：${AngleType.from(angle.type).label} · ${angle.hook}`;
     $("format").value = state.formatId;
+    $("benchmark").replaceChildren(new Option("不套用风格模板", ""),
+      ...state.templates.map(template => new Option(`风格：${template.name}`, template.id)));
+    $("benchmark").value = currentBenchmark()?.id || "";
     if (document.activeElement !== $("instructions")) $("instructions").value = state.instructions;
-    $("write").disabled = Boolean(state.pending) || !state.materials.length;
-    const busy = state.pending && state.pending.task !== "angles";
+    $("write").disabled = Boolean(ai.pending) || !state.materials.length;
+    const busy = ai.pending && ai.pending.task !== "angles";
     $("write").textContent = busy ? "正在生成…" : `${state.candidates.length ? "重新" : ""}${rewriting ? "改写出" : "生成"} 3 个候选`;
-    $("cancel").hidden = !state.pending;
+    $("cancel").hidden = !ai.pending;
     $("candidates").replaceChildren(...state.candidates.map((candidate, index) => {
       const close = candidateOriginality(candidate)?.level === OriginalityLevel.from("close");
       const tab = element("button", `候选 ${index + 1}${candidate.hookStyle ? ` · ${candidate.hookStyle}` : ""}${candidate.text !== candidate.original ? " · 已改" : ""}${close ? " · ⚠ 太像原文" : ""}`);
@@ -359,7 +337,7 @@
 
   function render() {
     renderMaterials();
-    renderModels();
+    ai.render();
     renderAngles();
     renderDraftControls();
     renderEditor();
@@ -367,49 +345,13 @@
 
   // ---------- 模型请求 ----------
 
-  async function authorize(step) {
-    if (!await chrome.permissions.request({ origins: [step.origin] })) throw new Error("未授权模型域名。");
-    await loadModels();
-    render();
-    setStatus("已授权。");
-  }
-
-  /** 发起一次创作请求（angles／drafts／rewrite），返回模型文本；被取消时返回 null。 */
-  async function requestModel(task, input) {
-    await loadModels();
-    const step = state.steps[state.tasks[task]];
-    if (!step?.configured) throw new Error(`请先在 AI 设置中为「${step?.label || task}」配置模型。`);
-    if (!step.permitted) throw new Error("模型域名尚未授权，点模型名旁的「授权模型域名」后重试。");
-    const id = crypto.randomUUID();
-    state.pending = { id, task };
-    render();
-    try {
-      const result = await chrome.runtime.sendMessage({ type: "AI_REQUEST", kind: "studio", task, id, input });
-      if (state.pending?.id !== id || result?.cancelled) return null;
-      if (!result?.ok) throw new Error(result?.error || "创作服务暂不可用。");
-      return result.text;
-    } finally {
-      if (state.pending?.id === id) state.pending = null;
-      render();
-    }
-  }
-
-  function cancelRequest() {
-    const pending = state.pending;
-    if (!pending) return;
-    state.pending = null;
-    void chrome.runtime.sendMessage({ type: "AI_CANCEL", ids: [pending.id] }).catch(() => {});
-    render();
-    setStatus("已取消。");
-  }
-
   const promptMaterials = () => state.materials.map(material => prompt.toPromptMaterial(material, sourceName(material)));
 
   async function findAngles() {
     const now = Date.now();
     const references = prompt.checkReferences(state.references.map(post => prompt.toPromptReference(post, model.velocity(post, now))));
     setStatus(`正在找角度 · ${state.materials.length} 条素材、${references.length} 条参考帖 · 最长等待 90 秒`);
-    const text = await requestModel("angles", { materials: promptMaterials(), references, persona: state.profile.persona });
+    const text = await ai.request("angles", { materials: promptMaterials(), references, persona: state.profile.persona });
     if (text === null) return;
     const { angles, dropped } = angleModel.parse(text, { materials: state.materials.length, references: references.length });
     state.angles = angleModel.assess(angles, references);
@@ -421,10 +363,19 @@
     setStatus(`得到 ${state.angles.length} 个角度（${covered} 个已有人写）${dropped ? `，${dropped} 个格式不完整已丢弃` : ""}。挑一个点「用这个写」。`);
   }
 
+  /** 所选风格模板；模板被删除后视为不套用。 */
+  const currentBenchmark = () => state.templates.find(template => template.id === state.benchmarkId) || null;
+
+  async function loadTemplates() {
+    state.templates = await styleTemplates.list();
+  }
+
   /** 本次生成的任务、输入与写法（写法记在候选上，保存草稿时用于复盘分组）。 */
   function generation() {
+    const benchmark = currentBenchmark();
     const shared = { materials: promptMaterials(), format: state.formatId, persona: state.profile.persona,
-      samples: samples().map(sample => sample.text), instructions: state.instructions };
+      samples: samples().map(sample => sample.text), instructions: state.instructions,
+      benchmark: benchmark ? styleModel.forPrompt(benchmark) : undefined };
     if (state.composeMode === ComposeMode.REWRITE) {
       const style = RewriteStyle.from(state.rewriteStyle);
       return { task: "rewrite", input: { ...shared, style: style.id, length: state.rewriteLength },
@@ -438,7 +389,7 @@
 
   /** 生成 3 个候选。从角度卡片进入时传入角度下标并切到“按角度写”。 */
   async function writeDrafts(angleIndex) {
-    if (state.pending) return;
+    if (ai.pending) return;
     try {
       const edited = state.candidates.some(candidate => candidate.text !== candidate.original);
       if (edited && !confirm("重新生成会替换当前候选（包括你改过的内容），继续吗？")) return;
@@ -447,8 +398,9 @@
         state.composeMode = ComposeMode.ANGLE;
       }
       const { task, input, approach, label } = generation();
-      setStatus(`正在生成 3 个候选 · ${currentFormat().label} · ${label} · 样本 ${input.samples.length} 条 · 最长等待 90 秒`);
-      const text = await requestModel(task, input);
+      const benchmark = currentBenchmark();
+      setStatus(`正在生成 3 个候选 · ${currentFormat().label} · ${label}${benchmark ? ` · 风格「${benchmark.name}」` : ""} · 样本 ${input.samples.length} 条 · 最长等待 90 秒`);
+      const text = await ai.request(task, input);
       if (text === null) return;
       state.candidates = draftModel.parse(text).map(draft => ({ ...draft, original: draft.text, approach }));
       state.candidateIndex = 0;
@@ -562,12 +514,14 @@
   for (const tab of $("compose-modes").children) {
     tab.addEventListener("click", () => { state.composeMode = tab.dataset.mode; render(); later("session", saveSession); });
   }
+  $("benchmark").addEventListener("change", () => { state.benchmarkId = $("benchmark").value; later("session", saveSession); });
+  styleTemplates.onChanged(() => void loadTemplates().then(render));
   $("format").replaceChildren(...PostFormat.values().map(item => new Option(`${item.label}（约 ${item.min}～${item.max} 字）`, item.id)));
   $("format").addEventListener("change", () => { state.formatId = $("format").value; render(); later("session", saveSession); });
   $("instructions").addEventListener("input", () => { state.instructions = $("instructions").value; later("session", saveSession); });
   $("find-angles").addEventListener("click", () => void findAngles().catch(error => setStatus(error.message, true)));
   $("write").addEventListener("click", () => void writeDrafts());
-  $("cancel").addEventListener("click", cancelRequest);
+  $("cancel").addEventListener("click", () => { if (ai.cancel()) setStatus("已取消。"); });
   $("angle-clear").addEventListener("click", () => { state.angleIndex = null; render(); later("session", saveSession); });
   $("editor").addEventListener("input", () => {
     const candidate = currentCandidate();
@@ -602,7 +556,7 @@
   store.onIntent(() => void applyIntent().catch(error => setStatus(error.message, true)));
 
   async function init() {
-    await Promise.all([loadChannelNames().catch(() => {}), loadProfile(), restoreSession(), loadModels().catch(error => setStatus(error.message, true))]);
+    await Promise.all([loadChannelNames().catch(() => {}), loadProfile(), restoreSession(), loadTemplates(), ai.load().catch(error => setStatus(error.message, true))]);
     await loadMaterials();
     renderProfile();
     render();

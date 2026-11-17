@@ -39,7 +39,9 @@
     }
     if (!reply?.ok) { showToast(reply?.error || "写作台暂不可用。", true); return; }
     if (action === "rewrite") showToast("已带入写作台，选好风格后点「改写」。");
-    else showToast(reply.alreadyPicked ? `这条已在已选素材里（${reply.basketCount}/3）。` : `已选入（${reply.basketCount}/3），可在写作台融合改写。`);
+    else if (reply.alreadyPicked) showToast(`这条已在已选素材里（${reply.basketCount}/3）。`);
+    else if (reply.savedOnly) showToast("已收藏到素材库（已选素材满 3 条，未加入），可用于拆解博主风格。");
+    else showToast(`已选入（${reply.basketCount}/3），可在写作台融合改写。`);
   }
 
   function button(action, label, title) {
