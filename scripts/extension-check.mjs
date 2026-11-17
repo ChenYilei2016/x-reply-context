@@ -65,6 +65,11 @@ const X_FIXTURE = `<!doctype html><html><body><main data-testid="primaryColumn">
   <div role="group" aria-label="12 replies, 340 reposts, 12K likes, 250K views"><div>reply</div><div>like</div></div>
 </article></main></body></html>`;
 
+/** 文章链接固定内容（写作台粘贴链接时由 CDP 返回）。 */
+const ARTICLE_FIXTURE = `<!doctype html><html><head><meta property="og:title" content="某公司开源新模型，价格只有一半"></head><body>
+<nav>导航</nav><article><p>某公司今天开源了新一代大模型，推理成本只有同类闭源模型的一半。</p>
+<p>开发者可以直接下载权重，在自己的服务器上部署，许可证允许商用。</p></article><footer>版权所有</footer></body></html>`;
+
 const mockModel = await startMockModel();
 const chrome = await startChromeWithPipe();
 try {
@@ -151,20 +156,20 @@ try {
   const { targetId: studioTarget } = await chrome.send("Target.createTarget", { url: `chrome-extension://${id}/creation/studio.html` });
   const studio = await chrome.attach(target => target.targetId === studioTarget);
   const studioReady = await waitFor(() => chrome.evaluate(studio,
-    "document.querySelectorAll('#materials .material').length === 1 && document.querySelector('.model[data-step=angles]').textContent").catch(() => ""),
+    "document.querySelectorAll('#source-chips .chip.basket').length === 1 && document.querySelector('.model[data-step=angles]').textContent").catch(() => ""),
   10000, "写作台未读到选材").catch(error => error.message);
-  check("写作台读到选材与各步骤模型", studioReady === "模拟模型 · mock-model", studioReady);
-  const references = await chrome.evaluate(studio, "document.getElementById('references-summary').textContent");
-  check("写作台找到同话题 X 帖作参考", references.startsWith("同话题 X 帖 1 条"), references);
+  check("写作台把已选素材列为来源，并显示各步骤模型", studioReady === "模拟模型 · mock-model", studioReady);
 
-  await chrome.evaluate(studio, "document.getElementById('find-angles').click()");
+  await chrome.evaluate(studio, "document.querySelector('#compose-modes [data-mode=angle]').click(); document.getElementById('find-angles').click()");
   const angleCards = await waitFor(() => chrome.evaluate(studio, "document.querySelectorAll('#angles .angle').length"), 15000, "角度未渲染")
     .catch(error => error.message);
   const firstAngle = await chrome.evaluate(studio, "(() => { const a = document.querySelector('#angles .angle'); return a ? { badges: a.querySelector('.angle-badges').textContent, potential: a.querySelector('.angle-potential').textContent, meta: a.querySelector('.angle-meta').textContent } : null; })()");
   check("找角度：3 个角度，对照参考帖标出已有人写与真实潜力", angleCards === 3 && firstAngle?.badges.includes("已有人写") &&
     firstAngle.potential.includes("24万") && !firstAngle.meta.includes("M5"), JSON.stringify({ angleCards, firstAngle }));
+  const references = await chrome.evaluate(studio, "document.getElementById('references-summary').textContent");
+  check("找角度时用素材库里同话题的 X 帖作参考", references.startsWith("同话题 X 帖 1 条"), references);
 
-  await chrome.evaluate(studio, "document.querySelector('#angles .angle .use').click()");
+  await chrome.evaluate(studio, "document.querySelector('#angles .angle .use').click(); document.getElementById('write').click()");
   const candidates = await waitFor(() => chrome.evaluate(studio, "document.querySelectorAll('#candidates button').length"), 15000, "候选未渲染")
     .catch(error => error.message);
   const editor = await chrome.evaluate(studio, "({ text: document.getElementById('editor').value, meter: document.getElementById('meter').textContent })");
@@ -258,9 +263,9 @@ try {
   // 写作台改写模式：从 X 点「改写」后自动切到改写；英文原文提示本地化；生成后保存的草稿记录改写风格。
   const rewriteMode = await waitFor(() => chrome.evaluate(studio, `(() => {
     const selected = document.querySelector("#compose-modes [aria-selected=true]")?.dataset.mode;
-    const materials = document.querySelectorAll("#materials .material").length;
-    return selected === "rewrite" && materials === 1 && { hint: document.getElementById("rewrite-hint").textContent,
-      styleVisible: !document.getElementById("rewrite-style").hidden, status: document.getElementById("status").textContent };
+    const materials = document.querySelectorAll("#source-chips .chip.basket").length;
+    return selected === "rewrite" && materials === 1 && { hint: document.getElementById("source-summary").textContent,
+      styleVisible: !document.getElementById("rewrite-style").closest("[data-mode-only]").hidden, status: document.getElementById("status").textContent };
   })()`).catch(() => null), 10000, "写作台没有切到改写模式").catch(error => error.message);
   check("从 X 点「改写」后写作台切到改写模式，英文原文提示本地化", rewriteMode?.styleVisible && rewriteMode.hint.includes("本地化") &&
     rewriteMode.status.includes("已带入 X 帖子"), JSON.stringify(rewriteMode));
@@ -321,24 +326,53 @@ try {
     benchmarkRequest.includes("开头手法：先抛反常识结论") && !benchmarkRequest.includes("模型越强"), benchmarkRequest.slice(0, 120));
 
   // AI 配图：成稿模型写出图提示词 → 出图接口（配图步骤的 API、出图模型、按比例的尺寸）→ 页面显示图片。
-  await waitFor(() => chrome.evaluate(studio, "!document.getElementById('image-prompt-button').disabled").catch(() => false), 15000, "配图按钮不可用").catch(() => {});
+  await waitFor(() => chrome.evaluate(studio, "!document.getElementById('image-generate').disabled").catch(() => false), 15000, "生图按钮不可用").catch(() => {});
   await chrome.evaluate(studio, `(() => {
-    document.getElementById("image-panel").open = true;
     const style = document.getElementById("image-style");
     style.value = "news"; style.dispatchEvent(new Event("change"));
-    document.getElementById("image-prompt-button").click();
+    document.getElementById("image-generate").click();
   })()`);
-  const imagePrompt = await waitFor(() => chrome.evaluate(studio, "document.getElementById('image-prompt').value"), 10000, "出图提示词未写入")
-    .catch(error => error.message);
-  check("按正文写出图提示词并填入可编辑框", imagePrompt.includes("发光的服务器") &&
-    mockModel.requests.at(-1).messages[0].content.includes("新闻快讯"), imagePrompt);
-  await chrome.evaluate(studio, "document.getElementById('image-generate').click()");
   const shown = await waitFor(() => chrome.evaluate(studio,
     "!document.getElementById('image-result').hidden && document.getElementById('image-preview').naturalWidth === 1 && document.getElementById('image-meta').textContent"),
   15000, "图片未显示").catch(error => error.message);
   const imageRequest = mockModel.requests.at(-1);
+  const promptRequest = mockModel.requests.at(-2)?.messages?.[0].content || "";
+  const imagePrompt = await chrome.evaluate(studio, "document.getElementById('image-prompt').value");
+  check("一键生图：先按正文写出图提示词（可修改）再出图", imagePrompt.includes("发光的服务器") && promptRequest.includes("新闻快讯"), imagePrompt);
   check("出图：发往 /images/generations，带出图模型、16:9 精确尺寸和风格，页面显示图片", shown === "1536x864 · gpt-image-2" &&
     imageRequest.model === "gpt-image-2" && imageRequest.size === "1536x864" && imageRequest.prompt.includes("整体风格：新闻快讯"), JSON.stringify({ shown, size: imageRequest.size }));
+
+  // 直接粘贴：不选素材，粘贴正文和一个文章链接 → 读取链接正文 → 改写；写作要求可修改并生效。
+  chrome.on("Fetch.requestPaused", (params, sessionId) => {
+    if (sessionId !== studio) return;
+    void chrome.send("Fetch.fulfillRequest", { requestId: params.requestId, responseCode: 200, body: Buffer.from(ARTICLE_FIXTURE).toString("base64"),
+      responseHeaders: [{ name: "content-type", value: "text/html; charset=utf-8" }, { name: "access-control-allow-origin", value: "*" }] }, studio);
+  });
+  await chrome.send("Fetch.enable", { patterns: [{ urlPattern: "https://news.example/*" }] }, studio);
+  await chrome.evaluate(worker, "chrome.storage.local.set({ creationBasket: [] })");
+  await chrome.evaluate(studio, `(async () => {
+    chrome.permissions.contains = async () => true; // 检查进程内：无头模式无法确认“读取网页”授权弹窗
+    const guide = document.getElementById("guide-task");
+    guide.value = "rewrite"; guide.dispatchEvent(new Event("change"));
+    const text = document.getElementById("guide-text");
+    text.value = "每句话都要短，像发朋友圈。"; text.dispatchEvent(new Event("input"));
+    await new Promise(resolve => setTimeout(resolve, 900));
+    const source = document.getElementById("source-text");
+    source.value = "我自己的一段看法：开源模型的价格战才刚开始。\\nhttps://news.example/a";
+    source.dispatchEvent(new Event("input"));
+    document.getElementById("write").click();
+  })()`);
+  await waitFor(() => mockModel.requests.at(-1)?.messages?.[1]?.content.includes("粘贴内容") || null, 20000, "粘贴内容的请求未发出").catch(() => {});
+  const pasted = await waitFor(() => chrome.evaluate(studio, `(() => {
+    const chips = [...document.querySelectorAll("#source-chips .chip")].map(chip => chip.textContent);
+    return !document.getElementById("write").disabled && { chips };
+  })()`).catch(() => null), 15000, "粘贴内容未生成").catch(error => error.message);
+  const pastedRequest = mockModel.requests.at(-1)?.messages || [];
+  check("不选素材：粘贴正文和文章链接直接改写，链接正文被读取", pasted?.chips?.length === 1 && pasted.chips[0].includes("已读取") &&
+    pastedRequest[1]?.content.includes('kind="粘贴内容"') && pastedRequest[1].content.includes("某公司开源新模型，价格只有一半") &&
+    pastedRequest[1].content.includes("https://news.example/a"), JSON.stringify({ pasted, content: pastedRequest[1]?.content.slice(0, 200) }));
+  check("写作设置里修改的写作要求进入提示词，固定规则保留", pastedRequest[0]?.content.includes("写作要求：\n每句话都要短，像发朋友圈。") &&
+    pastedRequest[0].content.includes("只使用素材支持的事实"), (pastedRequest[0]?.content || "").slice(0, 160));
 } finally {
   await chrome.stop();
   mockModel.server.close();

@@ -28,112 +28,133 @@
     <header class="topbar">
       <div>
         <h1>写作台</h1>
-        <p class="muted">选题或在 X 上点「改写」→ 角度或改写风格 → 3 个候选 → 编辑 → 去 X 发布。发布仍由你在 X 上点。</p>
+        <p class="muted">粘贴内容或链接 → 改写或找角度 → 3 个候选 → 编辑 → 发布、配图。发布仍由你在 X 上点。</p>
       </div>
     </header>
-    <p id="status" class="status" role="status"></p>
 
-    <div class="columns">
-      <div class="column">
-        <section class="panel" aria-labelledby="materials-title">
-          <header class="panel-head">
-            <h2 id="materials-title">素材</h2>
-            <a href="radar.html" class="muted">去雷达选素材</a>
-          </header>
-          <ul id="materials" class="materials"></ul>
-          <ul id="warnings" class="warnings"></ul>
-          <details id="references" class="references" hidden>
-            <summary id="references-summary"></summary>
-            <ul id="reference-list"></ul>
-          </details>
-        </section>
+    <div id="compose-modes" class="modes" role="tablist" aria-label="写法">
+      <button type="button" role="tab" data-mode="rewrite">AI 改写</button>
+      <button type="button" role="tab" data-mode="angle">找角度写</button>
+    </div>
 
-        <section class="panel" aria-labelledby="profile-title">
-          <header class="panel-head"><h2 id="profile-title">人设与样本</h2></header>
-          <label for="persona">人设</label>
+    <section class="card" aria-labelledby="source-title">
+      <label id="source-title" for="source-text" class="field-title">基于内容</label>
+      <textarea id="source-text" rows="5" spellcheck="false"></textarea>
+      <ul id="source-chips" class="chips" aria-label="本次使用的来源"></ul>
+      <p id="source-summary" class="muted"></p>
+      <details class="tips">
+        <summary>你可以这样使用</summary>
+        <ul>
+          <li>直接粘贴正文，按原内容改写；只写一个标题或事件，也可以找角度。</li>
+          <li>粘贴文章链接会自动读取正文（第一次需要授权读取网页）；正文和链接可以混着写，最多 3 个链接。</li>
+          <li>X 帖子链接读不了（需要登录）：在 X 上点帖子下的「改写」「选入」，会直接带进来。</li>
+          <li>在选题雷达或 X 上「选入」的素材显示在上面，可以和粘贴的内容一起融合。</li>
+        </ul>
+      </details>
+      <div data-mode-only="angle" class="angles-block">
+        <div class="row">
+          <button type="button" id="find-angles">找角度</button>
+          <span class="model" data-step="angles"></span>
+        </div>
+        <p id="angles-hint" class="muted"></p>
+        <ol id="angles" class="angles"></ol>
+        <details id="references" class="references" hidden>
+          <summary id="references-summary"></summary>
+          <ul id="reference-list"></ul>
+        </details>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="write-title">
+      <h2 id="write-title" class="visually-hidden">生成与编辑</h2>
+      <div class="controls">
+        <label data-mode-only="rewrite">改写风格<select id="rewrite-style"></select></label>
+        <label data-mode-only="rewrite">目标字数<select id="rewrite-length"></select></label>
+        <label>形态<select id="format"></select></label>
+        <label>风格模板<select id="benchmark"></select></label>
+        <label class="grow">本次附加要求（可选）<input id="instructions" maxlength="500" placeholder="例如：语气更直接，保留关键数据"></label>
+      </div>
+      <p id="angle-chip" class="angle-chip" hidden><span></span><button type="button" id="angle-clear">不用角度</button></p>
+      <p id="compose-hint" class="muted"></p>
+      <div class="row">
+        <button type="button" id="write" class="primary">生成</button>
+        <button type="button" id="cancel" hidden>取消</button>
+        <span class="model" data-step="drafts"></span>
+      </div>
+
+      <div id="candidates" class="candidates" role="tablist" aria-label="候选稿"></div>
+      <textarea id="editor" rows="10" aria-label="正文编辑" placeholder="点「生成」得到 3 个候选，结果可以直接编辑。"></textarea>
+      <p id="meter" class="meter" role="status"></p>
+      <p id="originality" class="originality" hidden></p>
+      <p id="quote-target" class="muted" hidden></p>
+      <details id="fold-details" class="fold-details">
+        <summary id="fold-summary">首屏预览</summary>
+        <div id="fold-preview" class="fold-preview" aria-label="首屏预览"></div>
+      </details>
+      <div class="row actions">
+        <button type="button" id="publish" class="primary">去 X 发布</button>
+        <button type="button" id="save-draft">保存草稿</button>
+        <button type="button" id="copy">复制</button>
+        <button type="button" id="revert">还原本候选</button>
+      </div>
+
+      <div class="image-row">
+        <select id="image-style" aria-label="配图风格"></select>
+        <select id="image-ratio" aria-label="配图比例"></select>
+        <button type="button" id="image-generate" class="image">生图</button>
+        <button type="button" id="image-cancel" hidden>取消</button>
+        <span class="model" data-step="images"></span>
+      </div>
+      <p class="muted">优先按正文生成配图，正文为空时用上方内容；每张图按你的 API 单独计费，图片只留在本页。</p>
+      <details id="image-prompt-details">
+        <summary>出图提示词（可修改）</summary>
+        <textarea id="image-prompt" rows="4" maxlength="4000" placeholder="点「生图」会先自动写好提示词；也可以自己写，写了就直接用"></textarea>
+        <div class="row"><button type="button" id="image-prompt-button">按正文重写提示词</button></div>
+      </details>
+      <figure id="image-result" hidden>
+        <img id="image-preview" alt="生成的配图">
+        <figcaption class="row">
+          <button type="button" id="image-download">下载</button>
+          <button type="button" id="image-copy">复制图片</button>
+          <span id="image-meta" class="muted"></span>
+        </figcaption>
+      </figure>
+    </section>
+
+    <details id="settings" class="card settings">
+      <summary>写作设置 <span class="muted">人设、样本、写作要求、模型</span></summary>
+      <div class="settings-grid">
+        <section>
+          <label for="persona" class="field-title">人设</label>
           <textarea id="persona" rows="6" maxlength="2000" spellcheck="false"></textarea>
           <div class="row"><button type="button" id="persona-default">恢复默认人设</button><span id="profile-status" class="muted"></span></div>
-          <p class="label">本次发给模型的样本 <span class="muted">（最多 5 条，只学语气和排版）</span></p>
+          <p class="field-title">本次发给模型的样本 <span class="muted">（最多 5 条，只学语气和排版）</span></p>
           <ol id="samples" class="samples"></ol>
           <button type="button" id="samples-restore" hidden></button>
-          <details class="manual">
-            <summary>手动样本</summary>
-            <textarea id="manual-samples" rows="6" spellcheck="false" placeholder="粘贴你表现好的帖子，每条之间单独一行写 ---"></textarea>
-            <p class="muted">手动样本排在最前。自己的帖子来自 bot feed 中标记 own 的条目（近 60 天，按浏览量）。</p>
+          <label for="manual-samples" class="field-title">手动样本</label>
+          <textarea id="manual-samples" rows="4" spellcheck="false" placeholder="粘贴你表现好的帖子，每条之间单独一行写 ---"></textarea>
+        </section>
+        <section>
+          <p class="field-title">写作要求（提示词中可以修改的部分）</p>
+          <div class="row"><select id="guide-task" aria-label="任务"></select><span id="guide-state" class="muted"></span>
+            <button type="button" id="guide-default">恢复默认</button></div>
+          <textarea id="guide-text" rows="8" maxlength="3000" spellcheck="false"></textarea>
+          <details>
+            <summary>固定规则（不可修改，保证不编造、结果能解析）</summary>
+            <pre id="guide-fixed" class="fixed-rules"></pre>
+            <p class="muted">另外固定的还有：任务说明、改写时“原文的我是原作者”、拆解风格时示例原句必须出自原帖，以及各任务的输出格式。</p>
           </details>
+          <p class="field-title">模型</p>
+          <ul class="models">
+            <li>找角度：<span class="model" data-step="angles"></span></li>
+            <li>成稿与改写：<span class="model" data-step="drafts"></span></li>
+            <li>配图：<span class="model" data-step="images"></span></li>
+          </ul>
+          <a href="../ai-settings.html" target="_blank" rel="noopener">在 AI 设置中切换模型 ↗</a>
         </section>
       </div>
-
-      <div class="column wide">
-        <section class="panel" aria-labelledby="angles-title">
-          <header class="panel-head">
-            <h2 id="angles-title">角度</h2>
-            <span class="model" data-step="angles"></span>
-            <button type="button" id="find-angles" class="primary">找角度</button>
-          </header>
-          <p id="angles-hint" class="muted"></p>
-          <ol id="angles" class="angles"></ol>
-        </section>
-
-        <section class="panel" aria-labelledby="drafts-title">
-          <header class="panel-head">
-            <h2 id="drafts-title">成稿</h2>
-            <span class="model" data-step="drafts"></span>
-          </header>
-          <div id="compose-modes" class="modes" role="tablist" aria-label="写法">
-            <button type="button" role="tab" data-mode="angle">按角度写</button>
-            <button type="button" role="tab" data-mode="rewrite">改写原帖</button>
-          </div>
-          <div class="draft-controls">
-            <select id="rewrite-style" aria-label="改写风格" data-mode-only="rewrite"></select>
-            <select id="rewrite-length" aria-label="改写长度" data-mode-only="rewrite"></select>
-            <select id="format" aria-label="帖子形态"></select>
-            <select id="benchmark" aria-label="风格模板"></select>
-            <input id="instructions" maxlength="500" placeholder="本次附加要求（可选），例如：结尾抛一个问题">
-            <button type="button" id="write" class="primary">生成 3 个候选</button>
-            <button type="button" id="cancel" hidden>取消</button>
-          </div>
-          <p id="rewrite-hint" class="muted" data-mode-only="rewrite"></p>
-          <p id="angle-chip" class="angle-chip" hidden><span></span><button type="button" id="angle-clear">不用角度</button></p>
-          <div id="candidates" class="candidates" role="tablist" aria-label="候选稿"></div>
-          <div id="editor-area" hidden>
-            <textarea id="editor" rows="10" aria-label="正文编辑"></textarea>
-            <p id="meter" class="meter" role="status"></p>
-            <p id="originality" class="originality" hidden></p>
-            <p id="quote-target" class="muted" hidden></p>
-            <div id="fold-preview" class="fold-preview" aria-label="首屏预览"></div>
-            <details id="image-panel" class="image-panel">
-              <summary>配图 <span class="model" data-step="images"></span></summary>
-              <div class="row">
-                <select id="image-style" aria-label="配图风格"></select>
-                <select id="image-ratio" aria-label="配图比例"></select>
-                <button type="button" id="image-prompt-button">按正文写出图提示词</button>
-              </div>
-              <textarea id="image-prompt" rows="4" maxlength="4000" placeholder="出图提示词：可以让成稿模型按正文写，也可以自己写，写好后点「出图」"></textarea>
-              <div class="row">
-                <button type="button" id="image-generate" class="primary">出图</button>
-                <button type="button" id="image-cancel" hidden>取消</button>
-                <span class="muted">每张图按你的 API 单独计费；图片只留在本页，关闭前请下载。</span>
-              </div>
-              <figure id="image-result" hidden>
-                <img id="image-preview" alt="生成的配图">
-                <figcaption class="row">
-                  <button type="button" id="image-download">下载</button>
-                  <button type="button" id="image-copy">复制图片</button>
-                  <span id="image-meta" class="muted"></span>
-                </figcaption>
-              </figure>
-            </details>
-            <div class="row">
-              <button type="button" id="publish" class="primary">去 X 发布</button>
-              <button type="button" id="save-draft">保存草稿</button>
-              <button type="button" id="copy">复制</button>
-              <button type="button" id="revert">还原本候选</button>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
+    </details>
+    <p id="status" class="status floating" role="status"></p>
   </main>
 
   <template id="angle-template">
@@ -144,7 +165,7 @@
       <p class="angle-meta"></p>
       <p class="angle-risk"></p>
       <p class="angle-potential"></p>
-      <button type="button" class="use">用这个写</button>
+      <button type="button" class="use">用这个角度</button>
     </li>
   </template>
 
@@ -157,16 +178,21 @@
   <script src="draft-model.js"></script>
   <script src="rewrite-model.js"></script>
   <script src="x-text.js"></script>
-  <script src="draft-record.js"></script>
   <script src="text-similarity.js"></script>
+  <script src="draft-record.js"></script>
   <script src="publish-link.js"></script>
   <script src="review-model.js"></script>
   <script src="drafts-store.js"></script>
   <script src="style-model.js"></script>
   <script src="style-store.js"></script>
   <script src="image-model.js"></script>
+  <script src="prompt-guides.js"></script>
+  <script src="source-input.js"></script>
+  <script src="link-reader.js"></script>
   <script src="model-client.js"></script>
   <script src="studio-store.js"></script>
+  <script src="studio-sources.js"></script>
+  <script src="studio-settings.js"></script>
   <script src="studio.js"></script>
 </body>
 </html>
