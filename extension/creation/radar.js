@@ -135,6 +135,7 @@
     badges.append(element("span", categoryLabel(topic.category), "badge category"));
     if (topic.sourceCount > 1) badges.append(element("span", `${topic.sourceCount} 个来源`, "badge sources"));
     if (topic.xPostCount) badges.append(element("span", `X 帖 ${topic.xPostCount}`, "badge"));
+    if (topic.members.some(member => member.marks?.usedAt)) badges.append(element("span", "已写过", "badge used"));
     for (const id of topic.channelIds.slice(0, 3)) badges.append(element("span", channelName(id), "badge"));
     appendMetrics(node.querySelector(".topic-metrics"), topicMetrics(topic));
 

@@ -37,6 +37,11 @@ body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding
 <label for="polishPrompt">润色 Prompt</label><textarea id="polishPrompt" spellcheck="false" maxlength="16000"></textarea>
 <div class="hint">润色 API 接收当前帖正文和刚生成的回复。润色成功后填入结果，超时或失败时填入首稿。</div>
 </details>
+<details id="creationSettings" style="margin-top:18px">
+<summary>创作工作台模型</summary>
+<div id="creationProfiles"></div>
+<div class="hint">写作台的「找角度」和「成稿」可以各用一组 API，例如找角度用推理强的模型、成稿用文笔好的模型。选「跟随当前配置」时使用上方已保存的当前配置。创作功能不受「开启 AI API」开关影响。</div>
+</details>
 <label>AI 逐字填入间隔（毫秒，所有 API 共用）</label>
 <div style="display:flex;gap:12px;align-items:center">
 <input id="typingDelayMin" type="number" min="0" max="1000" step="1" required aria-label="逐字间隔最小值（毫秒）" style="width:110px"><span>～</span>

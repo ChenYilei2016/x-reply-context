@@ -39,6 +39,18 @@
     }
     return value;
   }
+  /** 创作工作台的步骤：每步可单独指定 API 配置，未指定时跟随当前配置。 */
+  const creationSteps = Object.freeze([
+    Object.freeze({id:"angles",label:"找角度"}),
+    Object.freeze({id:"drafts",label:"成稿"})
+  ]);
+  /** 只保留仍然存在的配置编号；配置被删除后该步骤回到“跟随当前配置”。 */
+  function creationProfileIds(raw,profiles) {
+    return Object.fromEntries(creationSteps.map(step=>{
+      const id=raw?.[step.id];
+      return [step.id,typeof id==="string" && profiles.some(profile=>profile.id===id) ? id : ""];
+    }));
+  }
   const openAIPreset = {id:"openai",name:"OpenAI / ChatGPT",baseUrl:"https://api.openai.com/v1",apiKey:"",model:"gpt-6-luna",serviceTier:"auto",reasoningEffort:"auto"};
   const profileFields=["baseUrl","apiKey","model"];
   function normalizeProfiles(raw) {
@@ -74,7 +86,8 @@
     }
     return {enabled:shared.enabled,typingDelayMin:shared.typingDelayMin,typingDelayMax:shared.typingDelayMax,maxReplyLength:shared.maxReplyLength,
       generatePrompt:shared.generatePrompt,rewritePrompt:shared.rewritePrompt,activeProfileId,profiles,
-      polishEnabled,polishProfileId:polish?.id || "",polishPrompt:shared.polishPrompt};
+      polishEnabled,polishProfileId:polish?.id || "",polishPrompt:shared.polishPrompt,
+      creationProfileIds:creationProfileIds(raw?.creationProfileIds,profiles)};
   }
   function activeConfig(value) {
     return {...value.profiles.find(profile=>profile.id===value.activeProfileId),enabled:value.enabled,
@@ -86,10 +99,19 @@
   }
   const originPattern = url => `${url.protocol}//${url.hostname}/*`;
   const polishProfile = value => value.polishEnabled ? value.profiles.find(profile=>profile.id===value.polishProfileId) : undefined;
+  /** 某个创作步骤实际使用的 API 配置。 */
+  function creationProfile(value,stepId) {
+    const id=value.creationProfileIds?.[stepId];
+    return value.profiles.find(profile=>profile.id===id) || value.profiles.find(profile=>profile.id===value.activeProfileId);
+  }
+  /** 保存时需要授权的模型域名：开启 AI 回复时的回复与润色配置，以及创作步骤单独指定且已填地址的配置。 */
   function requiredOrigins(value) {
-    if (!value.enabled) return [];
-    const profiles = [activeConfig(value),polishProfile(value)].filter(Boolean);
+    const replyProfiles = value.enabled ? [activeConfig(value),polishProfile(value)] : [];
+    const creationProfiles = creationSteps.filter(step=>value.creationProfileIds?.[step.id]).map(step=>creationProfile(value,step.id))
+      .filter(profile=>profile?.baseUrl);
+    const profiles = [...replyProfiles,...creationProfiles].filter(Boolean);
     return [...new Set(profiles.map(profile=>originPattern(endpoint(profile.baseUrl))))];
   }
-  globalThis.XReplyAIConfig = { isOpenAI,defaults,endpoint,normalize,normalizeProfiles,activeConfig,openAIPreset,originPattern,polishProfile,requiredOrigins };
+  globalThis.XReplyAIConfig = { isOpenAI,defaults,endpoint,normalize,normalizeProfiles,activeConfig,openAIPreset,originPattern,polishProfile,requiredOrigins,
+    creationSteps,creationProfile };
 })();

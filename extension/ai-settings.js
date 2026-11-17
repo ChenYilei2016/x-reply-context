@@ -37,8 +37,28 @@
     warning.textContent=hint;
     warning.hidden=!hint;
   }
+  /** 创作步骤的 API 选择框，首次读取配置时创建。 */
+  function renderCreationSteps() {
+    get("creationProfiles").replaceChildren(...XReplyAIConfig.creationSteps.flatMap(step=>{
+      const label=document.createElement("label");
+      label.htmlFor=`creationProfile-${step.id}`;label.textContent=`${step.label} API`;
+      const select=document.createElement("select");
+      select.id=`creationProfile-${step.id}`;
+      return [label,select];
+    }));
+  }
+  const creationSelect=step=>get(`creationProfile-${step.id}`);
+  function renderCreationOptions(profileOptions) {
+    for(const step of XReplyAIConfig.creationSteps){
+      const select=creationSelect(step),value=select.value;
+      select.replaceChildren(new Option("跟随当前配置",""),...profileOptions());
+      select.value=config.profiles.some(profile=>profile.id===value) ? value : "";
+    }
+  }
+  const creationProfileIds=()=>Object.fromEntries(XReplyAIConfig.creationSteps.map(step=>[step.id,creationSelect(step).value]));
   function renderProfiles() {
     const profileOptions = () => config.profiles.map(profile=>new Option(profile.name || "未命名配置",profile.id));
+    renderCreationOptions(profileOptions);
     const polish = get("polishProfile"), polishId = polish.value;
     polish.replaceChildren(new Option("请选择 API 配置",""),...profileOptions());
     polish.value = config.profiles.some(profile=>profile.id===polishId) ? polishId : "";
@@ -56,7 +76,9 @@
   function applied(value) {
     const selected=value.profiles.find(item=>item.id===value.activeProfileId);
     const polish=XReplyAIConfig.polishProfile(value);
-    get("activeProfile").textContent=`已保存的当前配置 ${selected.name} · AI ${value.enabled?"已开启":"已关闭"}${polish ? ` · 润色 ${polish.name}` : ""}`;
+    const creation=XReplyAIConfig.creationSteps.filter(step=>value.creationProfileIds[step.id])
+      .map(step=>` · ${step.label} ${XReplyAIConfig.creationProfile(value,step.id).name}`).join("");
+    get("activeProfile").textContent=`已保存的当前配置 ${selected.name} · AI ${value.enabled?"已开启":"已关闭"}${polish ? ` · 润色 ${polish.name}` : ""}${creation}`;
   }
   void send({type:"AI_CONFIG_GET"}).then(({config:value})=>{
     config=value;selectedId=value.activeProfileId;
@@ -66,7 +88,10 @@
     get("polishEnabled").checked=config.polishEnabled;
     get("polishSettings").open=config.polishEnabled;
     for(const id of ["save","profile","addProfile","openaiProfile","removeProfile"])get(id).disabled=false;
-    renderProfiles();get("polishProfile").value=config.polishProfileId;applied(config);status.textContent="";
+    renderCreationSteps();renderProfiles();get("polishProfile").value=config.polishProfileId;
+    for(const step of XReplyAIConfig.creationSteps)creationSelect(step).value=config.creationProfileIds[step.id];
+    get("creationSettings").open=Object.values(config.creationProfileIds).some(Boolean);
+    applied(config);status.textContent="";
   }).catch(error=>{status.textContent=error.message;});
   get("settings").addEventListener("input",event=>{
     if(!config)return;
@@ -110,7 +135,7 @@
     controls.forEach(control=>{control.disabled=true;});
     try {
       const next=XReplyAIConfig.normalizeProfiles({...config,enabled:get("enabled").checked,activeProfileId:selectedId,
-        polishEnabled:get("polishEnabled").checked,polishProfileId:get("polishProfile").value,
+        polishEnabled:get("polishEnabled").checked,polishProfileId:get("polishProfile").value,creationProfileIds:creationProfileIds(),
         ...Object.fromEntries(promptFields.map(field=>[field,get(field).value])),
         ...Object.fromEntries(numericFields.map(field=>[field,get(field).valueAsNumber]))});
       const origins=XReplyAIConfig.requiredOrigins(next);

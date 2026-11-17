@@ -1,6 +1,8 @@
-// 扩展冒烟检查：在无头 Chrome 中真实加载 extension/，验证后台启动、渠道注册、渠道页与雷达渲染、升级迁移。
+// 扩展冒烟检查：在无头 Chrome 中真实加载 extension/，验证后台启动、渠道注册、渠道页与雷达渲染、升级迁移、写作台全流程。
 // 用法：node scripts/extension-check.mjs
-// 主机权限的授权弹窗无法在无头模式下确认，渠道实拉需在真实 Chrome 中授权后验证。
+// 主机权限的授权弹窗无法在无头模式下确认：渠道实拉需在真实 Chrome 中授权后验证；
+// 写作台改用本机模拟模型接口，并在后台把“域名已授权”的检查替换为通过（仅本检查进程内）。
+import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startChromeWithPipe, waitFor } from "./lib/headless-chrome.mjs";
@@ -12,6 +14,37 @@ const check = (name, ok, detail = "") => {
   console.log(`  ${ok ? "✔" : "✖"} ${name}${!ok && detail ? ` — ${detail}` : ""}`);
 };
 
+/** 模拟 Chat Completions 接口：按系统提示词判断是找角度还是成稿，返回固定 JSON；记录收到的请求。 */
+function startMockModel() {
+  const requests = [];
+  const angles = { angles: [
+    { type: "反常识", hook: "辞任 CEO 不等于离开英伟达", outline: ["先看公告原文", "再看接班安排"], evidence: ["M1"], risk: "", covered_by: ["R1"] },
+    { type: "预测", hook: "接班人会是谁", outline: ["候选人"], evidence: ["M1"], risk: "事实不足，属于推测", covered_by: [] },
+    { type: "吐槽", hook: "皮衣还穿吗", outline: ["梗"], evidence: ["M5"], risk: "", covered_by: [] }
+  ] };
+  const drafts = { drafts: [
+    { hook_style: "反差", text: "黄仁勋辞任 CEO，但他没离开英伟达。" },
+    { hook_style: "提问", text: "英伟达下一任 CEO 会是谁？" },
+    { hook_style: "数字", text: "三十年，一家公司，一件皮衣。" }
+  ] };
+  const server = http.createServer((request, response) => {
+    response.setHeader("Access-Control-Allow-Origin", "*");
+    response.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
+    if (request.method === "OPTIONS") { response.end(); return; }
+    let body = "";
+    request.on("data", chunk => { body += chunk; });
+    request.on("end", () => {
+      const parsed = JSON.parse(body);
+      requests.push(parsed);
+      const content = `<reply>${JSON.stringify(parsed.messages[0].content.includes("写作角度") ? angles : drafts)}</reply>`;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }));
+    });
+  });
+  return new Promise(resolve => server.listen(0, "127.0.0.1", () => resolve({ server, requests, port: server.address().port })));
+}
+
+const mockModel = await startMockModel();
 const chrome = await startChromeWithPipe();
 try {
   const { id } = await chrome.send("Extensions.loadUnpacked", { path: path.join(root, "extension") });
@@ -87,8 +120,58 @@ try {
   const basket = await waitFor(() => chrome.evaluate(radar, "document.getElementById('basket').hidden ? '' : document.getElementById('basket-count').textContent"), 5000, "选材栏未出现")
     .catch(error => error.message);
   check("选入素材后出现选材栏", basket === "已选 1/3", basket);
+
+  // 写作台：读取选材 → 找角度（对照同话题 X 帖子）→ 用某个角度出 3 个候选 → 编辑计数与首屏标线 → 重新打开后恢复进度。
+  await chrome.evaluate(worker, `(async () => {
+    chrome.permissions.contains = async () => true;
+    await chrome.storage.local.set({ aiConfig: { enabled: false, activeProfileId: "mock", creationProfileIds: { angles: "mock" },
+      profiles: [{ id: "mock", name: "模拟模型", baseUrl: "http://127.0.0.1:${mockModel.port}/v1", apiKey: "test", model: "mock-model" }] } });
+  })()`);
+  const { targetId: studioTarget } = await chrome.send("Target.createTarget", { url: `chrome-extension://${id}/creation/studio.html` });
+  const studio = await chrome.attach(target => target.targetId === studioTarget);
+  const studioReady = await waitFor(() => chrome.evaluate(studio,
+    "document.querySelectorAll('#materials .material').length === 1 && document.querySelector('.model[data-step=angles]').textContent").catch(() => ""),
+  10000, "写作台未读到选材").catch(error => error.message);
+  check("写作台读到选材与各步骤模型", studioReady === "模拟模型 · mock-model", studioReady);
+  const references = await chrome.evaluate(studio, "document.getElementById('references-summary').textContent");
+  check("写作台找到同话题 X 帖作参考", references.startsWith("同话题 X 帖 1 条"), references);
+
+  await chrome.evaluate(studio, "document.getElementById('find-angles').click()");
+  const angleCards = await waitFor(() => chrome.evaluate(studio, "document.querySelectorAll('#angles .angle').length"), 15000, "角度未渲染")
+    .catch(error => error.message);
+  const firstAngle = await chrome.evaluate(studio, "(() => { const a = document.querySelector('#angles .angle'); return a ? { badges: a.querySelector('.angle-badges').textContent, potential: a.querySelector('.angle-potential').textContent, meta: a.querySelector('.angle-meta').textContent } : null; })()");
+  check("找角度：3 个角度，对照参考帖标出已有人写与真实潜力", angleCards === 3 && firstAngle?.badges.includes("已有人写") &&
+    firstAngle.potential.includes("24万") && !firstAngle.meta.includes("M5"), JSON.stringify({ angleCards, firstAngle }));
+
+  await chrome.evaluate(studio, "document.querySelector('#angles .angle .use').click()");
+  const candidates = await waitFor(() => chrome.evaluate(studio, "document.querySelectorAll('#candidates button').length"), 15000, "候选未渲染")
+    .catch(error => error.message);
+  const editor = await chrome.evaluate(studio, "({ text: document.getElementById('editor').value, meter: document.getElementById('meter').textContent })");
+  const draftsRequest = mockModel.requests.at(-1)?.messages[0].content || "";
+  check("成稿：按所选角度出 3 个候选并进入编辑区", candidates === 3 && editor.text.startsWith("黄仁勋辞任 CEO") &&
+    draftsRequest.includes("辞任 CEO 不等于离开英伟达") && /加权字数 \d+/.test(editor.meter), JSON.stringify({ candidates, editor }));
+
+  await chrome.evaluate(studio, `(() => { const editor = document.getElementById('editor'); editor.value = "中".repeat(150); editor.dispatchEvent(new Event("input")); })()`);
+  const fold = await chrome.evaluate(studio, "({ line: Boolean(document.querySelector('#fold-preview .fold-line')), before: document.querySelector('#fold-preview span')?.textContent.length, meter: document.getElementById('meter').textContent })");
+  check("编辑区：加权字数与首屏标线", fold.line && fold.before === 140 && fold.meter.includes("加权字数 300"), JSON.stringify(fold));
+
+  await new Promise(resolve => setTimeout(resolve, 800));
+  await chrome.evaluate(studio, "location.reload()").catch(() => {});
+  const restored = await waitFor(() => chrome.evaluate(studio,
+    "document.querySelectorAll('#candidates button').length === 3 && document.querySelectorAll('#angles .angle').length === 3 && document.getElementById('editor').value.length").catch(() => 0),
+  10000, "进度未恢复").catch(error => error.message);
+  check("重新打开写作台后恢复角度、候选和编辑内容", restored === 150, restored);
+
+  const { targetId: settingsTarget } = await chrome.send("Target.createTarget", { url: `chrome-extension://${id}/ai-settings.html` });
+  const settings = await chrome.attach(target => target.targetId === settingsTarget);
+  const steps = await waitFor(() => chrome.evaluate(settings, `(() => {
+    const angles = document.getElementById("creationProfile-angles"), drafts = document.getElementById("creationProfile-drafts");
+    return angles && drafts && angles.options.length === 2 ? { angles: angles.value, drafts: drafts.value, open: document.getElementById("creationSettings").open } : null;
+  })()`).catch(() => null), 10000, "AI 设置页未渲染创作模型").catch(error => error.message);
+  check("AI 设置页为每个创作步骤提供 API 选择并回显已保存的值", steps?.angles === "mock" && steps.drafts === "" && steps.open === true, JSON.stringify(steps));
 } finally {
   await chrome.stop();
+  mockModel.server.close();
 }
 const failed = checks.filter(item => !item.ok).length;
 console.log(failed ? `✖ ${failed} 项失败` : `✔ ${checks.length} 项全部通过`);

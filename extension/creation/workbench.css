@@ -1,0 +1,60 @@
+/* 创作页面（雷达、写作台）共用的基础样式：配色、按钮、侧栏与主区布局。 */
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  color: #1d2734;
+  background: #f6f8fb;
+  font-size: 14px;
+  line-height: 1.6;
+  color-scheme: light;
+  --blue: #2670ec;
+  --border: #e0e6ee;
+  --muted: #758195;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+[hidden] { display: none !important; }
+h1 { font-size: 22px; margin: 0; }
+h2 { font-size: 17px; margin: 0; }
+p { margin: 0; }
+a { color: #276ada; text-decoration: none; }
+a:hover { text-decoration: underline; }
+button, select, input { font: inherit; }
+button {
+  cursor: pointer; background: #fff; color: #334156;
+  border: 1px solid #d5dce6; border-radius: 8px; padding: 5px 11px;
+}
+button:hover:not(:disabled) { border-color: var(--blue); background: #f3f7ff; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+button.primary:hover:not(:disabled) { background: #175cce; color: #fff; }
+a.button { display: inline-block; border: 1px solid #d5dce6; border-radius: 8px; padding: 5px 11px; white-space: nowrap; }
+a.button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+a.button.primary:hover { background: #175cce; text-decoration: none; }
+select, input { border: 1px solid #d5dce6; border-radius: 8px; padding: 5px 9px; background: #fff; color: inherit; }
+.muted { color: var(--muted); font-size: 12px; }
+
+.sidebar {
+  position: fixed; inset: 0 auto 0 0; width: 196px; background: #fff; border-right: 1px solid var(--border);
+  padding: 24px 14px; display: flex; flex-direction: column; gap: 6px;
+}
+.brand { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; color: #18283e; margin-bottom: 18px; }
+.brand span { background: var(--blue); color: #fff; border-radius: 6px; padding: 0 6px; }
+.brand:hover { text-decoration: none; }
+.nav-label { color: #8995a6; font-size: 11px; letter-spacing: 1px; margin-top: 14px; }
+.sidebar nav { display: grid; gap: 2px; }
+.sidebar nav button, .sidebar nav a { text-align: left; border: 0; background: transparent; padding: 9px 10px; border-radius: 8px; color: #334156; }
+.sidebar nav button[aria-pressed="true"], .sidebar nav a[aria-current="page"] { background: #eaf2ff; color: #1d64d8; font-weight: 650; }
+.sidebar nav a:hover { background: #f3f6fa; text-decoration: none; }
+
+.workspace { margin-left: 196px; padding: 0 32px 120px; max-width: 1240px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; padding: 24px 0 16px; }
+.topbar p { margin-top: 4px; }
+.status { font-size: 12px; color: #5a7190; min-height: 18px; }
+.status[data-error="true"] { color: #b04035; }
+
+@media (max-width: 900px) {
+  .sidebar { position: static; width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 12px 16px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .nav-label { display: none; }
+  .sidebar nav { display: flex; }
+  .workspace { margin: 0; padding: 0 16px 120px; }
+}

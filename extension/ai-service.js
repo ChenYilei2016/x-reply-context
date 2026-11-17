@@ -37,6 +37,15 @@
     return `<reply_time timezone="${formatter.resolvedOptions().timeZone}">${formatter.format(now)}</reply_time>\n` +
       "这是当前准备回复时的本地时间，不是帖子发布时间。问候语和时段表达以此为准，不要照搬旧帖中过时的问候；无需刻意问候或在回复中复述时间。";
   }
+  /** 创作工作台：角度与成稿请求由各自的模型模块构建提示词；输出为 JSON，放宽长度并降低随机性。 */
+  const STUDIO_PAGE = "creation/studio.html";
+  const STUDIO_TIMEOUT = 90000;
+  const STUDIO_OUTPUT_LIMIT = 12000;
+  const STUDIO_TEMPERATURE = 0.9;
+  const studioBuilders = {
+    angles: input => globalThis.XReplyAngleModel.buildRequest(input),
+    drafts: input => globalThis.XReplyDraftModel.buildRequest(input)
+  };
   const outputError = (code,message) => Object.assign(new Error(message),{code});
   const ASSISTANT_HEADER = /<\|im_start\|>assistant(?=\s|$)|<\|start_header_id\|>assistant<\|end_header_id\|>/gi;
   const MODEL_MARKER = /<\/?s>|(?:<|&lt;)[|｜][^<>\s|｜]+[|｜](?:>|&gt;)/gi;
@@ -131,6 +140,7 @@
     const owner = sender => `${sender.tab?.id ?? "settings"}:${sender.frameId || 0}:${sender.documentId || sender.url}`;
     const settingsPage = sender => sender.url === chrome.runtime.getURL("ai-settings.html");
     const creationPage = sender => sender.url === chrome.runtime.getURL("creation.html");
+    const studioPage = sender => sender.url === chrome.runtime.getURL(STUDIO_PAGE);
     const load = () => cached ||= chrome.storage.local.get("aiConfig").then(saved => config.normalizeProfiles(saved.aiConfig)).catch(error => {cached=undefined;throw error;});
     function removeWaiting(job) {
       const index = waiting.indexOf(job);
@@ -160,7 +170,8 @@
         const saved = config.activeConfig(settings);
         if (!saved.enabled && !job.creation) throw new Error("AI 回复未开启，请先打开 AI 设置。");
         const polishing = job.message.kind === "polish";
-        const profile = polishing ? config.polishProfile(settings) : saved;
+        const step = job.creation?.step;
+        const profile = polishing ? config.polishProfile(settings) : step ? config.creationProfile(settings,step) : saved;
         if (!profile) throw new Error("二次润色未开启。");
         if (!profile.baseUrl || !profile.apiKey || !profile.model) throw new Error("请先在 AI 设置中填写接口、Key 和模型。");
         const url = config.endpoint(profile.baseUrl);
@@ -209,7 +220,7 @@
         }
         const processing=config.isOpenAI(profile.baseUrl) ?
           {...(profile.serviceTier==="auto"?{}:{service_tier:profile.serviceTier}),
-            ...(profile.reasoningEffort==="auto"?{}:{reasoning_effort:profile.reasoningEffort})} : {temperature:1.2};
+            ...(profile.reasoningEffort==="auto"?{}:{reasoning_effort:profile.reasoningEffort})} : {temperature:step ? STUDIO_TEMPERATURE : 1.2};
         const body = JSON.stringify({
           model:profile.model,messages:[{role:"system",content:prompt},{role:"user",content:userContent}],...processing,stream:true
         });
@@ -224,7 +235,7 @@
           throw new Error(CONNECTION_FAILURE);
         }
         job.submittedContext = contextUsed;
-        const text = await readResponse(response,signal,job.creation ? 6000 : saved.maxReplyLength,
+        const text = await readResponse(response,signal,step ? STUDIO_OUTPUT_LIMIT : job.creation ? 6000 : saved.maxReplyLength,
           polishing || Boolean(job.creation),job.creation ? "创作模型未完整返回，未替换草稿，请重试。" : INCOMPLETE_POLISH);
         signal.throwIfAborted();
         return {ok:true,text,...(contextUsed ? {contextUsed} : {})};
@@ -261,6 +272,18 @@
         return {ok:true,name:profile.name,model:profile.model,configured,origin,
           permitted:configured && await chrome.permissions.contains({origins:[origin]})};
       }
+      if (message.type === "AI_STUDIO_STATUS") {
+        if (!studioPage(sender)) return {ok:false,error:"仅写作台可以读取创作模型状态。"};
+        const settings=await load();
+        const steps=await Promise.all(config.creationSteps.map(async step=>{
+          const profile=config.creationProfile(settings,step.id);
+          const configured=Boolean(profile.baseUrl && profile.apiKey && profile.model);
+          const origin=configured ? config.originPattern(config.endpoint(profile.baseUrl)) : "";
+          return {id:step.id,label:step.label,name:profile.name,model:profile.model,configured,origin,
+            permitted:configured && await chrome.permissions.contains({origins:[origin]})};
+        }));
+        return {ok:true,steps};
+      }
       if (message.type === "AI_CONFIG_GET" || message.type === "AI_CONFIG_SAVE") {
         if (!settingsPage(sender)) return {ok:false,error:"仅设置页可以操作 AI 配置。"};
         if (message.type === "AI_CONFIG_GET") return {ok:true,config:await load()};
@@ -283,10 +306,17 @@
         try { creation=globalThis.XReplyCreationModel.build(message); }
         catch(error) {return {ok:false,error:error.message};}
       }
+      if (message.type === "AI_REQUEST" && message.kind === "studio") {
+        if (!studioPage(sender)) return {ok:false,error:"仅写作台可以发起创作请求。"};
+        const build = Object.hasOwn(studioBuilders,message.step) ? studioBuilders[message.step] : null;
+        if (!build) return {ok:false,error:"未知的创作步骤。"};
+        try { creation={...build(message.input),step:message.step}; }
+        catch(error) {return {ok:false,error:error.message};}
+      }
       const context = (message.kind === "generate" || polishing) && message.context && typeof message.context === "object" ?
         aiContext?.normalize(message.context) : null;
       const draftLimit = polishing ? config.defaults.maxReplyLength : 10000;
-      if (message.type !== "AI_REQUEST" || !["generate","rewrite","polish","compose"].includes(message.kind) ||
+      if (message.type !== "AI_REQUEST" || !["generate","rewrite","polish","compose","studio"].includes(message.kind) ||
           typeof message.id !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(message.id) ||
           !creation && (typeof message.post !== "string" || message.post.length > 20000 ||
           (!message.post.trim() && !polishing && (!context?.image || context.imageFrom !== "post")) ||
@@ -304,7 +334,7 @@
           const error = queued ? "AI 请求等待超时，请稍后重试。" : "模型响应超时，请稍后重试。";
           resolve({ok:false,error,...(job.submittedContext ? {contextUsed:job.submittedContext} : {})});
           job.controller.abort();
-        },creation ? 60000 : polishing ? POLISH_TIMEOUT : TIMEOUT);
+        },creation?.step ? STUDIO_TIMEOUT : creation ? 60000 : polishing ? POLISH_TIMEOUT : TIMEOUT);
         jobs.set(key,job); waiting.push(job); drain();
       });
     }

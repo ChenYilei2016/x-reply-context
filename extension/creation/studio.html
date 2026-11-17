@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>写作台 · 回过了</title>
+  <link rel="stylesheet" href="workbench.css">
+  <link rel="stylesheet" href="studio.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="radar.html"><span>✓</span>回过了 · 创作</a>
+    <p class="nav-label">创作</p>
+    <nav aria-label="创作">
+      <a href="radar.html">选题雷达</a>
+      <a href="studio.html" aria-current="page">写作台</a>
+    </nav>
+    <p class="nav-label">设置</p>
+    <nav aria-label="其他页面">
+      <a href="channels.html" target="_blank" rel="noopener">素材渠道 ↗</a>
+      <a href="../ai-settings.html" target="_blank" rel="noopener">AI 设置 ↗</a>
+    </nav>
+  </aside>
+
+  <main class="workspace studio">
+    <header class="topbar">
+      <div>
+        <h1>写作台</h1>
+        <p class="muted">选题 → 角度 → 3 个候选 → 编辑。发布仍由你在 X 上确认。</p>
+      </div>
+    </header>
+    <p id="status" class="status" role="status"></p>
+
+    <div class="columns">
+      <div class="column">
+        <section class="panel" aria-labelledby="materials-title">
+          <header class="panel-head">
+            <h2 id="materials-title">素材</h2>
+            <a href="radar.html" class="muted">去雷达选素材</a>
+          </header>
+          <ul id="materials" class="materials"></ul>
+          <ul id="warnings" class="warnings"></ul>
+          <details id="references" class="references" hidden>
+            <summary id="references-summary"></summary>
+            <ul id="reference-list"></ul>
+          </details>
+        </section>
+
+        <section class="panel" aria-labelledby="profile-title">
+          <header class="panel-head"><h2 id="profile-title">人设与样本</h2></header>
+          <label for="persona">人设</label>
+          <textarea id="persona" rows="6" maxlength="2000" spellcheck="false"></textarea>
+          <div class="row"><button type="button" id="persona-default">恢复默认人设</button><span id="profile-status" class="muted"></span></div>
+          <p class="label">本次发给模型的样本 <span class="muted">（最多 5 条，只学语气和排版）</span></p>
+          <ol id="samples" class="samples"></ol>
+          <button type="button" id="samples-restore" hidden></button>
+          <details class="manual">
+            <summary>手动样本</summary>
+            <textarea id="manual-samples" rows="6" spellcheck="false" placeholder="粘贴你表现好的帖子，每条之间单独一行写 ---"></textarea>
+            <p class="muted">手动样本排在最前。自己的帖子来自 bot feed 中标记 own 的条目（近 60 天，按浏览量）。</p>
+          </details>
+        </section>
+      </div>
+
+      <div class="column wide">
+        <section class="panel" aria-labelledby="angles-title">
+          <header class="panel-head">
+            <h2 id="angles-title">角度</h2>
+            <span class="model" data-step="angles"></span>
+            <button type="button" id="find-angles" class="primary">找角度</button>
+          </header>
+          <p id="angles-hint" class="muted"></p>
+          <ol id="angles" class="angles"></ol>
+        </section>
+
+        <section class="panel" aria-labelledby="drafts-title">
+          <header class="panel-head">
+            <h2 id="drafts-title">成稿</h2>
+            <span class="model" data-step="drafts"></span>
+          </header>
+          <div class="draft-controls">
+            <select id="format" aria-label="帖子形态"></select>
+            <input id="instructions" maxlength="500" placeholder="本次附加要求（可选），例如：结尾抛一个问题">
+            <button type="button" id="write" class="primary">生成 3 个候选</button>
+            <button type="button" id="cancel" hidden>取消</button>
+          </div>
+          <p id="angle-chip" class="angle-chip" hidden><span></span><button type="button" id="angle-clear">不用角度</button></p>
+          <div id="candidates" class="candidates" role="tablist" aria-label="候选稿"></div>
+          <div id="editor-area" hidden>
+            <textarea id="editor" rows="10" aria-label="正文编辑"></textarea>
+            <p id="meter" class="meter" role="status"></p>
+            <p id="quote-target" class="muted" hidden></p>
+            <div id="fold-preview" class="fold-preview" aria-label="首屏预览"></div>
+            <div class="row">
+              <button type="button" id="copy" class="primary">复制正文</button>
+              <button type="button" id="revert">还原本候选</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <template id="angle-template">
+    <li class="angle">
+      <div class="angle-badges"></div>
+      <p class="angle-hook"></p>
+      <ol class="angle-outline"></ol>
+      <p class="angle-meta"></p>
+      <p class="angle-risk"></p>
+      <p class="angle-potential"></p>
+      <button type="button" class="use">用这个写</button>
+    </li>
+  </template>
+
+  <script src="material-model.js"></script>
+  <script src="material-db.js"></script>
+  <script src="format.js"></script>
+  <script src="topic-cluster.js"></script>
+  <script src="compose-prompt.js"></script>
+  <script src="angle-model.js"></script>
+  <script src="draft-model.js"></script>
+  <script src="x-text.js"></script>
+  <script src="studio-store.js"></script>
+  <script src="studio.js"></script>
+</body>
+</html>

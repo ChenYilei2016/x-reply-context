@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>选题雷达 · 回过了</title>
+  <link rel="stylesheet" href="workbench.css">
   <link rel="stylesheet" href="radar.css">
 </head>
 <body>
@@ -14,6 +15,10 @@
       <button type="button" data-view="all" aria-pressed="true">选题雷达</button>
       <button type="button" data-view="saved" aria-pressed="false">我的收藏</button>
       <button type="button" data-view="hidden" aria-pressed="false">已隐藏</button>
+    </nav>
+    <p class="nav-label">写作</p>
+    <nav aria-label="写作">
+      <a href="studio.html" target="xreply-studio">写作台 ↗</a>
     </nav>
     <p class="nav-label">设置</p>
     <nav aria-label="其他页面">
@@ -68,7 +73,8 @@
   <footer id="basket" class="basket" hidden aria-label="已选素材">
     <strong id="basket-count"></strong>
     <ul id="basket-items" class="basket-items"></ul>
-    <button type="button" id="basket-copy" class="primary">复制为素材文本</button>
+    <a id="basket-write" class="button primary" href="studio.html" target="xreply-studio">去写作台 →</a>
+    <button type="button" id="basket-copy">复制为素材文本</button>
     <button type="button" id="basket-clear">清空</button>
   </footer>
 

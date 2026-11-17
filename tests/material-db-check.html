@@ -34,6 +34,8 @@ BrowserCheck.run(async check => {
     { channelId: "ithome", now: NOW }).material]);
   const articles = await db.recent({ kind: "article" });
   check("按类型读取", articles.length === 1 && articles[0].kind === "article");
+  const filtered = await db.recent({ limit: 2, where: material => material.id !== "x:1" });
+  check("where 筛选后再计 limit", filtered.length === 2 && filtered.every(m => m.id !== "x:1"), filtered.map(m => m.id).join(","));
 
   const marked = await db.setMark("x:2", "saved", true);
   check("设置收藏", marked.marks.saved === true);

@@ -100,9 +100,10 @@
      * 按最近出现时间倒序读取，读到 since 之前或达到 limit 即停止，不全量加载。
      * @param options.kind 只读某一类型
      * @param options.since 最早的 lastSeenAt（毫秒）
-     * @param options.limit 最多条数
+     * @param options.limit 最多条数（只计入满足 where 的条目）
+     * @param options.where 可选筛选条件，在游标上逐条判断，不满足的不进内存结果
      */
-    function recent({ kind, since = 0, limit = 2000 } = {}) {
+    function recent({ kind, since = 0, limit = 2000, where } = {}) {
       return read(MATERIALS, store => new Promise((resolve, reject) => {
         const range = kind ?
           IDBKeyRange.bound([kind, since], [kind, Infinity]) :
@@ -113,7 +114,7 @@
         cursor.onsuccess = () => {
           const row = cursor.result;
           if (!row || rows.length >= limit) { resolve(rows); return; }
-          rows.push(row.value);
+          if (!where || where(row.value)) rows.push(row.value);
           row.continue();
         };
       }));
