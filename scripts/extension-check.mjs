@@ -192,9 +192,23 @@ try {
   const settings = await chrome.attach(target => target.targetId === settingsTarget);
   const steps = await waitFor(() => chrome.evaluate(settings, `(() => {
     const angles = document.getElementById("creationProfile-angles"), drafts = document.getElementById("creationProfile-drafts");
-    return angles && drafts && angles.options.length === 2 ? { angles: angles.value, drafts: drafts.value, open: document.getElementById("creationSettings").open } : null;
+    return angles && drafts && angles.options.length === 2 ? { angles: angles.value, drafts: drafts.value, reply: document.getElementById("replyProfile").value,
+      models: ["reply", "polish", "angles", "drafts", "styles", "images"].every(id => document.getElementById("model-" + id)),
+      imagePlaceholder: document.getElementById("model-images").placeholder } : null;
   })()`).catch(() => null), 10000, "AI 设置页未渲染创作模型").catch(error => error.message);
-  check("AI 设置页为每个创作步骤提供 API 选择并回显已保存的值", steps?.angles === "mock" && steps.drafts === "" && steps.open === true, JSON.stringify(steps));
+  check("AI 设置页分为连接、回复、创作台，每个功能可选连接和模型并回显已保存的值", steps?.angles === "mock" && steps.drafts === "" &&
+    steps.reply === "mock" && steps.models && steps.imagePlaceholder === "默认：gpt-image-2", JSON.stringify(steps));
+  await chrome.evaluate(settings, `(() => {
+    chrome.permissions.request = async () => true; // 检查进程内：无头模式无法确认域名授权弹窗
+    const model = document.getElementById("model-angles");
+    model.value = "deep-reasoner"; model.dispatchEvent(new Event("input", { bubbles: true }));
+    document.getElementById("save").click();
+  })()`);
+  const savedModels = await waitFor(() => chrome.evaluate(worker, "chrome.storage.local.get('aiConfig').then(saved => saved.aiConfig?.models?.angles || '')"), 5000, "模型未保存")
+    .catch(error => error.message);
+  const angleStatus = await chrome.evaluate(studio, "chrome.runtime.sendMessage({ type: 'AI_STUDIO_STATUS' }).then(status => status.steps.find(step => step.id === 'angles').model)");
+  check("找角度单独填模型并保存后，同一连接按该模型请求", savedModels === "deep-reasoner" && angleStatus === "deep-reasoner", `${savedModels}/${angleStatus}`);
+  await chrome.evaluate(worker, `chrome.storage.local.get("aiConfig").then(({ aiConfig }) => chrome.storage.local.set({ aiConfig: { ...aiConfig, models: { ...aiConfig.models, angles: "" } } }))`);
 
   // 发布与复盘：写作台「去 X 发布」→ 草稿待确认并打开预填发帖页；bot feed 带回自己的同文帖子 → 自动标为已发并显示数据。
   await chrome.evaluate(studio, "document.getElementById('publish').click()");

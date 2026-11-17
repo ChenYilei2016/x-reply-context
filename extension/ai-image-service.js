@@ -59,7 +59,7 @@
       const url = config.imagesEndpoint(profile.baseUrl);
       if (!await chrome.permissions.contains({ origins: [config.originPattern(url)] })) return { ok: false, error: "模型域名尚未授权。", origin: config.originPattern(url) };
       let body;
-      try { body = imageModel.generationBody(message.input, { model: settings.imageModel, quality: settings.imageQuality }); }
+      try { body = imageModel.generationBody(message.input, { model: profile.model, quality: settings.imageQuality }); }
       catch (error) { return { ok: false, error: error.message }; }
 
       const controller = new AbortController();

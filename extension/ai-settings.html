@@ -1,64 +1,79 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>回过了 · AI 回复设置</title>
+<title>回过了 · AI 设置</title>
 <style>
-body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 20px;color:#182b36}h1{font-size:24px}label{display:block;margin-top:18px;font-weight:600}input:not([type=checkbox]),textarea,select{box-sizing:border-box;width:100%;border:1px solid #8293a480;border-radius:8px;padding:10px;font:inherit}textarea{min-height:150px}button{padding:8px 18px;border-radius:18px;border:1px solid #087ebd;background:white;color:#087ebd;cursor:pointer;margin:16px 8px 0 0}#save{background:#087ebd;color:white}button:disabled{opacity:.5}.hint{color:#536471;font-size:13px}#status{min-height:24px;white-space:pre-wrap}code{background:#eef3f6;padding:2px 4px}
+body{font:15px/1.6 system-ui,sans-serif;max-width:760px;margin:32px auto;padding:0 20px;color:#182b36}h1{font-size:24px}
+label{display:block;margin-top:16px;font-weight:600}input:not([type=checkbox]),textarea,select{box-sizing:border-box;width:100%;border:1px solid #8293a480;border-radius:8px;padding:10px;font:inherit}
+textarea{min-height:150px}button{padding:8px 18px;border-radius:18px;border:1px solid #087ebd;background:white;color:#087ebd;cursor:pointer;margin:16px 8px 0 0}
+#save{background:#087ebd;color:white}button:disabled{opacity:.5}.hint{color:#536471;font-size:13px}#status{min-height:24px;white-space:pre-wrap}code{background:#eef3f6;padding:2px 4px}
 #endpointPreview{overflow-wrap:anywhere}#baseUrlWarning{color:#935700}
+fieldset{border:1px solid #d5dce6;border-radius:12px;padding:6px 20px 20px;margin:22px 0}legend{font-size:18px;font-weight:700;padding:0 8px}
+.feature{display:grid;grid-template-columns:110px 1fr 1fr;gap:10px;align-items:center;margin-top:12px}.feature span{font-weight:600}
+.feature-head{display:grid;grid-template-columns:110px 1fr 1fr;gap:10px;margin-top:12px;color:#536471;font-size:13px}
+.actions{position:sticky;bottom:0;background:#fff;padding-bottom:10px;border-top:1px solid #e6ebf0}
 </style>
-<h1>AI 回复 · 自带 API</h1>
-<p>开启前请停用原来的 XReply，避免两套插件同时生成、处理快捷键和写入草稿。</p>
-<p class="hint">互动历史保留在本机。开启 API 后，可在回复框点击「推荐评论」生成并填入一条。扩展弹窗的「自动 AI 补全」默认关闭，手动开启后才在空回复框生成三条候选；改写另发送当前草稿。没有新增 X 抓帖请求。Key 仅保存在此扩展本地，不使用 Chrome 同步。</p>
+<h1>AI 设置 · 自带 API</h1>
+<p class="hint">分三部分：先在「API 连接」里放好地址和 Key，再给「X 自动回复」和「创作台」的每个功能选连接、填模型。同一个连接可以给不同功能用不同模型。Key 只保存在此扩展本地，不使用 Chrome 同步。开启前请停用原来的 XReply，避免两套插件同时生成。</p>
 <form id="settings">
-<label><input id="enabled" type="checkbox"> 开启 AI API</label>
 <p id="activeProfile" class="hint" role="status"></p>
-<label for="profile">API 配置</label><select id="profile" disabled></select>
-<div><button id="addProfile" type="button" disabled>新增配置</button><button id="openaiProfile" type="button" disabled>OpenAI 预设</button><button id="removeProfile" type="button" disabled>删除此配置</button></div>
-<div class="hint">最多10组。选择后点「保存并使用此配置」切换生成所用的 API。切换列表时会保留本页编辑，二次润色可单独选择 API。</div>
-<label for="profileName">配置名称</label><input id="profileName" maxlength="60" autocomplete="off" placeholder="例如：主用 API、备用 API">
+
+<fieldset>
+<legend>① API 连接</legend>
+<div class="hint">连接只包含地址、Key 和默认模型，最多 10 个。各功能在下面选择用哪个连接；功能的模型留空时用这里的默认模型。</div>
+<label for="profile">编辑连接</label><select id="profile" disabled></select>
+<div><button id="addProfile" type="button" disabled>新增连接</button><button id="openaiProfile" type="button" disabled>OpenAI 预设</button><button id="removeProfile" type="button" disabled>删除此连接</button></div>
+<label for="profileName">连接名称</label><input id="profileName" maxlength="60" autocomplete="off" placeholder="例如：OpenAI 官方、某中转站">
 <label for="baseUrl">Base URL</label>
 <input id="baseUrl" type="url" placeholder="https://api.example.com/v1" autocomplete="off" aria-describedby="baseUrlHint endpointPreview baseUrlWarning">
-<div class="hint" id="baseUrlHint">可填 Base URL 或完整的 /chat/completions 地址。支持 HTTPS 或 localhost / 127.0.0.1 HTTP 服务。</div>
+<div class="hint" id="baseUrlHint">可填 Base URL 或完整的 /chat/completions 地址。支持 HTTPS 或 localhost / 127.0.0.1 HTTP 服务。出图请求发往同一 Base URL 下的 /images/generations。</div>
 <div class="hint" id="endpointPreview" hidden>实际请求地址 <code></code></div>
 <div class="hint" id="baseUrlWarning" hidden></div>
 <label for="apiKey">API Key</label><input id="apiKey" type="password" autocomplete="off" spellcheck="false">
-<label for="model">模型</label><input id="model" autocomplete="off" spellcheck="false">
+<label for="model">默认模型</label><input id="model" autocomplete="off" spellcheck="false">
 <p class="hint">OpenAI 预设：官方 API 地址 + gpt-6-luna，Key 留空，请填写你自己的 API Key。这是 API 接入，不会读取 ChatGPT 网页登录状态。</p>
 <div id="openaiMode" hidden>
 <label for="serviceTier">OpenAI 处理模式</label>
 <select id="serviceTier"><option value="auto">跟随项目默认</option><option value="default">标准模式</option><option value="fast">快速模式（费用更高）</option></select>
-<div class="hint">仅适用 OpenAI 官方地址。快速模式费用高于标准模式，实际可用性及处理等级由 OpenAI 决定；不会自动重试或切换。保存后生效，旧配置默认跟随项目。</div>
+<div class="hint">仅适用 OpenAI 官方地址。快速模式费用高于标准模式，实际可用性及处理等级由 OpenAI 决定；不会自动重试或切换。</div>
 <label for="reasoningEffort">OpenAI 推理强度</label>
 <select id="reasoningEffort"><option value="auto">跟随模型默认（不传参）</option><option value="none">无 · none</option><option value="minimal">极低 · minimal</option><option value="low">低 · low</option><option value="medium">中 · medium</option><option value="high">高 · high</option><option value="xhigh">极高 · xhigh</option><option value="max">最高 · max</option></select>
-<div class="hint">每组 API 独立保存，仅向 OpenAI 官方地址传 reasoning_effort。强度越高通常耗时和推理用量越多；模型支持的档位不同，不支持时显示错误，不自动重试。已有配置默认不传参。</div>
+<div class="hint">按连接保存，仅向 OpenAI 官方地址传 reasoning_effort。强度越高通常耗时和推理用量越多。</div>
 </div>
-<details id="polishSettings" style="margin-top:18px">
-<summary>二次润色</summary>
+</fieldset>
+
+<fieldset>
+<legend>② X 自动回复</legend>
+<label><input id="enabled" type="checkbox"> 开启 AI 回复</label>
+<div class="hint">开启后可在回复框点「推荐评论」生成并填入一条。扩展弹窗的「自动 AI 补全」默认关闭。</div>
+<div class="feature-head"><span>功能</span><span>使用的连接</span><span>模型（留空用连接默认）</span></div>
+<div class="feature"><span>生成回复</span><select id="replyProfile" aria-label="生成回复使用的连接"></select><input id="model-reply" aria-label="生成回复的模型" autocomplete="off" spellcheck="false"></div>
+<div class="feature"><span>二次润色</span><select id="polishProfile" aria-label="二次润色使用的连接"></select><input id="model-polish" aria-label="二次润色的模型" autocomplete="off" spellcheck="false"></div>
 <label><input id="polishEnabled" type="checkbox"> 推荐后再润色一次</label>
-<label for="polishProfile">润色 API</label><select id="polishProfile"></select>
 <label for="polishPrompt">润色 Prompt</label><textarea id="polishPrompt" spellcheck="false" maxlength="16000"></textarea>
-<div class="hint">润色 API 接收当前帖正文和刚生成的回复。润色成功后填入结果，超时或失败时填入首稿。</div>
-</details>
-<details id="creationSettings" style="margin-top:18px">
-<summary>创作工作台模型</summary>
-<div id="creationProfiles"></div>
-<div class="hint">写作台的「找角度」「成稿」「拆解风格」「配图」可以各用一组 API，例如找角度用推理强的模型、成稿用文笔好的模型。选「跟随当前配置」时使用上方已保存的当前配置。创作功能不受「开启 AI API」开关影响。改写和配图提示词使用「成稿」的模型。</div>
-<label for="imageModel">出图模型</label><input id="imageModel" autocomplete="off" spellcheck="false" maxlength="100" placeholder="gpt-image-2">
-<div class="hint">「配图 API」只提供地址和 Key，出图用这里的模型名，请求发往 Base URL 下的 /images/generations。OpenAI 可填 gpt-image-2、gpt-image-2.5-flare 等（gpt-image-1 已停用）；中转站按其支持的名称填写。gpt-image-2 及之后的型号按精确比例出图，其他型号用最接近的标准尺寸。</div>
-<label for="imageQuality">出图质量</label><select id="imageQuality"><option value="medium">中（默认）</option><option value="low">低：便宜、快</option><option value="high">高：贵、慢</option><option value="auto">由模型决定</option></select>
-<div class="hint">每出一张图按你的 API 单独计费，质量越高越贵。</div>
-</details>
-<label>AI 逐字填入间隔（毫秒，所有 API 共用）</label>
+<div class="hint">润色接收当前帖正文和刚生成的回复。润色成功后填入结果，超时或失败时填入首稿。</div>
+<label>AI 逐字填入间隔（毫秒）</label>
 <div style="display:flex;gap:12px;align-items:center">
 <input id="typingDelayMin" type="number" min="0" max="1000" step="1" required aria-label="逐字间隔最小值（毫秒）" style="width:110px"><span>～</span>
 <input id="typingDelayMax" type="number" min="0" max="1000" step="1" required aria-label="逐字间隔最大值（毫秒）" style="width:110px"><span>ms</span>
 </div>
-<div class="hint">默认35～100ms；每字在区间内随机等待，另有编辑器同步时间。可填0～1000的整数，最小值不能大于最大值。用于 Tab 采用建议和「为你推荐」自动填入草稿。保存后生效。</div>
-<label for="maxReplyLength">回复最大字符数（所有 API 共用）</label>
+<div class="hint">默认35～100ms；每字在区间内随机等待。可填0～1000的整数，最小值不能大于最大值。用于 Tab 采用建议和「为你推荐」自动填入草稿。</div>
+<label for="maxReplyLength">回复最大字符数</label>
 <input id="maxReplyLength" type="number" min="1" max="12000" step="1" required style="width:110px">
 <div class="hint">默认 12,000。用于检查生成和改写后的文本，超限时会提示实际长度。</div>
-<label for="generatePrompt">生成回复的 Prompt</label><textarea id="generatePrompt" spellcheck="false"></textarea><div class="hint">可填写自己的写作要求。<code>${post}</code> 指向本次附上的当前帖子，已加载的相关评论和勾选带上的照片也会作为参考材料。<code>${rootOwnership}</code> 可表示我的原帖、别人的原帖或待确认，原帖也可能属于第三人。输出用 &lt;reply&gt;...&lt;/reply&gt; 包裹。</div>
-<label for="rewritePrompt">改写草稿的 Prompt</label><textarea id="rewritePrompt" spellcheck="false"></textarea><div class="hint">支持 <code>${post}</code>、<code>${draft}</code> 和 <code>${rootOwnership}</code>。默认模板为独立编写，需原样保持写作风格时请填入你自己的 Prompt。</div>
-<button id="save" type="submit" disabled>保存并使用此配置</button><button id="defaults" type="button">填入默认 Prompt</button>
-<p id="status" role="status">读取配置…</p>
+<label for="generatePrompt">生成回复的 Prompt</label><textarea id="generatePrompt" spellcheck="false"></textarea><div class="hint"><code>${post}</code> 指向本次附上的当前帖子，已加载的相关评论和勾选带上的照片也会作为参考材料。<code>${rootOwnership}</code> 可表示我的原帖、别人的原帖或待确认。输出用 &lt;reply&gt;...&lt;/reply&gt; 包裹。</div>
+<label for="rewritePrompt">改写草稿的 Prompt</label><textarea id="rewritePrompt" spellcheck="false"></textarea><div class="hint">支持 <code>${post}</code>、<code>${draft}</code> 和 <code>${rootOwnership}</code>。</div>
+<button id="defaults" type="button">填入默认回复 Prompt</button>
+</fieldset>
+
+<fieldset id="creationSettings">
+<legend>③ 创作台</legend>
+<div class="hint">创作台不受「开启 AI 回复」开关影响。改写和出图提示词用「成稿」的模型；配图的模型是出图模型（如 gpt-image-2、gpt-image-2.5-flare；gpt-image-1 已停用），gpt-image-2 及之后按精确比例出图。各任务的写作要求在写作台「写作设置」里改。</div>
+<div class="feature-head"><span>功能</span><span>使用的连接</span><span>模型（留空用连接默认）</span></div>
+<div id="creationFeatures"></div>
+<label for="imageQuality">出图质量</label><select id="imageQuality"><option value="medium">中（默认）</option><option value="low">低：便宜、快</option><option value="high">高：贵、慢</option><option value="auto">由模型决定</option></select>
+<div class="hint">每出一张图按你的 API 单独计费，质量越高越贵。</div>
+</fieldset>
+
+<div class="actions"><button id="save" type="submit" disabled>保存</button><p id="status" role="status">读取配置…</p></div>
 </form>
-<p>Option+Q（Mac）／Alt+Q（Windows）推荐评论 · Option/Alt+1～6 填入快捷词句 · ↑/↓ 切换候选 · Tab 采用并逐字填入 · Option+Tab 改写草稿。默认由你确认发送；开启并开始定时触发后会按设置发送已填草稿；关闭、跳过或切换对象会取消旧任务。Windows 的 Alt+Tab 被系统占用，沿用原快捷键时不能用于改写。</p>
+<p class="hint">Option+Q（Mac）／Alt+Q（Windows）推荐评论 · Option/Alt+1～6 填入快捷词句 · ↑/↓ 切换候选 · Tab 采用并逐字填入 · Option+Tab 改写草稿。默认由你确认发送；开启并开始定时触发后会按设置发送已填草稿；关闭、跳过或切换对象会取消旧任务。</p>
 <script src="ai-config.js"></script><script src="ai-settings.js"></script></html>

@@ -275,8 +275,7 @@
           const profile=config.creationProfile(settings,step.id);
           const configured=Boolean(profile.baseUrl && profile.apiKey && profile.model);
           const origin=configured ? config.originPattern(config.endpoint(profile.baseUrl)) : "";
-          // 配图步骤显示出图模型；它的 API 配置只提供地址和 Key。
-          return {id:step.id,label:step.label,name:profile.name,model:step.id === "images" ? settings.imageModel : profile.model,configured,origin,
+          return {id:step.id,label:step.label,name:profile.name,model:profile.model,configured,origin,
             permitted:configured && await chrome.permissions.contains({origins:[origin]})};
         }));
         return {ok:true,steps,tasks:config.creationTasks};

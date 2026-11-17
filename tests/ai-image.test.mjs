@@ -60,15 +60,17 @@ test('出图提示词请求与出图请求体：风格附在末尾、质量为 a
 test('设置：出图模型与质量默认值和校验；出图地址换成 /images/generations', () => {
   const {scope: {XReplyAIConfig: config}} = setup();
   const normalized = config.normalizeProfiles({profiles, activeProfileId: 'chat'});
-  assert.equal(normalized.imageModel, 'gpt-image-2');
+  assert.equal(config.imageModel(normalized), 'gpt-image-2');
+  assert.equal(config.imageModel(config.normalizeProfiles({profiles, activeProfileId: 'chat', imageModel: 'gpt-image-2.5-flare'})), 'gpt-image-2.5-flare',
+    '旧版的出图模型设置迁入配图模型');
   assert.equal(normalized.imageQuality, 'medium');
-  assert.throws(() => config.normalizeProfiles({profiles, activeProfileId: 'chat', imageModel: 'bad model!'}), /出图模型名/);
+  assert.throws(() => config.normalizeProfiles({profiles, activeProfileId: 'chat', models: {images: 'bad model!'}}), /「配图」的模型名/);
   assert.throws(() => config.normalizeProfiles({profiles, activeProfileId: 'chat', imageQuality: 'ultra'}), /出图质量/);
   assert.equal(config.imagesEndpoint('https://relay.example/v1/chat/completions').href, 'https://relay.example/v1/images/generations');
 });
 
 test('出图：用「配图」步骤的 API 配置和出图模型，返回 data URL', async () => {
-  const {service, calls} = setup({config: {imageModel: 'gpt-image-2.5-flare', imageQuality: 'high'}});
+  const {service, calls} = setup({config: {models: {images: 'gpt-image-2.5-flare'}, imageQuality: 'high'}});
   const result = await service.handle({type: 'AI_IMAGE_GENERATE', id: 'img-1', input}, studio);
   assert.equal(result.ok, true);
   assert.equal(result.image.dataUrl, `data:image/png;base64,${PNG}`);

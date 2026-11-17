@@ -95,6 +95,21 @@ test('改写请求带上用户改过的写作要求', async () => {
   assert.match(JSON.parse(calls[0][1].body).messages[0].content, /写作要求：\n每句话都要短。/);
 });
 
+test('同一个连接，不同功能用不同模型：未填时用连接的默认模型', async () => {
+  const {scope: {XReplyAIConfig: config}} = setup();
+  const value = config.normalizeProfiles({...baseConfig, enabled: false,
+    models: {reply: 'mini-model', polish: '', angles: 'deep-reasoner', drafts: '', images: 'gpt-image-2.5-flare'}});
+  assert.equal(config.activeConfig(value).model, 'mini-model', '回复用单独指定的模型');
+  assert.equal(config.activeConfig(value).baseUrl, 'https://model.example/v1', '连接不变');
+  assert.equal(config.creationProfile(value, 'angles').model, 'deep-reasoner');
+  assert.equal(config.creationProfile(value, 'angles').apiKey, 'think-key', '找角度用「推理」连接的 Key');
+  assert.equal(config.creationProfile(value, 'drafts').model, 'writer', '未填模型时用连接默认');
+  assert.equal(config.creationProfile(value, 'images').model, 'gpt-image-2.5-flare');
+  assert.deepEqual(Object.keys(value.models), ['reply', 'polish', 'angles', 'drafts', 'styles', 'images']);
+  const legacy = config.normalizeProfiles({...baseConfig});
+  assert.equal(config.activeConfig(legacy).model, 'writer', '旧配置没有 models 时行为不变');
+});
+
 test('截断的响应不当作结果', async () => {
   const {service} = setup(async () => new Response(JSON.stringify({choices: [{finish_reason: 'length', message: {content: '<reply>{"angles":['}}]}),
     {headers: {'content-type': 'application/json'}}));

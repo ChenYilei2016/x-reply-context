@@ -48,16 +48,37 @@
   ]);
   /** 写作台的任务及其使用哪个步骤的 API：改写与成稿共用「成稿」。 */
   const creationTasks = Object.freeze({angles:"angles",drafts:"drafts",rewrite:"drafts",styles:"styles",image_prompt:"drafts"});
-  /** 配图：「配图」步骤的 API 配置只提供地址和 Key，出图模型与质量单独设置（对话模型不能出图）。 */
+  /**
+   * 两层配置：API 连接（profiles：地址、Key、默认模型）由各功能共用；每个功能选一个连接，并可单独填模型名。
+   * 功能的模型留空时用连接的默认模型；配图的模型是出图模型（对话模型不能出图），留空时用 gpt-image-2。
+   */
+  const features = Object.freeze([
+    Object.freeze({id:"reply",group:"reply",label:"生成回复"}),
+    Object.freeze({id:"polish",group:"reply",label:"二次润色"}),
+    ...creationSteps.map(step=>Object.freeze({...step,group:"creation"}))
+  ]);
   const imageDefaults = Object.freeze({imageModel:"gpt-image-2",imageQuality:"medium"});
   const IMAGE_QUALITIES = Object.freeze(["medium","low","high","auto"]);
-  function imageSettings(raw) {
-    const imageModel = typeof raw?.imageModel === "string" && raw.imageModel.trim() ? raw.imageModel.trim() : imageDefaults.imageModel;
-    if (!/^[A-Za-z0-9][\w.:/-]{0,99}$/.test(imageModel)) throw new Error("出图模型名只能包含字母、数字和 . _ - : /，最多 100 个字符。");
-    const imageQuality = raw?.imageQuality ?? imageDefaults.imageQuality;
-    if (!IMAGE_QUALITIES.includes(imageQuality)) throw new Error("出图质量无效。");
-    return {imageModel,imageQuality};
+  const MODEL_NAME = /^[A-Za-z0-9][\w.:/@+-]{0,255}$/;
+  /** 各功能单独指定的模型名；旧版的 imageModel 迁入 models.images。 */
+  function featureModels(raw) {
+    const source = {...(raw?.models && typeof raw.models === "object" ? raw.models : {})};
+    if (source.images === undefined && typeof raw?.imageModel === "string" && raw.imageModel.trim() !== imageDefaults.imageModel) source.images = raw.imageModel;
+    return Object.fromEntries(features.map(feature=>{
+      const model = typeof source[feature.id] === "string" ? source[feature.id].trim() : "";
+      if (model && !MODEL_NAME.test(model)) throw new Error(`「${feature.label}」的模型名只能包含字母、数字和 . _ - : / @ +。`);
+      return [feature.id,model];
+    }));
   }
+  function imageQuality(raw) {
+    const quality = raw?.imageQuality ?? imageDefaults.imageQuality;
+    if (!IMAGE_QUALITIES.includes(quality)) throw new Error("出图质量无效。");
+    return quality;
+  }
+  /** 连接加上功能单独指定的模型。 */
+  const withModel = (profile,model) => profile && model ? {...profile,model} : profile;
+  /** 出图模型。 */
+  const imageModel = value => value.models?.images || imageDefaults.imageModel;
   /** 出图接口地址：与对话接口同一个 Base URL，路径换成 /images/generations。 */
   function imagesEndpoint(value) {
     const url = endpoint(value);
@@ -107,10 +128,10 @@
     return {enabled:shared.enabled,typingDelayMin:shared.typingDelayMin,typingDelayMax:shared.typingDelayMax,maxReplyLength:shared.maxReplyLength,
       generatePrompt:shared.generatePrompt,rewritePrompt:shared.rewritePrompt,activeProfileId,profiles,
       polishEnabled,polishProfileId:polish?.id || "",polishPrompt:shared.polishPrompt,
-      creationProfileIds:creationProfileIds(raw?.creationProfileIds,profiles),...imageSettings(raw)};
+      creationProfileIds:creationProfileIds(raw?.creationProfileIds,profiles),models:featureModels(raw),imageQuality:imageQuality(raw)};
   }
   function activeConfig(value) {
-    return {...value.profiles.find(profile=>profile.id===value.activeProfileId),enabled:value.enabled,
+    return {...withModel(value.profiles.find(profile=>profile.id===value.activeProfileId),value.models?.reply),enabled:value.enabled,
       generatePrompt:value.generatePrompt,rewritePrompt:value.rewritePrompt,typingDelayMin:value.typingDelayMin,typingDelayMax:value.typingDelayMax,
       maxReplyLength:value.maxReplyLength};
   }
@@ -118,11 +139,12 @@
     try {return new URL(value).origin==="https://api.openai.com";} catch {return false;}
   }
   const originPattern = url => `${url.protocol}//${url.hostname}/*`;
-  const polishProfile = value => value.polishEnabled ? value.profiles.find(profile=>profile.id===value.polishProfileId) : undefined;
+  const polishProfile = value => value.polishEnabled ? withModel(value.profiles.find(profile=>profile.id===value.polishProfileId),value.models?.polish) : undefined;
   /** 某个创作步骤实际使用的 API 配置。 */
   function creationProfile(value,stepId) {
     const id=value.creationProfileIds?.[stepId];
-    return value.profiles.find(profile=>profile.id===id) || value.profiles.find(profile=>profile.id===value.activeProfileId);
+    const profile = value.profiles.find(profile=>profile.id===id) || value.profiles.find(profile=>profile.id===value.activeProfileId);
+    return stepId === "images" ? {...profile,model:imageModel(value)} : withModel(profile,value.models?.[stepId]);
   }
   /** 保存时需要授权的模型域名：开启 AI 回复时的回复与润色配置，以及创作步骤单独指定且已填地址的配置。 */
   function requiredOrigins(value) {
@@ -133,5 +155,5 @@
     return [...new Set(profiles.map(profile=>originPattern(endpoint(profile.baseUrl))))];
   }
   globalThis.XReplyAIConfig = { isOpenAI,defaults,endpoint,normalize,normalizeProfiles,activeConfig,openAIPreset,originPattern,polishProfile,requiredOrigins,
-    creationSteps,creationTasks,creationProfile,imageDefaults,IMAGE_QUALITIES,imagesEndpoint };
+    creationSteps,creationTasks,creationProfile,features,imageDefaults,IMAGE_QUALITIES,imageModel,imagesEndpoint };
 })();
