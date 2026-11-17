@@ -1,4 +1,4 @@
-// 扩展冒烟检查：在无头 Chrome 中真实加载 extension/，验证后台启动、渠道注册、渠道页与雷达渲染、升级迁移、写作台全流程。
+// 扩展冒烟检查：在无头 Chrome 中真实加载 extension/，验证后台启动、渠道注册、渠道页与雷达渲染、升级迁移、写作台、发布与复盘全流程。
 // 用法：node scripts/extension-check.mjs
 // 主机权限的授权弹窗无法在无头模式下确认：渠道实拉需在真实 Chrome 中授权后验证；
 // 写作台改用本机模拟模型接口，并在后台把“域名已授权”的检查替换为通过（仅本检查进程内）。
@@ -169,6 +169,36 @@ try {
     return angles && drafts && angles.options.length === 2 ? { angles: angles.value, drafts: drafts.value, open: document.getElementById("creationSettings").open } : null;
   })()`).catch(() => null), 10000, "AI 设置页未渲染创作模型").catch(error => error.message);
   check("AI 设置页为每个创作步骤提供 API 选择并回显已保存的值", steps?.angles === "mock" && steps.drafts === "" && steps.open === true, JSON.stringify(steps));
+
+  // 发布与复盘：写作台「去 X 发布」→ 草稿待确认并打开预填发帖页；bot feed 带回自己的同文帖子 → 自动标为已发并显示数据。
+  await chrome.evaluate(studio, "document.getElementById('publish').click()");
+  const intent = await waitFor(async () => (await chrome.send("Target.getTargets")).targetInfos
+    .find(target => target.url.startsWith("https://x.com/intent/post?text=")), 10000, "未打开发帖页").catch(error => error.message);
+  check("去 X 发布打开预填正文的发帖页", typeof intent === "object" && decodeURIComponent(intent.url).includes("中".repeat(150)), intent?.url || intent);
+  if (typeof intent === "object") await chrome.send("Target.closeTarget", { targetId: intent.targetId });
+  const pending = await chrome.evaluate(worker, "XReplyMaterialDB.create().drafts().then(list => list.map(draft => draft.status + ':' + draft.text.length))");
+  check("发布前保存为待确认草稿", JSON.stringify(pending) === JSON.stringify(["pending:150"]), JSON.stringify(pending));
+
+  await chrome.evaluate(worker, `(async () => {
+    const now = Date.now();
+    const make = raw => XReplyMaterialModel.normalize(raw, { channelId: "bot-feed", now }).material;
+    await XReplyMaterialDB.create().upsertMany([make({ id: "x:7001", kind: "x_post", own: true, url: "https://x.com/me/status/7001",
+      text: "中".repeat(150) + " https://t.co/abc", publishedAt: new Date(now + 60000).toISOString(), metrics: { views: 5200, likes: 61 } })]);
+    await chrome.storage.local.set({ creationDrafts: [{ id: "old", text: "0.26.0 的旧草稿", title: "旧", revision: 1, updatedAt: now - 86400000, materials: [] }] });
+    await creationService().handleInstalled();
+  })()`);
+  const { targetId: draftsTarget } = await chrome.send("Target.createTarget", { url: `chrome-extension://${id}/creation/drafts.html` });
+  const draftsPage = await chrome.attach(target => target.targetId === draftsTarget);
+  const draftsView = await waitFor(() => chrome.evaluate(draftsPage, `(() => {
+    const cards = [...document.querySelectorAll("#drafts .draft")];
+    if (cards.length !== 2) return null;
+    return { status: document.getElementById("status").textContent, heads: cards.map(card => card.querySelector(".draft-head").textContent),
+      post: cards.map(card => card.querySelector(".draft-post").textContent).join("|"), tiles: document.getElementById("tiles").textContent };
+  })()`).catch(() => null), 10000, "草稿页未渲染").catch(error => error.message);
+  check("bot feed 带回自己的帖子后自动标为已发并显示数据", draftsView?.status?.includes("自动关联 1 条") &&
+    draftsView.post.includes("5200") && draftsView.tiles.startsWith("1已发"), JSON.stringify(draftsView));
+  check("0.26.0 旧草稿迁入草稿库", draftsView?.heads?.some(head => head.includes("旧版迁移")) &&
+    !(await chrome.evaluate(worker, "chrome.storage.local.get('creationDrafts').then(saved => 'creationDrafts' in saved)")), JSON.stringify(draftsView?.heads));
 } finally {
   await chrome.stop();
   mockModel.server.close();

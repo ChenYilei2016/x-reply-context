@@ -1,12 +1,16 @@
-// 创作素材的 IndexedDB 存储。与互动记录数据库相互独立，扩展后台与工作台页面共用。
+// 创作工作台的 IndexedDB 存储：素材、渠道状态、草稿。与互动记录数据库相互独立，扩展后台与工作台页面共用。
 // 依赖 XReplyMaterialModel 的合并与保留规则；本文件只负责事务、索引与分批。
 (() => {
   "use strict";
 
   const DATABASE = "x-reply-creation";
-  const VERSION = 1;
+  /** 版本 2（0.30.0）：新增草稿表。 */
+  const VERSION = 2;
   const MATERIALS = "materials";
   const CHANNEL_STATES = "channelStates";
+  const DRAFTS = "drafts";
+  /** 草稿上限；超出时从最久未改的未发草稿开始删除，已发的保留用于复盘。 */
+  const DRAFT_LIMIT = 500;
   /** 单个事务最多写入的素材数，避免长事务阻塞页面读取。 */
   const WRITE_BATCH = 200;
 
@@ -28,6 +32,7 @@
       materials.createIndex("kindLastSeenAt", ["kind", "lastSeenAt"]);
     }
     if (!db.objectStoreNames.contains(CHANNEL_STATES)) db.createObjectStore(CHANNEL_STATES, { keyPath: "channelId" });
+    if (!db.objectStoreNames.contains(DRAFTS)) db.createObjectStore(DRAFTS, { keyPath: "id" }).createIndex("updatedAt", "updatedAt");
   }
 
   /**
@@ -199,14 +204,55 @@
       transaction.objectStore(CHANNEL_STATES).delete(channelId);
     });
 
+    // ---------- 草稿 ----------
+
+    /** 全部草稿，最近修改的在前（总数有上限，可一次读入）。 */
+    async function drafts() {
+      const rows = await read(DRAFTS, store => request(store.getAll()));
+      return rows.sort((a, b) => b.updatedAt - a.updatedAt);
+    }
+
+    const getDraft = id => read(DRAFTS, store => request(store.get(id)));
+
+    /** 批量保存草稿（单个事务），之后按上限清理最久未改的未发草稿。返回清理条数。 */
+    function putDrafts(list) {
+      return write(DRAFTS, transaction => new Promise((resolve, reject) => {
+        const store = transaction.objectStore(DRAFTS);
+        for (const draft of list) store.put(draft);
+        const total = store.count();
+        total.onerror = () => reject(total.error);
+        total.onsuccess = () => {
+          let excess = total.result - DRAFT_LIMIT, removed = 0;
+          if (excess <= 0) { resolve(0); return; }
+          const cursor = store.index("updatedAt").openCursor();
+          cursor.onerror = () => reject(cursor.error);
+          cursor.onsuccess = () => {
+            const row = cursor.result;
+            if (!row || excess <= 0) { resolve(removed); return; }
+            if (row.value.status !== "published") { row.delete(); excess--; removed++; }
+            row.continue();
+          };
+        };
+      }));
+    }
+
+    const putDraft = draft => putDrafts([draft]);
+
+    const deleteDraft = id => write(DRAFTS, async transaction => {
+      transaction.objectStore(DRAFTS).delete(id);
+    });
+
     async function close() {
       const db = await opening?.catch(() => undefined);
       db?.close();
       opening = undefined;
     }
 
-    return { upsertMany, get, count, recent, setMark, prune, rewrite, channelStates, saveChannelState, deleteChannelState, close };
+    return {
+      upsertMany, get, count, recent, setMark, prune, rewrite, channelStates, saveChannelState, deleteChannelState,
+      drafts, getDraft, putDraft, putDrafts, deleteDraft, close
+    };
   }
 
-  globalThis.XReplyMaterialDB = Object.freeze({ create, DATABASE });
+  globalThis.XReplyMaterialDB = Object.freeze({ create, DATABASE, DRAFT_LIMIT });
 })();

@@ -67,7 +67,38 @@ BrowserCheck.run(async check => {
   check("逐条改写：删除与更新计数", result.deleted === 1 && result.updated === 1 && await db.count() === before - 1, JSON.stringify(result));
   check("改写内容已保存", (await db.get("x:5"))?.note === "改写" && !(await db.get("x:2")));
 
+  // 草稿表：按修改时间倒序；超过上限时删最久未改的未发草稿，已发的保留
+  const draft = (n, status, updatedAt) => ({ id: `d:${n}`, text: `草稿 ${n}`, status, updatedAt, createdAt: updatedAt });
+  await db.putDrafts([draft(1, "published", 1), ...Array.from({ length: XReplyMaterialDB.DRAFT_LIMIT }, (_, i) => draft(i + 2, "draft", i + 2))]);
+  const drafts = await db.drafts();
+  check("草稿超限时删最久未改的未发草稿，保留已发", drafts.length === XReplyMaterialDB.DRAFT_LIMIT &&
+    Boolean(await db.getDraft("d:1")) && !(await db.getDraft("d:2")), `count=${drafts.length}`);
+  check("草稿按修改时间倒序", drafts[0].id === `d:${XReplyMaterialDB.DRAFT_LIMIT + 1}`, drafts[0].id);
+  await db.putDraft({ ...draft(3, "pending", NOW), text: "改过" });
+  check("保存单个草稿", (await db.getDraft("d:3")).text === "改过" && (await db.drafts())[0].id === "d:3");
+  await db.deleteDraft("d:3");
+  check("删除草稿", !(await db.getDraft("d:3")));
+
   await db.close();
   await new Promise(resolve => { const r = indexedDB.deleteDatabase(name); r.onsuccess = r.onerror = r.onblocked = resolve; });
+
+  // 从版本 1（0.27～0.29）升级：保留素材，新增草稿表
+  const legacyName = `${name}-v1`;
+  await new Promise((resolve, reject) => {
+    const open = indexedDB.open(legacyName, 1);
+    open.onupgradeneeded = () => {
+      const store = open.result.createObjectStore("materials", { keyPath: "id" });
+      store.createIndex("lastSeenAt", "lastSeenAt");
+      store.createIndex("kindLastSeenAt", ["kind", "lastSeenAt"]);
+      open.result.createObjectStore("channelStates", { keyPath: "channelId" });
+      store.put(post(1, 100, NOW));
+    };
+    open.onsuccess = () => { open.result.close(); resolve(); };
+    open.onerror = () => reject(open.error);
+  });
+  const upgraded = XReplyMaterialDB.create({ name: legacyName });
+  check("从版本 1 升级保留素材并新增草稿表", Boolean(await upgraded.get("x:1")) && (await upgraded.drafts()).length === 0);
+  await upgraded.close();
+  await new Promise(resolve => { const r = indexedDB.deleteDatabase(legacyName); r.onsuccess = r.onerror = r.onblocked = resolve; });
 });
 </script>

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>草稿与复盘 · 回过了</title>
+  <link rel="stylesheet" href="workbench.css">
+  <link rel="stylesheet" href="drafts.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="radar.html"><span>✓</span>回过了 · 创作</a>
+    <p class="nav-label">创作</p>
+    <nav aria-label="创作">
+      <a href="radar.html">选题雷达</a>
+      <a href="studio.html">写作台</a>
+      <a href="drafts.html" aria-current="page">草稿与复盘</a>
+    </nav>
+    <p class="nav-label">设置</p>
+    <nav aria-label="其他页面">
+      <a href="channels.html" target="_blank" rel="noopener">素材渠道 ↗</a>
+      <a href="../ai-settings.html" target="_blank" rel="noopener">AI 设置 ↗</a>
+    </nav>
+  </aside>
+
+  <main class="workspace">
+    <header class="topbar">
+      <div>
+        <h1>草稿与复盘</h1>
+        <p id="summary" class="muted" role="status">正在读取草稿…</p>
+      </div>
+      <button type="button" id="sync" class="primary">检查已发</button>
+    </header>
+    <p id="status" class="status" role="status"></p>
+
+    <section class="panel review" aria-labelledby="review-title">
+      <h2 id="review-title">复盘</h2>
+      <div id="tiles" class="tiles"></div>
+      <div class="tables">
+        <table id="by-angle"><caption>按角度</caption><thead><tr><th>角度</th><th>篇数</th><th>平均浏览</th><th>平均点赞</th><th>最高浏览</th></tr></thead><tbody></tbody></table>
+        <table id="by-format"><caption>按形态</caption><thead><tr><th>形态</th><th>篇数</th><th>平均浏览</th><th>平均点赞</th><th>最高浏览</th></tr></thead><tbody></tbody></table>
+      </div>
+      <p class="muted">数据优先用 bot feed 中你自己帖子（<code>own: true</code>）的数字，没有时用手动录入。没有数据的帖子计入篇数，不计入平均。已发且有浏览数据的帖子会自动作为写作台的样本候选。</p>
+    </section>
+
+    <div id="status-tabs" class="tabs" role="tablist" aria-label="草稿状态"></div>
+    <ol id="drafts" class="drafts"></ol>
+    <div class="more"><button type="button" id="more" hidden>加载更多</button></div>
+  </main>
+
+  <template id="draft-template">
+    <li class="draft">
+      <div class="draft-head"></div>
+      <textarea class="draft-text" rows="5" aria-label="草稿正文"></textarea>
+      <p class="draft-body"></p>
+      <p class="draft-meter muted"></p>
+      <p class="draft-materials muted"></p>
+      <div class="draft-post"></div>
+      <div class="row draft-actions"></div>
+    </li>
+  </template>
+
+  <script src="material-model.js"></script>
+  <script src="material-db.js"></script>
+  <script src="format.js"></script>
+  <script src="compose-prompt.js"></script>
+  <script src="angle-model.js"></script>
+  <script src="draft-model.js"></script>
+  <script src="x-text.js"></script>
+  <script src="draft-record.js"></script>
+  <script src="publish-link.js"></script>
+  <script src="review-model.js"></script>
+  <script src="drafts-store.js"></script>
+  <script src="drafts.js"></script>
+</body>
+</html>

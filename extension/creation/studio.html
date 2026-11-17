@@ -14,6 +14,7 @@
     <nav aria-label="创作">
       <a href="radar.html">选题雷达</a>
       <a href="studio.html" aria-current="page">写作台</a>
+      <a href="drafts.html">草稿与复盘</a>
     </nav>
     <p class="nav-label">设置</p>
     <nav aria-label="其他页面">
@@ -26,7 +27,7 @@
     <header class="topbar">
       <div>
         <h1>写作台</h1>
-        <p class="muted">选题 → 角度 → 3 个候选 → 编辑。发布仍由你在 X 上确认。</p>
+        <p class="muted">选题 → 角度 → 3 个候选 → 编辑 → 去 X 发布。发布仍由你在 X 上点。</p>
       </div>
     </header>
     <p id="status" class="status" role="status"></p>
@@ -92,7 +93,9 @@
             <p id="quote-target" class="muted" hidden></p>
             <div id="fold-preview" class="fold-preview" aria-label="首屏预览"></div>
             <div class="row">
-              <button type="button" id="copy" class="primary">复制正文</button>
+              <button type="button" id="publish" class="primary">去 X 发布</button>
+              <button type="button" id="save-draft">保存草稿</button>
+              <button type="button" id="copy">复制</button>
               <button type="button" id="revert">还原本候选</button>
             </div>
           </div>
@@ -121,6 +124,10 @@
   <script src="angle-model.js"></script>
   <script src="draft-model.js"></script>
   <script src="x-text.js"></script>
+  <script src="draft-record.js"></script>
+  <script src="publish-link.js"></script>
+  <script src="review-model.js"></script>
+  <script src="drafts-store.js"></script>
   <script src="studio-store.js"></script>
   <script src="studio.js"></script>
 </body>

@@ -8,9 +8,12 @@
   const { AngleType, AngleCoverage, ...angleModel } = globalThis.XReplyAngleModel;
   const { PostFormat, ...draftModel } = globalThis.XReplyDraftModel;
   const xText = globalThis.XReplyXText;
-  const store = globalThis.XReplyStudioStore.create({
-    db: globalThis.XReplyMaterialDB.create(), cluster: globalThis.XReplyTopicCluster.cluster, draftModel, prompt
-  });
+  const record = globalThis.XReplyDraftRecord;
+  const publishLink = globalThis.XReplyPublishLink;
+  const review = globalThis.XReplyReviewModel;
+  const db = globalThis.XReplyMaterialDB.create();
+  const store = globalThis.XReplyStudioStore.create({ db, cluster: globalThis.XReplyTopicCluster.cluster, draftModel, prompt });
+  const drafts = globalThis.XReplyDraftsStore.create({ db });
 
   const SAVE_DELAY = 400;
   const ANGLES_HINT = "模型按 JSON 返回 3～5 个角度，并对照同话题的 X 帖子标出“已有人写”。潜力只看同角度参考帖的真实数据。";
@@ -84,7 +87,11 @@
   }
 
   async function loadProfile() {
-    [state.profile, state.ownPosts] = await Promise.all([store.profile(), store.ownPosts()]);
+    const [profile, ownPosts, savedDrafts] = await Promise.all([store.profile(), store.ownPosts(), drafts.list()]);
+    state.profile = profile;
+    // 已发且有数据的草稿也作为样本候选；与 bot feed 中自己的帖子按帖子 id 去重。
+    const known = new Set(ownPosts.map(post => post.id));
+    state.ownPosts = [...ownPosts, ...review.asOwnPosts(savedDrafts).filter(post => !known.has(post.id))];
   }
 
   async function restoreSession() {
@@ -302,7 +309,8 @@
     const target = PostFormat.quoteTarget(currentFormat(), state.materials);
     $("quote-target").hidden = !target;
     $("quote-target").textContent = target ? `复制时末尾附上原帖链接（计 23 字）：${target}` : "";
-    $("copy").textContent = target ? "复制正文（附原帖链接）" : "复制正文";
+    $("copy").textContent = target ? "复制（附原帖链接）" : "复制";
+    $("save-draft").textContent = candidate.draftId ? "更新草稿" : "保存草稿";
     $("revert").disabled = candidate.text === candidate.original;
     renderFoldPreview(measure);
   }
@@ -410,14 +418,53 @@
     later("session", saveSession);
   }
 
-  async function copyText() {
+  /** 当前候选的发布正文；为空或超出 Premium 上限时报错。 */
+  function readyText() {
     const candidate = currentCandidate();
     if (!candidate?.text.trim()) throw new Error("正文是空的。");
     const text = publishText(candidate.text);
     if (xText.measure(text).overPremium) throw new Error(`超过 Premium 上限 ${xText.PREMIUM_LIMIT} 加权字数，请删减。`);
-    await navigator.clipboard.writeText(text);
+    return text;
+  }
+
+  async function copyText() {
+    await navigator.clipboard.writeText(readyText());
     await store.markUsed(state.materials.map(material => material.id));
     setStatus("已复制。去 X 粘贴发布；用过的素材在雷达里会标为“已写过”。");
+  }
+
+  /** 当前候选对应的草稿：已存过且未发布的在原草稿上改正文，否则新建（不写入存储）。 */
+  async function draftFromCandidate() {
+    readyText();
+    const candidate = currentCandidate();
+    const existing = candidate.draftId ? await drafts.get(candidate.draftId) : null;
+    if (existing && record.DraftStatus.from(existing.status).isEditable()) return record.withText(existing, candidate.text);
+    const angle = state.angles[state.angleIndex];
+    return record.create({
+      text: candidate.text, format: state.formatId,
+      angle: angle ? { type: angle.type, hook: angle.hook } : null,
+      materials: state.materials.map(material => ({ id: material.id, title: material.title || material.text.slice(0, 80), url: material.url })),
+      quoteUrl: PostFormat.quoteTarget(currentFormat(), state.materials)
+    });
+  }
+
+  /** 保存草稿并记到当前候选上，之后再保存会更新同一份草稿。 */
+  async function persistDraft(draft) {
+    await drafts.save(draft);
+    currentCandidate().draftId = draft.id;
+    await saveSession();
+    renderMeter();
+  }
+
+  const saveDraft = async () => persistDraft(await draftFromCandidate());
+
+  /** 去 X 发布：保存为“待确认”草稿，复制正文，在新标签页打开预填好的发帖页。发布仍由你在 X 上点。 */
+  async function publish() {
+    const text = readyText();
+    await persistDraft(record.markPending(await draftFromCandidate()));
+    const result = await publishLink.openCompose(text);
+    await store.markUsed(state.materials.map(material => material.id));
+    setStatus(`${result.message}发出后，bot feed 带回这条帖子时会自动标为已发，也可以在「草稿与复盘」粘贴链接。`, !result.prefilled && !result.copied);
   }
 
   async function removeMaterial(id) {
@@ -469,6 +516,9 @@
     later("session", saveSession);
   });
   $("copy").addEventListener("click", () => void copyText().catch(error => setStatus(error.message, true)));
+  $("save-draft").addEventListener("click", () => void saveDraft()
+    .then(() => setStatus("已保存到「草稿与复盘」。"), error => setStatus(error.message, true)));
+  $("publish").addEventListener("click", () => void publish().catch(error => setStatus(error.message, true)));
   $("persona").addEventListener("input", () => {
     $("profile-status").textContent = "正在保存…";
     later("profile", () => updateProfile({ persona: $("persona").value.trim() ? $("persona").value : draftModel.DEFAULT_PERSONA }));
