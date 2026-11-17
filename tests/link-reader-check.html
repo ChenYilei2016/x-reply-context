@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>链接读取检查</title>
+<body>
+<script src="/extension/creation/source-input.js"></script>
+<script src="/extension/creation/link-reader.js"></script>
+<script src="/tests/browser-check-harness.js"></script>
+<script>
+"use strict";
+BrowserCheck.run(async check => {
+  const { extract, decode } = XReplyLinkReader;
+  const { parse, coverageOf } = XReplySourceInput;
+  const page = `<!doctype html><html><head><title>站点名 - 文章</title>
+    <meta property="og:title" content="OpenAI 发布新模型，价格下降一半">
+    <meta property="article:published_time" content="2026-11-16T09:00:00Z"></head>
+    <body><header><nav><a>首页</a><a>科技频道导航很长很长的一段文字</a></nav></header>
+    <aside><p>相关推荐：另一篇文章的标题很长很长很长</p></aside>
+    <article><h1>OpenAI 发布新模型</h1><p>今天凌晨，OpenAI 发布了新一代模型，推理能力明显提升。</p>
+      <p>官方表示，新模型的 API 价格比上一代下降一半，开发者可以立即使用。</p>
+      <ul><li>上下文长度提升到两百万</li></ul><script>var x = "不应出现";<\/script></article>
+    <footer><p>版权所有 © 某某科技有限公司 保留所有权利</p></footer></body></html>`;
+  const article = extract(new DOMParser().parseFromString(page, "text/html"));
+  check("标题取 og:title，发布时间取 meta", article.title === "OpenAI 发布新模型，价格下降一半" && article.publishedAt === Date.parse("2026-11-16T09:00:00Z"), JSON.stringify(article));
+  check("正文取文章段落，去掉导航、侧栏、页脚和脚本", article.text.includes("推理能力明显提升") && article.text.includes("两百万") &&
+    !/导航|相关推荐|版权所有|不应出现/.test(article.text), article.text);
+  const bare = extract(new DOMParser().parseFromString("<html><head><meta name='description' content='只有描述的页面，没有正文段落，但描述足够长。'></head><body><div>短</div></body></html>", "text/html"));
+  check("没有段落时退回页面描述", bare.text.startsWith("只有描述的页面"), JSON.stringify(bare));
+  const gbk = new Uint8Array([0xc4, 0xe3, 0xba, 0xc3]); // “你好”的 GBK 编码
+  check("按 Content-Type 的 GBK 解码", decode(gbk.buffer, "text/html; charset=gbk") === "你好");
+
+  const input = parse("看看这篇，挺有意思 https://a.example/post/1。\nhttps://x.com/bob/status/123?s=20\nhttps://b.example/2\nhttps://c.example/3\nhttps://a.example/post/1");
+  check("拆出正文与链接：行内链接留在正文，整行链接不进正文，去重、最多 3 个", input.body === "看看这篇，挺有意思 https://a.example/post/1。" &&
+    input.links.length === 3 && input.links[0].url === "https://a.example/post/1" && input.droppedLinks === 1, JSON.stringify(input));
+  check("识别 X 帖子链接", input.links[1].xPostId === "123" && input.links[0].xPostId === null);
+  check("只有标题或事件也是有效输入", parse("黄仁勋辞任 CEO").body === "黄仁勋辞任 CEO" && coverageOf("黄仁勋辞任 CEO") === "title");
+});
+</script>
