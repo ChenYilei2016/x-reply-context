@@ -16,7 +16,7 @@ const en = 'Agents are eating software. This week three companies shipped autono
 const base = (extra = {}) => ({materials: [post(zh)], style: 'standard', length: 'same', format: 'short_opinion', persona: '我的人设', ...extra});
 
 test('改写请求：风格、长度、原创约束、人设与 X 规则', () => {
-  const request = buildRequest(base({style: 'viral', samples: ['我的旧帖'], instructions: '语气再冲一点'}), NOW);
+  const request = buildRequest(base({style: 'viral', samples: ['我的旧帖'], instructions: '语气再冲一点'}), {now: NOW});
   assert.match(request.prompt, /我的人设/);
   assert.match(request.prompt, /把 <materials> 中的内容改写成我自己的 X 帖子（「中短帖观点」），写 3 个候选，每条约 \d+ 字/);
   assert.match(request.prompt, /不是同义词替换/);
@@ -28,14 +28,14 @@ test('改写请求：风格、长度、原创约束、人设与 X 规则', () =>
   assert.match(request.content, /<material id="M1" kind="X 帖子" source="X 手动选入"/);
   assert.match(request.content, /<sample>我的旧帖<\/sample>/);
   assert.doesNotMatch(request.prompt, /融合|本地化|地道的中文/);
-  assert.match(buildRequest(base({length: '300'}), NOW).prompt, /每条约 300 字/);
+  assert.match(buildRequest(base({length: '300'}), {now: NOW}).prompt, /每条约 300 字/);
 });
 
 test('多篇融合与英文本地化按素材自动加入', () => {
-  const fused = buildRequest(base({materials: [post(zh), post('另一条相关的帖子，补充了接班人的背景。')]}), NOW);
+  const fused = buildRequest(base({materials: [post(zh), post('另一条相关的帖子，补充了接班人的背景。')]}), {now: NOW});
   assert.match(fused.prompt, /多条内容融合/);
   assert.match(fused.prompt, /去掉重复、按逻辑重组/);
-  const localized = buildRequest(base({materials: [post(en)], format: 'quote'}), NOW);
+  const localized = buildRequest(base({materials: [post(en)], format: 'quote'}), {now: NOW});
   assert.match(localized.prompt, /用地道的中文重写，不逐句直译/);
   assert.match(localized.prompt, /「引用转发」/);
   assert.match(localized.prompt, /正文里不要放原帖链接/);
@@ -45,7 +45,7 @@ test('改写请求校验：风格、长度、形态、素材', () => {
   assert.throws(() => buildRequest(base({style: 'nope'})), /改写风格/);
   assert.throws(() => buildRequest(base({length: '9999'})), /改写风格、长度/);
   assert.throws(() => buildRequest(base({format: 'thread'})), /帖子形态/);
-  assert.throws(() => buildRequest(base({materials: []})), /1～3/);
+  assert.throws(() => buildRequest(base({materials: []})), /1～6/);
   assert.equal(RewriteStyle.values().length, 5);
   assert.equal(RewriteStyle.DEFAULT.id, 'standard');
   assert.equal(RewriteLength.from('same').chars, null);

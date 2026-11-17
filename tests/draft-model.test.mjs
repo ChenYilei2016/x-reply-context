@@ -16,7 +16,7 @@ const base = () => ({materials: [material()], format: 'short_opinion', persona: 
 
 test('构建请求：形态、字数范围、角度、样本、附加要求和首屏规则', () => {
   const request = buildRequest({...base(), angle: {type: 'contrarian', hook: '开源不等于免费', outline: ['许可证', '算力']},
-    samples: ['我的旧帖 <b>'], instructions: '结尾抛个问题'}, NOW);
+    samples: ['我的旧帖 <b>'], instructions: '结尾抛个问题'}, {now: NOW});
   assert.match(request.prompt, /3 条可以直接发在 X 上的「中短帖观点」候选，每条约 150～400 字/);
   assert.match(request.prompt, /本次角度：反常识。参考钩子：开源不等于免费/);
   assert.match(request.prompt, /1\. 许可证；2\. 算力/);
@@ -24,7 +24,7 @@ test('构建请求：形态、字数范围、角度、样本、附加要求和�
   assert.match(request.prompt, /本次要求：结尾抛个问题/);
   assert.match(request.prompt, /小娱乐、大 AI 科技/);
   assert.match(request.content, /<samples>\n<sample>我的旧帖 &lt;b&gt;<\/sample>/);
-  const plain = buildRequest({...base(), format: 'quote'}, NOW);
+  const plain = buildRequest({...base(), format: 'quote'}, {now: NOW});
   assert.match(plain.prompt, /「引用转发」/);
   assert.match(plain.prompt, /正文里不要放原帖链接/);
   assert.doesNotMatch(plain.prompt, /本次角度|<samples>/);
@@ -70,5 +70,7 @@ test('形态：引用转发附原帖链接，优先选中素材里的 X 帖子',
   assert.equal(PostFormat.quoteTarget(quote, materials), 'https://x.com/a/status/9');
   assert.equal(PostFormat.quoteTarget(quote, [material()]), 'https://github.com/a/b');
   assert.equal(PostFormat.quoteTarget(PostFormat.DEFAULT, materials), null);
+  assert.equal(PostFormat.quoteTarget(quote, [{kind: 'note', url: ''}]), null, '只有粘贴内容时没有可引用的原帖');
+  assert.equal(PostFormat.quoteTarget(quote, [{kind: 'note', url: ''}, material()]), 'https://github.com/a/b');
   assert.equal(PostFormat.DEFAULT.id, 'short_opinion');
 });

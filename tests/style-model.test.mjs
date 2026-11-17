@@ -22,7 +22,7 @@ const result = JSON.stringify({
 });
 
 test('拆解请求：3～10 条帖子，带作者和浏览量，帖子作为引用内容', () => {
-  const request = style.buildRequest({author: {handle: 'bob', name: '鲍勃'}, posts}, NOW);
+  const request = style.buildRequest({author: {handle: 'bob', name: '鲍勃'}, posts}, {now: NOW});
   assert.match(request.prompt, /拆解 <posts> 中这位作者的写作风格/);
   assert.match(request.prompt, /example 必须是从帖子里原样摘出的一句/);
   assert.match(request.content, /<posts author="鲍勃 @bob">/);
@@ -30,7 +30,7 @@ test('拆解请求：3～10 条帖子，带作者和浏览量，帖子作为引�
   assert.throws(() => style.buildRequest({posts: posts.slice(0, 2)}), /3～10 条/);
   assert.throws(() => style.buildRequest({posts: Array(11).fill(posts[0])}), /3～10 条/);
   assert.throws(() => style.buildRequest({posts: [...posts, {text: ' '}]}), /空正文/);
-  assert.match(style.buildRequest({posts}, NOW).content, /未注明作者/);
+  assert.match(style.buildRequest({posts}, {now: NOW}).content, /未注明作者/);
 });
 
 test('解析：容错 JSON；示例原句必须出自所给帖子，编造的清空但保留手法', () => {
@@ -66,12 +66,12 @@ test('成稿与改写套用风格模板：只学写法，与人设冲突以人�
   const {rules} = style.parse(result, posts);
   const benchmark = style.forPrompt(style.create(rules, {handle: 'bob'}, NOW, 's:1'));
   const material = {kind: 'article', title: '新模型发布', text: '官方介绍了推理能力。', url: 'https://a.example/1', source: 'A', coverage: 'excerpt', publishedAt: NOW};
-  const draft = drafts.buildRequest({materials: [material], format: 'short_opinion', persona: '人设', benchmark}, NOW).prompt;
+  const draft = drafts.buildRequest({materials: [material], format: 'short_opinion', persona: '人设', benchmark}, {now: NOW}).prompt;
   assert.match(draft, /参考对标风格「@bob 的风格」，只学写法，不照搬其内容和原句；与我的人设冲突时以人设为准/);
   assert.match(draft, /- 开头手法：先抛反常识结论；否定常见做法；用数字列清单/);
   assert.match(draft, /- 避免：堆砌术语；长段落/);
-  const rewritten = rewrite.buildRequest({materials: [material], style: 'standard', length: 'same', format: 'short_opinion', persona: '人设', benchmark}, NOW).prompt;
+  const rewritten = rewrite.buildRequest({materials: [material], style: 'standard', length: 'same', format: 'short_opinion', persona: '人设', benchmark}, {now: NOW}).prompt;
   assert.match(rewritten, /- 结构：结论 → 两三个理由 → 一句行动建议/);
-  assert.doesNotMatch(drafts.buildRequest({materials: [material], format: 'short_opinion', persona: '人设'}, NOW).prompt, /对标风格/);
+  assert.doesNotMatch(drafts.buildRequest({materials: [material], format: 'short_opinion', persona: '人设'}, {now: NOW}).prompt, /对标风格/);
   assert.throws(() => prompt.checkBenchmark({name: '空'}), /内容为空/);
 });

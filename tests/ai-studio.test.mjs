@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 
 const files = ['ai-config.js', 'ai-context.js', 'ai-service.js',
-  'creation/compose-prompt.js', 'creation/angle-model.js', 'creation/draft-model.js', 'creation/rewrite-model.js', 'creation/style-model.js', 'creation/image-model.js'];
+  'creation/compose-prompt.js', 'creation/angle-model.js', 'creation/draft-model.js', 'creation/rewrite-model.js', 'creation/style-model.js', 'creation/image-model.js', 'creation/prompt-guides.js'];
 const sources = await Promise.all(files.map(name => readFile(new URL(`../extension/${name}`, import.meta.url), 'utf8')));
 const profiles = [
   {id: 'main', name: '主用', baseUrl: 'https://model.example/v1', apiKey: 'main-key', model: 'writer'},
@@ -13,12 +13,13 @@ const profiles = [
 const baseConfig = {enabled: false, profiles, activeProfileId: 'main', creationProfileIds: {angles: 'think'}};
 const reply = content => new Response(JSON.stringify({choices: [{finish_reason: 'stop', message: {content}}]}), {headers: {'content-type': 'application/json'}});
 
-function setup(fetchImpl = async () => reply('<reply>{"angles":[]}</reply>')) {
+function setup(fetchImpl = async () => reply('<reply>{"angles":[]}</reply>'), guides = {}) {
   let settings = structuredClone(baseConfig);
   const calls = [];
   const chrome = {
     runtime: {getURL: path => `chrome-extension://test/${path}`},
-    storage: {local: {get: async () => ({aiConfig: settings}), set: async next => { settings = next.aiConfig; }}, onChanged: {addListener: () => {}}},
+    storage: {local: {get: async key => key === 'creationPromptGuides' ? {creationPromptGuides: guides} : {aiConfig: settings},
+      set: async next => { settings = next.aiConfig; }}, onChanged: {addListener: () => {}}},
     permissions: {contains: async ({origins}) => !origins.includes('https://denied.example/*')}
   };
   const scope = vm.createContext({chrome, fetch: (...args) => { calls.push(args); return fetchImpl(...args); },
@@ -41,7 +42,7 @@ test('写作台请求只接受写作台页面和已知步骤，输入无效时�
   assert.match((await service.handle(anglesRequest(), {url: 'https://x.com/home', tab: {id: 1}})).error, /仅写作台/);
   assert.match((await service.handle(anglesRequest({task: 'publish'}), studio)).error, /未知的创作任务/);
   assert.match((await service.handle(anglesRequest({task: 'toString'}), studio)).error, /未知的创作任务/);
-  assert.match((await service.handle(anglesRequest({input: {materials: [], persona: 'p'}}), studio)).error, /1～3/);
+  assert.match((await service.handle(anglesRequest({input: {materials: [], persona: 'p'}}), studio)).error, /1～6/);
   assert.equal(calls.length, 0);
 });
 
@@ -84,6 +85,14 @@ test('拆解风格只能从对标风格页发起，用「拆解风格」步骤�
   assert.match(body.messages[1].content, /<posts author="鲍勃 @bob">/);
   assert.match((await service.handle({...request, id: 'styles-2', input: {posts: posts.slice(0, 2)}}, page)).error, /3～10 条/);
   assert.equal((await service.handle({type: 'AI_STUDIO_STATUS'}, page)).ok, true);
+});
+
+test('改写请求带上用户改过的写作要求', async () => {
+  const {service, calls} = setup(undefined, {rewrite: '每句话都要短。'});
+  const result = await service.handle({type: 'AI_REQUEST', kind: 'studio', task: 'rewrite', id: 'rw',
+    input: {materials: [material], style: 'hook', length: 'same', format: 'short_opinion', persona: '人设'}}, studio);
+  assert.equal(result.ok, true);
+  assert.match(JSON.parse(calls[0][1].body).messages[0].content, /写作要求：\n每句话都要短。/);
 });
 
 test('截断的响应不当作结果', async () => {

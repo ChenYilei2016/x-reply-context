@@ -29,16 +29,23 @@
   const NEW = Object.freeze({ id: "new", label: "新角度" });
   const AngleCoverage = Object.freeze({ COVERED, NEW, from: id => [COVERED, NEW].find(entry => entry.id === id) });
 
+  /** 可编辑的写作要求（默认值）；任务说明与字段格式固定，保证结果能解析。 */
+  const DEFAULT_GUIDE = [
+    "角度之间要有明显区别，优先选适合中短帖、能引发讨论的切入点。",
+    "钩子是帖子第一句，要具体、有信息量，不超过 60 字。",
+    "风险提示写事实不足、时效已过、容易引战等情况。",
+    "不要声称全网无人写过，不要给出热度或潜力评分。"
+  ].join("\n");
+
   const TASK = () => [
-    `任务：为 <materials> 中的素材找 ${ANGLE_LIMITS.min}～${ANGLE_LIMITS.max} 个适合发 X 中短帖的写作角度，角度之间要有明显区别。`,
+    `任务：为 <materials> 中的素材找 ${ANGLE_LIMITS.min}～${ANGLE_LIMITS.max} 个适合发 X 中短帖的写作角度。`,
     "每个角度包含：",
     `- type：${AngleType.labels()} 之一`,
     "- hook：帖子第一句的钩子，不超过 60 字",
     `- outline：2～${ANGLE_LIMITS.outline} 条提纲`,
     "- evidence：支撑该角度的素材编号，例如 [\"M1\"]",
     "- risk：风险提示，例如事实不足、时效已过、容易引战；没有则为空字符串",
-    "- covered_by：<references> 中已经用这个角度写过的参考帖编号，例如 [\"R2\"]；没有则为 []",
-    "不要声称全网无人写过，不要给出热度或潜力评分。"
+    "- covered_by：<references> 中已经用这个角度写过的参考帖编号，例如 [\"R2\"]；没有则为 []"
   ].join("\n");
 
   const OUTPUT_FORMAT = "只输出 <reply>{\"angles\":[{\"type\":\"\",\"hook\":\"\",\"outline\":[],\"evidence\":[],\"risk\":\"\",\"covered_by\":[]}]}</reply>，reply 内是合法 JSON，不要输出其他内容。";
@@ -46,14 +53,15 @@
   /**
    * 构建找角度请求（后台调用，输入来自页面，需要校验）。
    * @param input { materials, references, persona }
+   * @param options.now 当前时间；options.guide 用户改过的写作要求
    * @returns {{ prompt, content }} system 与 user 消息
    */
-  function buildRequest(input, now = Date.now()) {
+  function buildRequest(input, { now = Date.now(), guide } = {}) {
     const materials = prompt.checkMaterials(input?.materials);
     const references = prompt.checkReferences(input?.references);
     const persona = prompt.checkPersona(input?.persona);
     return {
-      prompt: [prompt.nowLine(now), persona, TASK(), prompt.SHARED_RULES, OUTPUT_FORMAT].join("\n\n"),
+      prompt: [prompt.nowLine(now), persona, TASK(), prompt.guideSection(guide, DEFAULT_GUIDE), prompt.SHARED_RULES, OUTPUT_FORMAT].join("\n\n"),
       content: [
         "<materials>", ...materials.map(prompt.materialXml), "</materials>",
         "<references>", ...(references.length ? references.map(prompt.referenceXml) : ["（没有同话题的 X 帖子）"]), "</references>"
@@ -112,5 +120,5 @@
     });
   }
 
-  globalThis.XReplyAngleModel = Object.freeze({ AngleType, AngleCoverage, ANGLE_LIMITS, buildRequest, parse, assess });
+  globalThis.XReplyAngleModel = Object.freeze({ AngleType, AngleCoverage, ANGLE_LIMITS, DEFAULT_GUIDE, buildRequest, parse, assess });
 })();

@@ -5,14 +5,15 @@
   "use strict";
 
   const LIMITS = Object.freeze({
-    materials: 3, references: 8, title: 300, text: 4000, referenceText: 400, source: 80, url: 2048, handle: 64, persona: 2000
+    materials: 6, references: 8, title: 300, text: 4000, referenceText: 400, source: 80, url: 2048, handle: 64, persona: 2000
   });
 
   const XML_ENTITIES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" };
   const xml = value => String(value).replace(/[&<>"]/g, character => XML_ENTITIES[character]);
 
   const COVERAGE_LABELS = Object.freeze({ title: "仅标题", excerpt: "摘要", full: "正文" });
-  const KIND_LABELS = Object.freeze({ x_post: "X 帖子", article: "文章", hot_topic: "热榜条目" });
+  /** note 为写作台直接粘贴的正文，没有链接。 */
+  const KIND_LABELS = Object.freeze({ x_post: "X 帖子", article: "文章", hot_topic: "热榜条目", note: "粘贴内容" });
 
   /** 所有创作步骤共用的事实与安全约束。 */
   const SHARED_RULES = [
@@ -63,7 +64,8 @@
   function checkMaterial(item) {
     const url = httpsUrl(item?.url);
     const title = clip(item?.title, LIMITS.title), text = clip(item?.text, LIMITS.text);
-    if (!url || !KIND_LABELS[item.kind] || !COVERAGE_LABELS[item.coverage] || (!title && !text)) {
+    const linkRequired = item?.kind !== "note";
+    if ((linkRequired && !url) || !KIND_LABELS[item?.kind] || !COVERAGE_LABELS[item.coverage] || (!title && !text)) {
       throw new Error("素材缺少标题或正文，或链接无效。");
     }
     return { ...item, url, title, text, source: clip(item.source, LIMITS.source) || "未知渠道", author: clip(item.author, LIMITS.handle) };
@@ -102,7 +104,8 @@
     const lines = [`<material ${attributes.join(" ")}>`];
     if (item.title) lines.push(`<title>${xml(item.title)}</title>`);
     if (item.text) lines.push(`<text>${xml(item.text)}</text>`);
-    lines.push(`<url>${xml(item.url)}</url>`, "</material>");
+    if (item.url) lines.push(`<url>${xml(item.url)}</url>`);
+    lines.push("</material>");
     return lines.join("\n");
   }
 
@@ -170,6 +173,13 @@
   const candidatesOutput = count =>
     `只输出 <reply>{"drafts":[{"hook_style":"","text":""}]}</reply>，drafts 恰好 ${count} 条，hook_style 用几个字说明开头手法，text 是完整正文；reply 内是合法 JSON，不要输出其他内容。`;
 
+  /** 可编辑的「写作要求」：用户改过的优先，空或过长时用默认。 */
+  const GUIDE_LIMIT = 3000;
+  function guideSection(guide, fallback) {
+    const text = typeof guide === "string" && guide.trim() && guide.length <= GUIDE_LIMIT ? guide.trim() : fallback;
+    return `写作要求：\n${text}`;
+  }
+
   const nowLine = now => `当前时间：${new Date(now).toISOString()}（UTC）。`;
 
   const STALE_AFTER = 48 * 60 * 60 * 1000;
@@ -226,7 +236,7 @@
   globalThis.XReplyComposePrompt = Object.freeze({
     LIMITS, SHARED_RULES, xml, toPromptMaterial, toPromptReference,
     checkMaterials, checkReferences, checkPersona, materialXml, referenceXml, nowLine, materialWarnings,
-    checkBenchmark, benchmarkLines, X_POST_RULES, SAMPLE_LIMITS, INSTRUCTIONS_LIMIT, SAMPLES_HINT, checkSamples, checkInstructions, samplesXml, candidatesOutput,
+    checkBenchmark, benchmarkLines, guideSection, GUIDE_LIMIT, X_POST_RULES, SAMPLE_LIMITS, INSTRUCTIONS_LIMIT, SAMPLES_HINT, checkSamples, checkInstructions, samplesXml, candidatesOutput,
     extractJson, stringList, indexList
   });
 })();

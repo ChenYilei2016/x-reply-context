@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 
-const sources = await Promise.all(['ai-config.js', 'creation/image-model.js', 'ai-image-service.js']
+const sources = await Promise.all(['ai-config.js', 'creation/compose-prompt.js', 'creation/image-model.js', 'ai-image-service.js']
   .map(name => readFile(new URL(`../extension/${name}`, import.meta.url), 'utf8')));
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==';
 const profiles = [

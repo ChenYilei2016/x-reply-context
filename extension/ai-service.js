@@ -45,11 +45,11 @@
   const STUDIO_TEMPERATURE = 0.9;
   /** 写作台任务 → 提示词构建；每个任务用哪个步骤的 API 见 XReplyAIConfig.creationTasks。 */
   const studioBuilders = {
-    angles: input => globalThis.XReplyAngleModel.buildRequest(input),
-    drafts: input => globalThis.XReplyDraftModel.buildRequest(input),
-    rewrite: input => globalThis.XReplyRewriteModel.buildRequest(input),
-    image_prompt: input => globalThis.XReplyImageModel.buildPromptRequest(input),
-    styles: input => globalThis.XReplyStyleModel.buildRequest(input)
+    angles: (input, options) => globalThis.XReplyAngleModel.buildRequest(input, options),
+    drafts: (input, options) => globalThis.XReplyDraftModel.buildRequest(input, options),
+    rewrite: (input, options) => globalThis.XReplyRewriteModel.buildRequest(input, options),
+    image_prompt: (input, options) => globalThis.XReplyImageModel.buildPromptRequest(input, options),
+    styles: (input, options) => globalThis.XReplyStyleModel.buildRequest(input, options)
   };
   const outputError = (code,message) => Object.assign(new Error(message),{code});
   const ASSISTANT_HEADER = /<\|im_start\|>assistant(?=\s|$)|<\|start_header_id\|>assistant<\|end_header_id\|>/gi;
@@ -302,7 +302,11 @@
         if (!studioPage(sender)) return {ok:false,error:"仅写作台和对标风格页可以发起创作请求。"};
         const build = Object.hasOwn(studioBuilders,message.task) ? studioBuilders[message.task] : null;
         if (!build) return {ok:false,error:"未知的创作任务。"};
-        try { studio={...build(message.input),task:message.task,step:config.creationTasks[message.task]}; }
+        try {
+          // 用户在写作台改过的「写作要求」；读取失败时用默认。
+          const guides = await globalThis.XReplyPromptGuides.load().catch(() => ({}));
+          studio={...build(message.input,{guide:guides[message.task]}),task:message.task,step:config.creationTasks[message.task]};
+        }
         catch(error) {return {ok:false,error:error.message};}
       }
       const context = (message.kind === "generate" || polishing) && message.context && typeof message.context === "object" ?

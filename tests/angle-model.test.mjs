@@ -16,7 +16,7 @@ const counts = {materials: 2, references: 2};
 
 test('构建请求：素材与参考帖编号、转义、人设与规则；校验输入', () => {
   const request = buildRequest({materials: [material(), material({kind: 'x_post', text: '<script>注意</script>', author: 'b', views: 5000})],
-    references: [reference(), {url: 'http://bad', text: '丢弃'}], persona: '测试人设'}, NOW);
+    references: [reference(), {url: 'http://bad', text: '丢弃'}], persona: '测试人设'}, {now: NOW});
   assert.match(request.prompt, /测试人设/);
   assert.match(request.prompt, /2026-11-17T04:00:00.000Z/);
   assert.match(request.prompt, /反常识/);
@@ -27,8 +27,8 @@ test('构建请求：素材与参考帖编号、转义、人设与规则；校�
   assert.match(request.content, /<reference id="R1" author="@a" views="120000">/);
   assert.doesNotMatch(request.content, /R2/, '非 HTTPS 的参考帖被丢弃');
 
-  assert.throws(() => buildRequest({materials: [], persona: 'p'}), /1～3/);
-  assert.throws(() => buildRequest({materials: Array(4).fill(material()), persona: 'p'}), /1～3/);
+  assert.throws(() => buildRequest({materials: [], persona: 'p'}), /1～6/);
+  assert.throws(() => buildRequest({materials: Array(7).fill(material()), persona: 'p'}), /1～6/);
   assert.throws(() => buildRequest({materials: [material({url: 'http://a.com'})], persona: 'p'}), /链接无效/);
   assert.throws(() => buildRequest({materials: [material()], persona: ' '}), /人设/);
   assert.match(buildRequest({materials: [material()], persona: 'p'}).content, /没有同话题的 X 帖子/);

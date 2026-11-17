@@ -32,10 +32,11 @@
     values: () => FORMATS,
     from: id => FORMATS.find(format => format.id === id),
     DEFAULT: FORMATS[0],
-    /** 引用转发附上的原帖：优先选中素材里的 X 帖子，其次第一条素材。 */
+    /** 引用转发附上的原帖：优先选中素材里的 X 帖子，其次第一条有链接的素材；都没有链接（只有粘贴内容）时为 null。 */
     quoteTarget(format, materials) {
-      if (!format.quotesSource || !materials.length) return null;
-      return (materials.find(material => material.kind === "x_post") || materials[0]).url;
+      if (!format.quotesSource) return null;
+      const linked = materials.filter(material => material.url);
+      return (linked.find(material => material.kind === "x_post") || linked[0])?.url || null;
     }
   });
 
@@ -79,11 +80,19 @@
     ];
   }
 
+  /** 可编辑的写作要求（默认值）。 */
+  const DEFAULT_GUIDE = [
+    "几条候选的开头要用不同手法（例如提问、反差、数字、场景），正文不要互相复制。",
+    "先给结论或态度，再给事实依据，最后落到对读者的意义。",
+    prompt.X_POST_RULES
+  ].join("\n");
+
   /**
    * 构建成稿请求（后台调用，输入来自页面，需要校验）。
    * @param input { materials, format, persona, angle?, samples?, instructions?, benchmark? }
+   * @param options.now 当前时间；options.guide 用户改过的写作要求
    */
-  function buildRequest(input, now = Date.now()) {
+  function buildRequest(input, { now = Date.now(), guide } = {}) {
     const materials = prompt.checkMaterials(input?.materials);
     const format = PostFormat.from(input?.format);
     if (!format) throw new Error("请选择帖子形态。");
@@ -95,15 +104,14 @@
     const task = [
       `任务：根据 <materials> 写 ${CANDIDATE_COUNT} 条可以直接发在 X 上的「${format.label}」候选，每条约 ${format.min}～${format.max} 字。`,
       format.guide,
-      `${CANDIDATE_COUNT} 条的开头要用不同手法（例如提问、反差、数字、场景），正文不要互相复制。`,
       ...angleLines(angle),
       ...prompt.benchmarkLines(benchmark),
-      prompt.X_POST_RULES,
       ...(samples.length ? [prompt.SAMPLES_HINT] : []),
       ...(instructions ? [`本次要求：${instructions}`] : [])
     ].join("\n");
     return {
-      prompt: [prompt.nowLine(now), persona, task, prompt.SHARED_RULES, prompt.candidatesOutput(CANDIDATE_COUNT)].join("\n\n"),
+      prompt: [prompt.nowLine(now), persona, task, prompt.guideSection(guide, DEFAULT_GUIDE), prompt.SHARED_RULES,
+        prompt.candidatesOutput(CANDIDATE_COUNT)].join("\n\n"),
       content: ["<materials>", ...materials.map(prompt.materialXml), "</materials>", ...prompt.samplesXml(samples)].join("\n")
     };
   }
@@ -135,6 +143,6 @@
   }
 
   globalThis.XReplyDraftModel = Object.freeze({
-    PostFormat, DEFAULT_PERSONA, CANDIDATE_COUNT, SAMPLE_LIMITS, selectSamples, buildRequest, parse
+    PostFormat, DEFAULT_PERSONA, DEFAULT_GUIDE, CANDIDATE_COUNT, SAMPLE_LIMITS, selectSamples, buildRequest, parse
   });
 })();

@@ -40,11 +40,14 @@
     return Math.min(1000, Math.max(50, Math.round(size / 10) * 10));
   }
 
-  const ORIGINALITY_RULE = [
+  /** 可编辑的写作要求（默认值）。“原文的我是原作者”属于事实约束，固定在任务说明里，不随写作要求修改。 */
+  const DEFAULT_GUIDE = [
     "这是二次创作，不是同义词替换：保留核心事实和信息量，用我的人设和视角重新组织，并加入我的判断。",
     "不照搬原文句子，不沿用原文独特的比喻和金句原话。",
-    "原文里的“我”是原作者：不要把原作者的经历写成我的经历，需要时写成“看到有人说”“某某提到”。"
+    "几个候选的开头手法要不同。",
+    prompt.X_POST_RULES
   ].join("\n");
+  const AUTHOR_RULE = "原文里的“我”是原作者：不要把原作者的经历写成我的经历，需要时写成“看到有人说”“某某提到”。";
 
   const LOCALIZE_RULE = "原文主要不是中文：先理解原意，再用地道的中文重写，不逐句直译；产品名、人名和专有名词保留原文或通用译名。";
   const FUSION_RULE = "多条素材讲同一话题时融合观点、去掉重复、按逻辑重组；不相关时只改写最主要的一条，不强行拼接。";
@@ -52,8 +55,9 @@
   /**
    * 构建改写请求（后台调用，输入来自页面，需要校验）。
    * @param input { materials, style, length, format, persona, samples?, instructions?, benchmark? }
+   * @param options.now 当前时间；options.guide 用户改过的写作要求
    */
-  function buildRequest(input, now = Date.now()) {
+  function buildRequest(input, { now = Date.now(), guide } = {}) {
     const materials = prompt.checkMaterials(input?.materials);
     const style = RewriteStyle.from(input.style);
     const length = RewriteLength.from(input.length);
@@ -68,19 +72,18 @@
     const chars = length.chars ?? sameLengthChars(texts, localized);
     const task = [
       `任务：把 <materials> 中的${materials.length > 1 ? "多条内容融合" : "内容"}改写成我自己的 X 帖子（「${format.label}」），写 ${CANDIDATE_COUNT} 个候选，每条约 ${chars} 字。`,
-      ORIGINALITY_RULE,
+      AUTHOR_RULE,
       `风格「${style.label}」：${style.guide}`,
       ...(format.quotesSource ? [format.guide] : []),
       ...(materials.length > 1 ? [FUSION_RULE] : []),
       ...(localized ? [LOCALIZE_RULE] : []),
-      `${CANDIDATE_COUNT} 个候选的开头手法要不同。`,
       ...prompt.benchmarkLines(benchmark),
-      prompt.X_POST_RULES,
       ...(samples.length ? [prompt.SAMPLES_HINT] : []),
       ...(instructions ? [`本次要求：${instructions}`] : [])
     ].join("\n");
     return {
-      prompt: [prompt.nowLine(now), persona, task, prompt.SHARED_RULES, prompt.candidatesOutput(CANDIDATE_COUNT)].join("\n\n"),
+      prompt: [prompt.nowLine(now), persona, task, prompt.guideSection(guide, DEFAULT_GUIDE), prompt.SHARED_RULES,
+        prompt.candidatesOutput(CANDIDATE_COUNT)].join("\n\n"),
       content: ["<materials>", ...materials.map(prompt.materialXml), "</materials>", ...prompt.samplesXml(samples)].join("\n")
     };
   }
@@ -106,6 +109,6 @@
   }
 
   globalThis.XReplyRewriteModel = Object.freeze({
-    RewriteStyle, RewriteLength, OriginalityLevel, needsLocalization, sameLengthChars, buildRequest, originality
+    RewriteStyle, RewriteLength, OriginalityLevel, DEFAULT_GUIDE, needsLocalization, sameLengthChars, buildRequest, originality
   });
 })();
