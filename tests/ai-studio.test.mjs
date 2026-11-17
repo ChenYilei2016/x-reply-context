@@ -138,3 +138,15 @@ test('配置：删除的配置编号回到跟随；保存时为单独指定的�
   assert.deepEqual({...legacy.creationProfileIds}, {angles: '', drafts: '', styles: '', images: ''});
   assert.deepEqual([...config.requiredOrigins(legacy)], []);
 });
+
+test('读取写作要求时也能取消，迟到的读取结果不会发起模型请求',async()=>{
+ const {service,calls,scope}=setup();let release;
+ const original=scope.chrome.storage.local.get;
+ scope.chrome.storage.local.get=key=>key==='creationPromptGuides'?new Promise(resolve=>release=resolve):original(key);
+ const running=service.handle(anglesRequest(),studio);
+ await new Promise(resolve=>setTimeout(resolve,0));
+ await service.handle({type:'AI_CANCEL',ids:['angles-1']},studio);
+ assert.equal((await running).cancelled,true);
+ release({creationPromptGuides:{}});await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(calls.length,0);
+});

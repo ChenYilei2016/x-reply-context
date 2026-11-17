@@ -446,15 +446,19 @@
   async function findAngles() {
     if (ai.pending) return;
     const list = await readySources();
+    const signature = sources.signature();
     const now = Date.now();
-    state.references = await store.referencePosts(clusterMaterials(list));
-    const references = prompt.checkReferences(state.references.map(post => prompt.toPromptReference(post, model.velocity(post, now))));
+    const referencePosts = await store.referencePosts(clusterMaterials(list));
+    const references = prompt.checkReferences(referencePosts.map(post => prompt.toPromptReference(post, model.velocity(post, now))));
+    if (sources.signature() !== signature) { setStatus("素材已变化，请重新找角度。", true); return; }
     setStatus(`正在找角度 · ${list.length} 条来源、${references.length} 条参考帖 · 最长等待 90 秒`);
     const text = await ai.request("angles", { materials: list.map(source => source.prompt), references, persona: settings.persona() });
     if (text === null) return;
+    if (sources.signature() !== signature) { setStatus("素材已变化，本次旧角度未采用，请重新生成。", true); return; }
     const { angles, dropped } = angleModel.parse(text, { materials: list.length, references: references.length });
     state.angles = angleModel.assess(angles, references);
-    state.angleSignature = sources.signature();
+    state.references = referencePosts;
+    state.angleSignature = signature;
     state.angleIndex = null;
     await saveSession();
     render();
@@ -485,13 +489,19 @@
     const edited = state.candidates.some(candidate => candidate.text !== candidate.original);
     if (edited && !confirm("重新生成会替换当前候选（包括你改过的内容），继续吗？")) return;
     const { task, input, approach, label } = generation(list);
+    const signature = sources.signature(), candidates = state.candidates;
+    const previousText = candidates.map(candidate => candidate.text);
     const benchmark = currentBenchmark();
     setStatus(`正在生成 3 个候选 · ${list.length} 条来源 · ${currentFormat().label} · ${label}${benchmark ? ` · 风格「${benchmark.name}」` : ""} · 最长等待 90 秒`);
     const text = await ai.request(task, input);
     if (text === null) return;
+    if (sources.signature() !== signature || state.candidates !== candidates ||
+        candidates.some((candidate,index) => candidate.text !== previousText[index])) {
+      setStatus("生成期间素材或正文已变化，旧结果未覆盖当前内容。请按当前内容重新生成。", true); return;
+    }
     state.candidates = draftModel.parse(text).map(draft => ({ ...draft, original: draft.text, approach, history: [] }));
     state.candidateIndex = 0;
-    state.candidatesSignature = sources.signature();
+    state.candidatesSignature = signature;
     await saveSession();
     render();
     setStatus(`得到 ${state.candidates.length} 个候选，可切换、直接编辑，再发布或生图。`);
@@ -520,6 +530,7 @@
     if (!candidate?.text.trim()) throw new Error("先生成或写好正文。");
     const action = ReviseAction.from(actionId);
     const input = { text: candidate.text, action: action.id, persona: settings.persona(), materials: promptSources() };
+    const signature = sources.signature();
     if (action.needsIssues) input.issues = postLint.describe(candidateIssues(candidate));
     if (action.needsInstruction) input.instruction = state.reviseInstruction.trim();
     state.revising = action.id;
@@ -527,6 +538,9 @@
     try {
       const result = await ai.request("revise", input);
       if (result === null || currentCandidate() !== candidate) return;
+      if (candidate.text !== input.text || sources.signature() !== signature) {
+        setStatus("精修期间正文或素材已变化，旧结果未覆盖当前内容。", true); return;
+      }
       candidate.history = [...(candidate.history || []), candidate.text].slice(-REVISE_HISTORY);
       candidate.text = reviseModel.parse(result);
       $("editor").value = candidate.text;
@@ -608,10 +622,14 @@
   /** 写出图提示词：优先按当前正文，正文为空时按上方内容。 */
   async function writeImagePrompt() {
     const text = imageSourceText();
+    const style = state.imageStyle, ratio = state.imageRatio;
     if (!text) throw new Error("先写好正文，或在「基于内容」里粘贴内容。");
     setStatus("正在按当前正文写出图提示词…");
-    const result = await ai.request("image_prompt", { text, style: state.imageStyle, ratio: state.imageRatio });
+    const result = await ai.request("image_prompt", { text, style, ratio });
     if (result === null) return false;
+    if (imageSourceText() !== text || state.imageStyle !== style || state.imageRatio !== ratio) {
+      setStatus("正文或配图选项已变化，旧提示词未采用，请重新生成。", true); return false;
+    }
     state.imagePrompt = result;
     state.imagePromptBasis = fingerprint(text);
     await saveSession();

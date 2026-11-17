@@ -48,48 +48,58 @@
     const studioPage = sender => sender.url === chrome.runtime.getURL(STUDIO_PAGE);
     const owner = sender => `${sender.tab?.id ?? "page"}:${sender.documentId || sender.url}`;
 
-    async function generate(message, sender) {
-      if (typeof message.id !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(message.id)) return { ok: false, error: "出图请求无效。" };
-      const key = `${owner(sender)}:${message.id}`;
-      if (jobs.has(key)) return { ok: false, error: "重复的出图请求。" };
-      if (jobs.size >= CONCURRENCY) return { ok: false, error: "正在出图，请等当前图片完成。" };
-      const settings = config.normalizeProfiles((await chrome.storage.local.get("aiConfig")).aiConfig);
-      const profile = config.creationProfile(settings, "images");
-      if (!profile.baseUrl || !profile.apiKey) return { ok: false, error: "请先在 AI 设置中为「配图」选择填好地址和 Key 的 API 配置。" };
-      const url = config.imagesEndpoint(profile.baseUrl);
-      if (!await chrome.permissions.contains({ origins: [config.originPattern(url)] })) return { ok: false, error: "模型域名尚未授权。", origin: config.originPattern(url) };
-      let body;
-      try { body = imageModel.generationBody(message.input, { model: profile.model, quality: settings.imageQuality }); }
-      catch (error) { return { ok: false, error: error.message }; }
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === "local" && changes.aiConfig) for (const controller of jobs.values()) controller.abort();
+    });
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), TIMEOUT);
-      jobs.set(key, controller);
+    async function execute(message, controller) {
+      const { signal } = controller;
       try {
+        const settings = config.normalizeProfiles((await chrome.storage.local.get("aiConfig")).aiConfig);
+        signal.throwIfAborted();
+        const profile = config.creationProfile(settings, "images");
+        if (!profile.baseUrl || !profile.apiKey) throw new Error("请先在 AI 设置中为「配图」选择填好地址和 Key 的 API 配置。");
+        const url = config.imagesEndpoint(profile.baseUrl);
+        const permitted = await chrome.permissions.contains({ origins: [config.originPattern(url)] });
+        signal.throwIfAborted();
+        if (!permitted) return { ok: false, error: "模型域名尚未授权。", origin: config.originPattern(url) };
+        const body = imageModel.generationBody(message.input, { model: profile.model, quality: settings.imageQuality });
         let response;
         try {
           response = await fetch(url.href, {
-            method: "POST", redirect: "error", credentials: "omit", signal: controller.signal,
+            method: "POST", redirect: "error", credentials: "omit", signal,
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${profile.apiKey}` }, body: JSON.stringify(body)
           });
         } catch (error) {
-          if (controller.signal.aborted) throw error;
+          if (signal.aborted) throw error;
           throw new Error("无法连接出图接口，请检查网络、代理和 Base URL。");
         }
-        const text = await readLimited(response, controller.signal);
+        const text = await readLimited(response, signal);
+        signal.throwIfAborted();
         if (!response.ok) throw failure(response.status, text);
         let data;
         try { data = JSON.parse(text); } catch { throw new Error("出图接口返回的不是 JSON，请核对 Base URL（通常以 /v1 结尾）。"); }
         return { ok: true, image: imageModel.imageFromResponse(data), model: body.model, size: body.size };
       } catch (error) {
-        if (controller.signal.aborted) {
-          return controller.signal.reason?.name === "TimeoutError" ? { ok: false, error: "出图超时（3 分钟），请稍后重试或降低质量。" } : { ok: false, cancelled: true };
-        }
-        return { ok: false, error: error.message };
-      } finally {
-        clearTimeout(timer);
-        jobs.delete(key);
+        return controller.signal.aborted ? cancelled(controller.signal) : { ok: false, error: error.message };
       }
+    }
+
+    const cancelled = signal => signal.reason?.name === "TimeoutError" ?
+      { ok: false, error: "出图超时（3 分钟），请稍后重试或降低质量。" } : { ok: false, cancelled: true };
+
+    async function generate(message, sender) {
+      if (typeof message.id !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(message.id)) return { ok: false, error: "出图请求无效。" };
+      const key = `${owner(sender)}:${message.id}`;
+      if (jobs.has(key)) return { ok: false, error: "重复的出图请求。" };
+      if (jobs.size >= CONCURRENCY) return { ok: false, error: "正在出图，请等当前图片完成。" };
+      // 在第一个 await 前登记，取消、配置变更和并发上限也覆盖读取配置与权限的阶段。
+      const controller = new AbortController();
+      jobs.set(key, controller);
+      const aborted = new Promise(resolve => controller.signal.addEventListener("abort", () => resolve(cancelled(controller.signal)), { once: true }));
+      const timer = setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), TIMEOUT);
+      try { return await Promise.race([execute(message, controller), aborted]); }
+      finally { clearTimeout(timer); jobs.delete(key); }
     }
 
     async function handle(message, sender) {

@@ -26,14 +26,15 @@
     /** 发起一次创作请求，返回模型文本；被取消时返回 null。同一时间只允许一个请求。 */
     async function request(task, input) {
       if (pending) throw new Error("上一个请求还在进行。");
-      await load();
-      const step = steps[tasks[task]];
-      if (!step?.configured) throw new Error(`请先在 AI 设置中为「${step?.label || task}」配置模型。`);
-      if (!step.permitted) throw new Error("模型域名尚未授权，点模型名旁的「授权模型域名」后重试。");
       const id = crypto.randomUUID();
       pending = { id, task };
       onChange();
       try {
+        await load();
+        if (pending?.id !== id) return null;
+        const step = steps[tasks[task]];
+        if (!step?.configured) throw new Error(`请先在 AI 设置中为「${step?.label || task}」配置模型。`);
+        if (!step.permitted) throw new Error("模型域名尚未授权，点模型名旁的「授权模型域名」后重试。");
         const result = await chrome.runtime.sendMessage({ type: "AI_REQUEST", kind: "studio", task, id, input });
         if (pending?.id !== id || result?.cancelled) return null;
         if (!result?.ok) throw new Error(result?.error || "创作服务暂不可用。");

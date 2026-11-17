@@ -71,3 +71,13 @@ test('推理强度按API组隔离保存，旧配置不传参，非法档位拒�
  assert.equal(JSON.stringify(config.normalizeProfiles(saved)),JSON.stringify(saved));
  assert.throws(()=>config.normalizeProfiles({...saved,profiles:[{...saved.profiles[0],reasoningEffort:'invalid'}]}),/推理强度/);
 });
+
+test('回复和润色校验实际功能模型，连接默认模型可留空',()=>{
+ const base=config.normalizeProfiles(legacy);
+ base.profiles[0].model='';base.profiles[1].apiKey='fixture-polish';base.profiles[1].model='';
+ const saved=config.normalizeProfiles({...base,polishEnabled:true,polishProfileId:'openai',models:{reply:'reply-model',polish:'polish-model'}});
+ assert.equal(config.activeConfig(saved).model,'reply-model');assert.equal(config.polishProfile(saved).model,'polish-model');
+ assert.equal(saved.profiles[0].model,'','功能模型不写回连接默认值');
+ assert.throws(()=>config.normalizeProfiles({...saved,models:{reply:'reply-model',polish:''}}),/二次润色/);
+ assert.throws(()=>config.normalizeProfiles({...saved,models:{reply:'',polish:'polish-model'}}),/开启前/);
+});

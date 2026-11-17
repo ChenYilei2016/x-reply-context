@@ -119,16 +119,17 @@
     });
     const selected=profiles.find(profile=>profile.id===activeProfileId);
     if(!selected)throw new Error("请选择有效的 API 配置。");
-    const shared=normalize({...raw,...selected});
+    const models=featureModels(raw);
+    const shared=normalize({...raw,...selected,model:models.reply || selected.model});
     const polishEnabled=raw?.polishEnabled===true;
     const polish=profiles.find(profile=>profile.id===raw?.polishProfileId);
-    if(polishEnabled && (!polish?.baseUrl || !polish.apiKey || !polish.model || !shared.polishPrompt)) {
+    if(polishEnabled && (!polish?.baseUrl || !polish.apiKey || !(models.polish || polish.model) || !shared.polishPrompt)) {
       throw new Error("开启二次润色前，请选择已填写接口、Key 和模型的 API 配置，并填写润色 Prompt。");
     }
     return {enabled:shared.enabled,typingDelayMin:shared.typingDelayMin,typingDelayMax:shared.typingDelayMax,maxReplyLength:shared.maxReplyLength,
       generatePrompt:shared.generatePrompt,rewritePrompt:shared.rewritePrompt,activeProfileId,profiles,
       polishEnabled,polishProfileId:polish?.id || "",polishPrompt:shared.polishPrompt,
-      creationProfileIds:creationProfileIds(raw?.creationProfileIds,profiles),models:featureModels(raw),imageQuality:imageQuality(raw)};
+      creationProfileIds:creationProfileIds(raw?.creationProfileIds,profiles),models,imageQuality:imageQuality(raw)};
   }
   function activeConfig(value) {
     return {...withModel(value.profiles.find(profile=>profile.id===value.activeProfileId),value.models?.reply),enabled:value.enabled,

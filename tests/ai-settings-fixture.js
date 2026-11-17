@@ -1,15 +1,17 @@
 // Local settings UI fixture: fake credentials only; no model or Chrome storage calls.
 (() => {
+  let revision=0;
   let saved={enabled:true,baseUrl:'https://primary.example/v1',apiKey:'fixture-primary-key',model:'primary-model',generatePrompt:'共享生成：${post} / ${rootOwnership}',rewritePrompt:'共享改写：${draft}'};
   const note=document.createElement('p');note.textContent='本地设置模拟 · 假 Key · 不连接模型或真实扩展存储';note.style.color='#a91610';document.querySelector('h1').after(note);
   const failure=document.createElement('label');failure.innerHTML='<input type="checkbox" id="fail-save"> 模拟保存失败';document.body.append(failure);
   const evidence=document.createElement('p');evidence.id='mock-evidence';document.body.append(evidence);
-  const report=()=>{const value=XReplyAIConfig.normalizeProfiles(saved);evidence.textContent='模拟已保存配置：'+value.activeProfileId+' · '+value.profiles.length+'组';};
+  const report=()=>{const value=XReplyAIConfig.normalizeProfiles(saved);evidence.textContent='模拟已保存配置：'+value.activeProfileId+' · '+value.profiles.length+'组';evidence.dataset.connections=JSON.stringify(value.profiles.map(p=>({id:p.id,baseUrl:p.baseUrl,apiKey:p.apiKey,model:p.model})));};
   globalThis.chrome={runtime:{sendMessage:async message=>{
-    if(message.type==='AI_CONFIG_GET')return {ok:true,config:XReplyAIConfig.normalizeProfiles(saved)};
+    if(message.type==='AI_CONFIG_GET')return {ok:true,config:XReplyAIConfig.normalizeProfiles(saved),revision};
     if(message.type==='AI_CONFIG_SAVE'){
       if(document.querySelector('#fail-save').checked)return {ok:false,error:'模拟保存失败；原配置仍生效'};
-      saved=XReplyAIConfig.normalizeProfiles(message.config);report();return {ok:true};
+      if(message.revision!==revision)return {ok:false,error:'配置已被其他页面更新，请读取最新配置。'};
+      saved=XReplyAIConfig.normalizeProfiles(message.config);revision++;report();return {ok:true,revision};
     }
     throw Error('Unexpected fixture operation');
   }},permissions:{request:async()=>true}};

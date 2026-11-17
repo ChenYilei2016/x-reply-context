@@ -4,6 +4,7 @@
   const TIMEOUT = 25000;
   const POLISH_TIMEOUT = 8000;
   const INCOMPLETE_POLISH = "润色模型未完整返回回复。";
+  const INCOMPLETE_REPLY = "模型回复未完整返回，未填入草稿，请重试。";
   const HTML_RESPONSE = "模型接口返回网页。请核对 Base URL，New API 中转站通常需要 /v1。";
   const CONNECTION_FAILURE = "无法连接模型接口。请检查网络、代理或 HTTPS 证书，并确认地址可直接访问。";
   const HTTP_FAILURES = {
@@ -56,11 +57,11 @@
   const ASSISTANT_HEADER = /<\|im_start\|>assistant(?=\s|$)|<\|start_header_id\|>assistant<\|end_header_id\|>/gi;
   const MODEL_MARKER = /<\/?s>|(?:<|&lt;)[|｜][^<>\s|｜]+[|｜](?:>|&gt;)/gi;
   const MODEL_MARKER_FRAGMENT = /(?:<|&lt;)[|｜](?!\s)/i;
-  function output(text,maxLength,polishing,incompleteMessage=INCOMPLETE_POLISH) {
+  function output(text,maxLength,incompleteMessage) {
     const opening = text.search(/<reply>/i);
     const start = opening + "<reply>".length;
     const closing = opening >= 0 ? text.slice(start).search(/<\/reply>/i) : -1;
-    if (polishing && closing < 0 && (opening >= 0 || /<\/reply>/i.test(text))) throw new Error(incompleteMessage);
+    if (closing < 0 && (opening >= 0 || /<\/reply>/i.test(text))) throw new Error(incompleteMessage);
     const reply = closing >= 0 ? text.slice(start,start+closing) : text.replace(/<\/?[a-z][a-z0-9-]*>/gi,"");
     const clean = reply.replace(ASSISTANT_HEADER,"").replace(MODEL_MARKER,"").trim().replace(/。+$/,"").trimEnd();
     if (MODEL_MARKER_FRAGMENT.test(clean)) throw new Error("模型回复含残缺的控制标记，未填入草稿。");
@@ -77,7 +78,7 @@
       throw new Error("模型" + format + "不是有效的 JSON。请核对 Chat Completions 接口。");
     }
   }
-  async function readResponse(response,signal,maxLength,polishing,incompleteMessage=INCOMPLETE_POLISH) {
+  async function readResponse(response,signal,maxLength,incompleteMessage) {
     const contentType = response.headers.get("content-type") || "";
     if (!response.ok || /^text\/html\b/i.test(contentType)) {
       void response.body?.cancel().catch(() => {});
@@ -102,7 +103,7 @@
       const choice = parsed?.choices?.[0];
       const delta = choice?.delta?.content ?? choice?.message?.content;
       if (typeof delta === "string") text += delta;
-      return polishing && completed(choice?.finish_reason);
+      return completed(choice?.finish_reason);
     }
     try {
       for (;;) {
@@ -121,18 +122,18 @@
       buffer += decoder.decode();
       if (sse) {
         if (!finished) finished = line(buffer.trim()) === true;
-        if (polishing && !finished) throw new Error(incompleteMessage);
+        if (!finished) throw new Error(incompleteMessage);
       } else {
         const data = responseJson(buffer,"响应");
         if (data?.error) throw new Error("模型接口返回错误，请检查配置或额度。");
         const choice = data?.choices?.[0];
-        if (polishing) completed(choice?.finish_reason);
+        completed(choice?.finish_reason);
         const message = choice?.message;
         text = message ? message.content ?? "" : undefined;
       }
       if (typeof text !== "string") throw new Error("模型响应格式不兼容。");
       signal.throwIfAborted();
-      return output(text,maxLength,polishing,incompleteMessage);
+      return output(text,maxLength,incompleteMessage);
     } finally {
       void reader.cancel().catch(() => {});
       reader.releaseLock();
@@ -142,11 +143,32 @@
     const config = globalThis.XReplyAIConfig;
     const aiContext = globalThis.XReplyAIContext;
     let cached, active = 0;
+    let saveQueue = Promise.resolve();
     const waiting = [], jobs = new Map();
     const owner = sender => `${sender.tab?.id ?? "settings"}:${sender.frameId || 0}:${sender.documentId || sender.url}`;
     const settingsPage = sender => sender.url === chrome.runtime.getURL("ai-settings.html");
     const studioPage = sender => STUDIO_PAGES.some(page => sender.url === chrome.runtime.getURL(page));
     const load = () => cached ||= chrome.storage.local.get("aiConfig").then(saved => config.normalizeProfiles(saved.aiConfig)).catch(error => {cached=undefined;throw error;});
+    async function settingsSnapshot() {
+      const saved = await chrome.storage.local.get(["aiConfig","aiConfigRevision"]);
+      return {ok:true,config:config.normalizeProfiles(saved.aiConfig),revision:saved.aiConfigRevision ?? 0};
+    }
+    function saveSettings(message) {
+      const saving = saveQueue.then(async () => {
+        const current = await settingsSnapshot();
+        if (message.revision !== current.revision) {
+          return {ok:false,error:"配置已被其他页面更新，未覆盖新设置。本页修改仍保留；请先保留需要的内容，再点「读取最新配置」。"};
+        }
+        const profiles = config.normalizeProfiles(message.config);
+        const origins = config.requiredOrigins(profiles);
+        if (origins.length && !await chrome.permissions.contains({origins})) throw new Error("请先授权模型域名。");
+        const revision = current.revision + 1;
+        await chrome.storage.local.set({aiConfig:profiles,aiConfigRevision:revision});
+        return {ok:true,revision};
+      });
+      saveQueue = saving.catch(() => {});
+      return saving;
+    }
     function removeWaiting(job) {
       const index = waiting.indexOf(job);
       if (index < 0) return false;
@@ -182,6 +204,12 @@
         const url = config.endpoint(profile.baseUrl);
         if (!await chrome.permissions.contains({origins:[config.originPattern(url)]})) throw new Error("模型域名尚未授权，请在 AI 设置中保存配置。");
         signal.throwIfAborted();
+        let studioRequest;
+        if (job.studio) {
+          const guides = await globalThis.XReplyPromptGuides.load().catch(() => ({}));
+          signal.throwIfAborted();
+          studioRequest = job.studio.build(job.message.input,{guide:guides[job.studio.task]});
+        }
         const template = polishing ? settings.polishPrompt :
           job.message.kind === "rewrite" ? saved.rewritePrompt : saved.generatePrompt;
         const rootOwnership = job.message.rootOwnership === "mine" ? "我的原帖" :
@@ -191,8 +219,8 @@
         let prompt = `${replyTimePrompt()}\n\n${template.replace(/\$\{(post|draft|rootOwnership)\}/g,(_,key) => values[key])}`;
         let userContent = "开始。", contextUsed;
         if (job.studio) {
-          prompt=job.studio.prompt;
-          userContent=job.studio.content;
+          prompt=studioRequest.prompt;
+          userContent=studioRequest.content;
         } else if (polishing) {
           userContent = `<polish_material>\n<current_post>${xmlText(job.message.post || "（无正文）")}</current_post>\n` +
             `<draft_reply>${xmlText(job.message.draft)}</draft_reply>\n${formatVideoContext(job.context?.video)}\n</polish_material>`;
@@ -241,7 +269,7 @@
         }
         job.submittedContext = contextUsed;
         const text = await readResponse(response,signal,step ? STUDIO_OUTPUT_LIMIT : saved.maxReplyLength,
-          polishing || Boolean(step),step ? "创作模型未完整返回，请重试。" : INCOMPLETE_POLISH);
+          step ? "创作模型未完整返回，请重试。" : polishing ? INCOMPLETE_POLISH : INCOMPLETE_REPLY);
         signal.throwIfAborted();
         return {ok:true,text,...(contextUsed ? {contextUsed} : {})};
       } catch (error) {
@@ -283,12 +311,8 @@
       }
       if (message.type === "AI_CONFIG_GET" || message.type === "AI_CONFIG_SAVE") {
         if (!settingsPage(sender)) return {ok:false,error:"仅设置页可以操作 AI 配置。"};
-        if (message.type === "AI_CONFIG_GET") return {ok:true,config:await load()};
-        const profiles = config.normalizeProfiles(message.config);
-        const origins = config.requiredOrigins(profiles);
-        if (origins.length && !await chrome.permissions.contains({origins})) throw new Error("请先授权模型域名。");
-        await chrome.storage.local.set({aiConfig:profiles});
-        return {ok:true};
+        if (message.type === "AI_CONFIG_GET") return settingsSnapshot();
+        return saveSettings(message);
       }
       if (message.type === "AI_CANCEL") {
         for (const id of Array.isArray(message.ids) ? message.ids.slice(0,32) : []) {
@@ -302,12 +326,7 @@
         if (!studioPage(sender)) return {ok:false,error:"仅写作台和对标风格页可以发起创作请求。"};
         const build = Object.hasOwn(studioBuilders,message.task) ? studioBuilders[message.task] : null;
         if (!build) return {ok:false,error:"未知的创作任务。"};
-        try {
-          // 用户在写作台改过的「写作要求」；读取失败时用默认。
-          const guides = await globalThis.XReplyPromptGuides.load().catch(() => ({}));
-          studio={...build(message.input,{guide:guides[message.task]}),task:message.task,step:config.creationTasks[message.task]};
-        }
-        catch(error) {return {ok:false,error:error.message};}
+        studio={build,task:message.task,step:config.creationTasks[message.task]};
       }
       const context = (message.kind === "generate" || polishing) && message.context && typeof message.context === "object" ?
         aiContext?.normalize(message.context) : null;

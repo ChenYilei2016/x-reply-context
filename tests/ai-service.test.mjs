@@ -64,7 +64,7 @@ test('二次润色须单独开启与授权，使用所选模型和首稿',async(
   settings.profiles.push(polish);
   Object.assign(settings,{polishEnabled:true,polishProfileId:polish.id,polishPrompt:'润色标准 ${draft}'});
   const settingsSender={url:'chrome-extension://test/ai-settings.html'};
-  const save=()=>service.handle({type:'AI_CONFIG_SAVE',config:settings},settingsSender);
+  const save=()=>service.handle({type:'AI_CONFIG_SAVE',revision:0,config:settings},settingsSender);
   let allowPolish=false;
   chrome.permissions.contains=async({origins})=>allowPolish || !origins.includes('https://polish.example/*');
   await assert.rejects(save,/授权模型域名/);
@@ -352,7 +352,7 @@ test('保存多组配置切换后取消旧任务，只向新接口发送新Key�
  const old=request('old-config');await new Promise(resolve=>setImmediate(resolve));
  const saved=(await service.handle({type:'AI_CONFIG_GET'},settingsSender)).config;
  saved.profiles.find(p=>p.id==='openai').apiKey='fixture-openai-key';saved.activeProfileId='openai';
- assert.equal((await service.handle({type:'AI_CONFIG_SAVE',config:saved},settingsSender)).ok,true);
+ assert.equal((await service.handle({type:'AI_CONFIG_SAVE',revision:0,config:saved},settingsSender)).ok,true);
  assert.equal((await old).cancelled,true);assert.equal(calls[0][1].signal.aborted,true);
  assert.equal((await request('new-config')).text,'新配置回复');
  assert.equal(calls[1][0],'https://api.openai.com/v1/chat/completions');
@@ -409,4 +409,36 @@ test('OpenAI生成和改写发送选定reasoning_effort，默认/第三方省略
  const rejected=setup(async()=>new Response('unsupported effort',{status:400}));
  await rejected.chrome.storage.local.set({aiConfig:settings('https://api.openai.com/v1','max')});
  assert.equal((await rejected.request('unsupported')).ok,false);assert.equal(rejected.calls.length,1);
+});
+
+test('生成和改写拒绝断流、截断原因及残缺reply标签，不将半稿返回前台',async()=>{
+ const sse=data=>new Response(data,{headers:{'content-type':'text/event-stream'}});
+ const json=choice=>new Response(JSON.stringify({choices:[choice]}),{headers:{'content-type':'application/json'}});
+ for(const kind of ['generate','rewrite'])for(const response of [
+  ()=>sse('data: '+JSON.stringify({choices:[{delta:{content:'<reply>半句话'}}]})+'\n\n'),
+  ()=>sse('data: '+JSON.stringify({choices:[{delta:{content:'半句话'},finish_reason:'length'}]})+'\n\ndata: [DONE]\n\n'),
+  ()=>json({message:{content:'<reply>半句话'},finish_reason:'length'}),
+  ()=>json({message:{content:'<reply>半句话'},finish_reason:'stop'})
+ ]){
+  const {request}=setup(async()=>response());const result=await request('broken',{kind,draft:'已有草稿'});
+  assert.equal(result.ok,false);assert.equal(result.text,undefined);assert.match(result.error,/未完整返回/);
+ }
+ const {request}=setup(async()=>sse('data: '+JSON.stringify({choices:[{delta:{content:'<reply>完整回复</reply>'},finish_reason:'stop'}]})+'\n\n'));
+ assert.equal((await request('complete')).text,'完整回复','stop结束不必等待连接关闭或额外DONE');
+});
+
+test('两份设置并发保存只有一个成功，旧页面不能回滚接口，失败后可读取新版本再保存',async()=>{
+ const {service}=setup(),sender={url:'chrome-extension://test/ai-settings.html'};
+ const first=structuredClone(await service.handle({type:'AI_CONFIG_GET'},sender)),old=structuredClone(first);
+ first.config.profiles[0].baseUrl='https://new.example/v1';first.config.profiles[0].apiKey='fake-new-key';
+ const results=await Promise.all([
+  service.handle({type:'AI_CONFIG_SAVE',config:first.config,revision:first.revision},sender),
+  service.handle({type:'AI_CONFIG_SAVE',config:{...old.config,generatePrompt:'旧页面只改提示词'},revision:old.revision},sender)
+ ]);
+ assert.equal(results[0].ok,true);assert.equal(results[1].ok,false);assert.match(results[1].error,/其他页面更新/);
+ const current=await service.handle({type:'AI_CONFIG_GET'},sender);
+ assert.equal(current.config.profiles[0].baseUrl,'https://new.example/v1');assert.equal(current.config.profiles[0].apiKey,'fake-new-key');
+ assert.equal(current.revision,1);
+ assert.equal((await service.handle({type:'AI_CONFIG_SAVE',config:current.config,revision:current.revision},sender)).ok,true);
+ assert.equal((await service.handle({type:'AI_CONFIG_SAVE',config:old.config},sender)).ok,false,'缺少版本的旧页面也不能覆盖');
 });

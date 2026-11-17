@@ -15,14 +15,14 @@ const input = {prompt: '一只戴墨镜的机器人坐在服务器机房里', st
 const json = (body, status = 200) => new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}});
 
 function setup({fetchImpl = async () => json({data: [{b64_json: PNG}], output_format: 'png', size: '1536x864'}), config = {}, permitted = true} = {}) {
-  const calls = [];
+  const calls = [], changed = [];
   const aiConfig = {enabled: false, profiles, activeProfileId: 'chat', creationProfileIds: {images: 'img'}, ...config};
   const chrome = {runtime: {getURL: path => `chrome-extension://test/${path}`},
-    storage: {local: {get: async () => ({aiConfig})}}, permissions: {contains: async () => permitted}};
+    storage: {local: {get: async () => ({aiConfig})}, onChanged: {addListener: fn => changed.push(fn)}}, permissions: {contains: async () => permitted}};
   const scope = vm.createContext({chrome, fetch: (...args) => { calls.push(args); return fetchImpl(...args); },
     URL, Response, Blob, TextDecoder, DOMException, AbortController, setTimeout, clearTimeout});
   sources.forEach(source => vm.runInContext(source, scope));
-  return {service: scope.XReplyAIImageService.create(), calls, scope};
+  return {service: scope.XReplyAIImageService.create(), calls, scope, chrome, changed};
 }
 
 test('比例按模型映射尺寸：gpt-image-2 系列精确比例，其他模型用最接近的标准尺寸', () => {
@@ -114,4 +114,34 @@ test('取消出图：返回 cancelled，不当作错误', async () => {
   await service.handle({type: 'AI_IMAGE_CANCEL', ids: ['img-3']}, studio);
   assert.deepEqual({...await pending}, {ok: false, cancelled: true});
   assert.ok(release);
+});
+
+test('出图在权限检查阶段即可取消，配置变更取消在途任务，迟到许可不启动旧接口',async()=>{
+ for(const reason of ['cancel','config']){
+  const {service,calls,chrome,changed}=setup();let release;
+  chrome.permissions.contains=()=>new Promise(resolve=>release=resolve);
+  const running=service.handle({type:'AI_IMAGE_GENERATE',id:'early',input},studio);
+  await new Promise(resolve=>setTimeout(resolve,0));
+  if(reason==='cancel')await service.handle({type:'AI_IMAGE_CANCEL',ids:['early']},studio);
+  else changed.forEach(fn=>fn({aiConfig:{newValue:{}}},'local'));
+  assert.equal((await running).cancelled,true);
+  release(true);await new Promise(resolve=>setTimeout(resolve,0));assert.equal(calls.length,0);
+ }
+ let aborted=false;
+ const {service,changed}=setup({fetchImpl:(_url,options)=>new Promise((_,reject)=>options.signal.addEventListener('abort',()=>{aborted=true;reject(options.signal.reason);} ))});
+ const running=service.handle({type:'AI_IMAGE_GENERATE',id:'active',input},studio);
+ await new Promise(resolve=>setTimeout(resolve,0));changed.forEach(fn=>fn({aiConfig:{newValue:{}}},'local'));
+ assert.equal((await running).cancelled,true);assert.equal(aborted,true);
+});
+
+test('出图并发上限覆盖读取配置阶段，取消释放名额',async()=>{
+ const {service,chrome,calls}=setup();const release=[];
+ chrome.storage.local.get=()=>new Promise(resolve=>release.push(resolve));
+ const one=service.handle({type:'AI_IMAGE_GENERATE',id:'one',input},studio);
+ const two=service.handle({type:'AI_IMAGE_GENERATE',id:'two',input},studio);
+ assert.match((await service.handle({type:'AI_IMAGE_GENERATE',id:'three',input},studio)).error,/正在出图/);
+ await service.handle({type:'AI_IMAGE_CANCEL',ids:['one','two']},studio);
+ assert.equal((await one).cancelled,true);assert.equal((await two).cancelled,true);
+ release.forEach(resolve=>resolve({aiConfig:{profiles,activeProfileId:'chat'}}));
+ await new Promise(resolve=>setTimeout(resolve,0));assert.equal(calls.length,0);
 });

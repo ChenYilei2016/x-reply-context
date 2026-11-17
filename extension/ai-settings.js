@@ -7,7 +7,7 @@
   const creationFeatures = config.features.filter(feature => feature.group === "creation");
   const get = id => document.getElementById(id);
   const status = get("status");
-  let value, editingId, dirty = false, saving = false;
+  let value, editingId, revision, dirty = false, saving = false, loading = false;
 
   async function send(message) {
     const response = await chrome.runtime.sendMessage(message);
@@ -149,22 +149,41 @@
   // ---------- 事件 ----------
 
   buildCreationRows();
-  void send({ type: "AI_CONFIG_GET" }).then(({ config: saved }) => {
-    fill(saved);
-    for (const id of ["save", "profile", "addProfile", "openaiProfile", "removeProfile"]) get(id).disabled = false;
-    renderConnections();
-    status.textContent = "";
-  }).catch(error => { status.textContent = error.message; });
+  async function loadSettings() {
+    if (saving || loading) return;
+    loading = true;
+    const controls = [...get("settings").querySelectorAll("input,textarea,select,button")];
+    controls.forEach(control => { control.disabled = true; });
+    try {
+      const { config: saved, revision: savedRevision } = await send({ type: "AI_CONFIG_GET" });
+      fill(saved);
+      revision = savedRevision;
+      dirty = false;
+      status.textContent = "";
+    } finally {
+      loading = false;
+      controls.forEach(control => { control.disabled = false; });
+      if (value) renderConnections();
+      else for (const id of ["save", "profile", "addProfile", "openaiProfile", "removeProfile"]) get(id).disabled = true;
+    }
+  }
+  void loadSettings().catch(error => { status.textContent = error.message; });
+  get("reloadConfig").addEventListener("click", () => {
+    if (saving || dirty && !confirm("读取最新配置会放弃本页未保存的修改，请先保留需要的内容。继续吗？")) return;
+    void loadSettings().catch(error => { status.textContent = error.message; });
+  });
 
   get("settings").addEventListener("input", event => {
     if (!value) return;
     changed();
     if (event.target === get("baseUrl")) { renderProcessing(); renderEndpoint(); }
-    if (event.target === get("model") || event.target === get("profileName")) { rememberConnection(); renderPlaceholders(); }
+    if (connectionFields.some(field => event.target === get(field)) || event.target === get("profileName")) rememberConnection();
+    if (event.target === get("model") || event.target === get("profileName")) renderPlaceholders();
   });
   get("settings").addEventListener("change", event => {
     if (!value || event.target.tagName !== "SELECT" || event.target === get("profile")) return;
     changed();
+    rememberConnection();
     if (event.target === get("replyProfile")) renderConnections();
     renderPlaceholders();
   });
@@ -216,7 +235,8 @@
       const next = collect();
       const origins = config.requiredOrigins(next);
       if (origins.length && !await chrome.permissions.request({ origins })) throw new Error("域名未授权，设置未保存；原配置仍然生效。");
-      await send({ type: "AI_CONFIG_SAVE", config: next });
+      const result = await send({ type: "AI_CONFIG_SAVE", config: next, revision });
+      revision = result.revision;
       value = structuredClone(next);
       dirty = false;
       applied(next);
