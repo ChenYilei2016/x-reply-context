@@ -43,10 +43,27 @@
   const creationSteps = Object.freeze([
     Object.freeze({id:"angles",label:"找角度"}),
     Object.freeze({id:"drafts",label:"成稿"}),
-    Object.freeze({id:"styles",label:"拆解风格"})
+    Object.freeze({id:"styles",label:"拆解风格"}),
+    Object.freeze({id:"images",label:"配图"})
   ]);
   /** 写作台的任务及其使用哪个步骤的 API：改写与成稿共用「成稿」。 */
-  const creationTasks = Object.freeze({angles:"angles",drafts:"drafts",rewrite:"drafts",styles:"styles"});
+  const creationTasks = Object.freeze({angles:"angles",drafts:"drafts",rewrite:"drafts",styles:"styles",image_prompt:"drafts"});
+  /** 配图：「配图」步骤的 API 配置只提供地址和 Key，出图模型与质量单独设置（对话模型不能出图）。 */
+  const imageDefaults = Object.freeze({imageModel:"gpt-image-2",imageQuality:"medium"});
+  const IMAGE_QUALITIES = Object.freeze(["medium","low","high","auto"]);
+  function imageSettings(raw) {
+    const imageModel = typeof raw?.imageModel === "string" && raw.imageModel.trim() ? raw.imageModel.trim() : imageDefaults.imageModel;
+    if (!/^[A-Za-z0-9][\w.:/-]{0,99}$/.test(imageModel)) throw new Error("出图模型名只能包含字母、数字和 . _ - : /，最多 100 个字符。");
+    const imageQuality = raw?.imageQuality ?? imageDefaults.imageQuality;
+    if (!IMAGE_QUALITIES.includes(imageQuality)) throw new Error("出图质量无效。");
+    return {imageModel,imageQuality};
+  }
+  /** 出图接口地址：与对话接口同一个 Base URL，路径换成 /images/generations。 */
+  function imagesEndpoint(value) {
+    const url = endpoint(value);
+    url.pathname = url.pathname.replace(/\/chat\/completions$/,"/images/generations");
+    return url;
+  }
   /** 只保留仍然存在的配置编号；配置被删除后该步骤回到“跟随当前配置”。 */
   function creationProfileIds(raw,profiles) {
     return Object.fromEntries(creationSteps.map(step=>{
@@ -90,7 +107,7 @@
     return {enabled:shared.enabled,typingDelayMin:shared.typingDelayMin,typingDelayMax:shared.typingDelayMax,maxReplyLength:shared.maxReplyLength,
       generatePrompt:shared.generatePrompt,rewritePrompt:shared.rewritePrompt,activeProfileId,profiles,
       polishEnabled,polishProfileId:polish?.id || "",polishPrompt:shared.polishPrompt,
-      creationProfileIds:creationProfileIds(raw?.creationProfileIds,profiles)};
+      creationProfileIds:creationProfileIds(raw?.creationProfileIds,profiles),...imageSettings(raw)};
   }
   function activeConfig(value) {
     return {...value.profiles.find(profile=>profile.id===value.activeProfileId),enabled:value.enabled,
@@ -116,5 +133,5 @@
     return [...new Set(profiles.map(profile=>originPattern(endpoint(profile.baseUrl))))];
   }
   globalThis.XReplyAIConfig = { isOpenAI,defaults,endpoint,normalize,normalizeProfiles,activeConfig,openAIPreset,originPattern,polishProfile,requiredOrigins,
-    creationSteps,creationTasks,creationProfile };
+    creationSteps,creationTasks,creationProfile,imageDefaults,IMAGE_QUALITIES,imagesEndpoint };
 })();

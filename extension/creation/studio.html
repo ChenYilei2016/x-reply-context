@@ -102,6 +102,28 @@
             <p id="originality" class="originality" hidden></p>
             <p id="quote-target" class="muted" hidden></p>
             <div id="fold-preview" class="fold-preview" aria-label="首屏预览"></div>
+            <details id="image-panel" class="image-panel">
+              <summary>配图 <span class="model" data-step="images"></span></summary>
+              <div class="row">
+                <select id="image-style" aria-label="配图风格"></select>
+                <select id="image-ratio" aria-label="配图比例"></select>
+                <button type="button" id="image-prompt-button">按正文写出图提示词</button>
+              </div>
+              <textarea id="image-prompt" rows="4" maxlength="4000" placeholder="出图提示词：可以让成稿模型按正文写，也可以自己写，写好后点「出图」"></textarea>
+              <div class="row">
+                <button type="button" id="image-generate" class="primary">出图</button>
+                <button type="button" id="image-cancel" hidden>取消</button>
+                <span class="muted">每张图按你的 API 单独计费；图片只留在本页，关闭前请下载。</span>
+              </div>
+              <figure id="image-result" hidden>
+                <img id="image-preview" alt="生成的配图">
+                <figcaption class="row">
+                  <button type="button" id="image-download">下载</button>
+                  <button type="button" id="image-copy">复制图片</button>
+                  <span id="image-meta" class="muted"></span>
+                </figcaption>
+              </figure>
+            </details>
             <div class="row">
               <button type="button" id="publish" class="primary">去 X 发布</button>
               <button type="button" id="save-draft">保存草稿</button>
@@ -142,6 +164,7 @@
   <script src="drafts-store.js"></script>
   <script src="style-model.js"></script>
   <script src="style-store.js"></script>
+  <script src="image-model.js"></script>
   <script src="model-client.js"></script>
   <script src="studio-store.js"></script>
   <script src="studio.js"></script>

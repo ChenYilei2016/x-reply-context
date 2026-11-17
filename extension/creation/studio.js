@@ -17,6 +17,7 @@
   const drafts = globalThis.XReplyDraftsStore.create({ db });
   const styleModel = globalThis.XReplyStyleModel;
   const styleTemplates = globalThis.XReplyStyleStore.create();
+  const { ImageStyle, ImageRatio } = globalThis.XReplyImageModel;
   const ai = globalThis.XReplyModelClient.create({ onChange: () => render(), onError: error => setStatus(error.message, true) });
 
   const SAVE_DELAY = 400;
@@ -30,6 +31,9 @@
   const state = {
     materialIds: [], materials: [], missing: [], references: [], channelNames: {},
     profile: null, ownPosts: [], templates: [], benchmarkId: "",
+    imageStyle: ImageStyle.DEFAULT.id, imageRatio: ImageRatio.DEFAULT.id, imagePrompt: "",
+    /** 出图结果只留在内存，不写入存储（base64 图片较大）。 */
+    image: null, imagePending: null,
     angles: [], angleIndex: null, angleMaterialKey: "",
     composeMode: ComposeMode.ANGLE, rewriteStyle: RewriteStyle.DEFAULT.id, rewriteLength: RewriteLength.DEFAULT.id,
     formatId: PostFormat.DEFAULT.id, instructions: "", candidates: [], candidateIndex: 0
@@ -109,6 +113,9 @@
     if (RewriteStyle.from(saved.rewriteStyle)) state.rewriteStyle = saved.rewriteStyle;
     if (RewriteLength.from(saved.rewriteLength)) state.rewriteLength = saved.rewriteLength;
     if (typeof saved.benchmarkId === "string") state.benchmarkId = saved.benchmarkId;
+    if (ImageStyle.from(saved.imageStyle)) state.imageStyle = saved.imageStyle;
+    if (ImageRatio.from(saved.imageRatio)) state.imageRatio = saved.imageRatio;
+    if (typeof saved.imagePrompt === "string") state.imagePrompt = saved.imagePrompt;
     if (typeof saved.instructions === "string") state.instructions = saved.instructions;
     if (Array.isArray(saved.candidates)) {
       state.candidates = saved.candidates.filter(item => typeof item?.text === "string" && typeof item.original === "string");
@@ -119,6 +126,7 @@
   const saveSession = () => store.saveSession({
     angles: state.angles, angleMaterialKey: state.angleMaterialKey, angleIndex: state.angleIndex,
     composeMode: state.composeMode, rewriteStyle: state.rewriteStyle, rewriteLength: state.rewriteLength, benchmarkId: state.benchmarkId,
+    imageStyle: state.imageStyle, imageRatio: state.imageRatio, imagePrompt: state.imagePrompt,
     formatId: state.formatId, instructions: state.instructions, candidates: state.candidates, candidateIndex: state.candidateIndex
   });
 
@@ -335,12 +343,29 @@
     renderMeter();
   }
 
+  function renderImage() {
+    $("image-style").value = state.imageStyle;
+    $("image-ratio").value = state.imageRatio;
+    if (document.activeElement !== $("image-prompt")) $("image-prompt").value = state.imagePrompt;
+    $("image-prompt-button").disabled = Boolean(ai.pending) || !currentCandidate()?.text.trim();
+    $("image-prompt-button").textContent = ai.pending?.task === "image_prompt" ? "正在写提示词…" : "按正文写出图提示词";
+    $("image-generate").disabled = Boolean(state.imagePending) || !state.imagePrompt.trim();
+    $("image-generate").textContent = state.imagePending ? "正在出图，约 30 秒～2 分钟…" : state.image ? "重新出图" : "出图";
+    $("image-cancel").hidden = !state.imagePending;
+    $("image-result").hidden = !state.image;
+    if (state.image) {
+      if ($("image-preview").src !== state.image.dataUrl) $("image-preview").src = state.image.dataUrl;
+      $("image-meta").textContent = [state.image.size, state.image.model].filter(Boolean).join(" · ");
+    }
+  }
+
   function render() {
     renderMaterials();
     ai.render();
     renderAngles();
     renderDraftControls();
     renderEditor();
+    renderImage();
   }
 
   // ---------- 模型请求 ----------
@@ -361,6 +386,64 @@
     render();
     const covered = state.angles.filter(angle => angle.coverage === AngleCoverage.COVERED.id).length;
     setStatus(`得到 ${state.angles.length} 个角度（${covered} 个已有人写）${dropped ? `，${dropped} 个格式不完整已丢弃` : ""}。挑一个点「用这个写」。`);
+  }
+
+  // ---------- 配图 ----------
+
+  /** 第一步：成稿模型按当前正文写出图提示词，填进可编辑的文本框。 */
+  async function writeImagePrompt() {
+    const candidate = currentCandidate();
+    if (!candidate?.text.trim()) throw new Error("先写好正文再配图。");
+    setStatus("正在按正文写出图提示词…");
+    const text = await ai.request("image_prompt", { text: candidate.text, style: state.imageStyle, ratio: state.imageRatio });
+    if (text === null) return;
+    state.imagePrompt = text;
+    await saveSession();
+    render();
+    setStatus("出图提示词已写好，可以修改后点「出图」。");
+  }
+
+  /** 第二步：用「配图」步骤的 API 和出图模型生成一张图。 */
+  async function generateImage() {
+    if (state.imagePending) return;
+    const id = crypto.randomUUID();
+    state.imagePending = id;
+    render();
+    setStatus("正在出图，通常 30 秒～2 分钟…");
+    try {
+      const result = await chrome.runtime.sendMessage({ type: "AI_IMAGE_GENERATE", id,
+        input: { prompt: state.imagePrompt, style: state.imageStyle, ratio: state.imageRatio } });
+      if (state.imagePending !== id || result?.cancelled) return;
+      if (!result?.ok) throw new Error(result?.error || "出图服务暂不可用。");
+      state.image = { ...result.image, model: result.model };
+      setStatus("图片已生成。下载或复制后，在 X 发帖时上传。");
+    } finally {
+      if (state.imagePending === id) state.imagePending = null;
+      render();
+    }
+  }
+
+  function cancelImage() {
+    const id = state.imagePending;
+    if (!id) return;
+    state.imagePending = null;
+    void chrome.runtime.sendMessage({ type: "AI_IMAGE_CANCEL", ids: [id] }).catch(() => {});
+    render();
+    setStatus("已取消出图。");
+  }
+
+  function downloadImage() {
+    const extension = state.image.mime.split("/")[1].replace("jpeg", "jpg");
+    const anchor = Object.assign(document.createElement("a"), { href: state.image.dataUrl, download: `xreply-image-${Date.now()}.${extension}` });
+    anchor.click();
+  }
+
+  /** 剪贴板只稳定支持 PNG。 */
+  async function copyImage() {
+    if (state.image.mime !== "image/png") throw new Error("这张图不是 PNG，浏览器不能复制，请下载后上传。");
+    const blob = await (await fetch(state.image.dataUrl)).blob();
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    setStatus("图片已复制，可在 X 发帖框里粘贴。");
   }
 
   /** 所选风格模板；模板被删除后视为不套用。 */
@@ -514,6 +597,16 @@
   for (const tab of $("compose-modes").children) {
     tab.addEventListener("click", () => { state.composeMode = tab.dataset.mode; render(); later("session", saveSession); });
   }
+  $("image-style").replaceChildren(...ImageStyle.values().map(style => new Option(`风格：${style.label}`, style.id)));
+  $("image-ratio").replaceChildren(...ImageRatio.values().map(ratio => new Option(ratio.label, ratio.id)));
+  $("image-style").addEventListener("change", () => { state.imageStyle = $("image-style").value; later("session", saveSession); });
+  $("image-ratio").addEventListener("change", () => { state.imageRatio = $("image-ratio").value; later("session", saveSession); });
+  $("image-prompt").addEventListener("input", () => { state.imagePrompt = $("image-prompt").value; renderImage(); later("session", saveSession); });
+  $("image-prompt-button").addEventListener("click", () => void writeImagePrompt().catch(error => setStatus(error.message, true)));
+  $("image-generate").addEventListener("click", () => void generateImage().catch(error => setStatus(error.message, true)));
+  $("image-cancel").addEventListener("click", cancelImage);
+  $("image-download").addEventListener("click", downloadImage);
+  $("image-copy").addEventListener("click", () => void copyImage().catch(error => setStatus(error.message, true)));
   $("benchmark").addEventListener("change", () => { state.benchmarkId = $("benchmark").value; later("session", saveSession); });
   styleTemplates.onChanged(() => void loadTemplates().then(render));
   $("format").replaceChildren(...PostFormat.values().map(item => new Option(`${item.label}（约 ${item.min}～${item.max} 字）`, item.id)));

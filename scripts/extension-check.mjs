@@ -14,7 +14,9 @@ const check = (name, ok, detail = "") => {
   console.log(`  ${ok ? "✔" : "✖"} ${name}${!ok && detail ? ` — ${detail}` : ""}`);
 };
 
-/** 模拟 Chat Completions 接口：按系统提示词判断是找角度还是成稿，返回固定 JSON；记录收到的请求。 */
+const PNG_PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==";
+
+/** 模拟 Chat Completions 与 Images 接口：按系统提示词判断是找角度还是成稿，返回固定 JSON；记录收到的请求。 */
 function startMockModel() {
   const requests = [];
   const angles = { angles: [
@@ -38,9 +40,14 @@ function startMockModel() {
     request.on("end", () => {
       const parsed = JSON.parse(body);
       requests.push(parsed);
+      if (request.url.endsWith("/images/generations")) {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ data: [{ b64_json: PNG_PIXEL }], output_format: "png", size: parsed.size }));
+        return;
+      }
       const system = parsed.messages[0].content;
-      const result = system.includes("写作角度") ? angles : system.includes("拆解 <posts>") ? style : drafts;
-      const content = `<reply>${JSON.stringify(result)}</reply>`;
+      const result = system.includes("写作角度") ? angles : system.includes("拆解 <posts>") ? style : system.includes("出图提示词") ? null : drafts;
+      const content = result ? `<reply>${JSON.stringify(result)}</reply>` : "<reply>深夜机房里一台发光的服务器，画面中不要出现文字</reply>";
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }));
     });
@@ -312,6 +319,26 @@ try {
   const benchmarkRequest = mockModel.requests.at(-1)?.messages[0].content || "";
   check("写作台选用风格模板后，提示词带上写法规则但不带示例原句", benchmarkRequest.includes("参考对标风格「@bob 的风格」") &&
     benchmarkRequest.includes("开头手法：先抛反常识结论") && !benchmarkRequest.includes("模型越强"), benchmarkRequest.slice(0, 120));
+
+  // AI 配图：成稿模型写出图提示词 → 出图接口（配图步骤的 API、出图模型、按比例的尺寸）→ 页面显示图片。
+  await waitFor(() => chrome.evaluate(studio, "!document.getElementById('image-prompt-button').disabled").catch(() => false), 15000, "配图按钮不可用").catch(() => {});
+  await chrome.evaluate(studio, `(() => {
+    document.getElementById("image-panel").open = true;
+    const style = document.getElementById("image-style");
+    style.value = "news"; style.dispatchEvent(new Event("change"));
+    document.getElementById("image-prompt-button").click();
+  })()`);
+  const imagePrompt = await waitFor(() => chrome.evaluate(studio, "document.getElementById('image-prompt').value"), 10000, "出图提示词未写入")
+    .catch(error => error.message);
+  check("按正文写出图提示词并填入可编辑框", imagePrompt.includes("发光的服务器") &&
+    mockModel.requests.at(-1).messages[0].content.includes("新闻快讯"), imagePrompt);
+  await chrome.evaluate(studio, "document.getElementById('image-generate').click()");
+  const shown = await waitFor(() => chrome.evaluate(studio,
+    "!document.getElementById('image-result').hidden && document.getElementById('image-preview').naturalWidth === 1 && document.getElementById('image-meta').textContent"),
+  15000, "图片未显示").catch(error => error.message);
+  const imageRequest = mockModel.requests.at(-1);
+  check("出图：发往 /images/generations，带出图模型、16:9 精确尺寸和风格，页面显示图片", shown === "1536x864 · gpt-image-2" &&
+    imageRequest.model === "gpt-image-2" && imageRequest.size === "1536x864" && imageRequest.prompt.includes("整体风格：新闻快讯"), JSON.stringify({ shown, size: imageRequest.size }));
 } finally {
   await chrome.stop();
   mockModel.server.close();

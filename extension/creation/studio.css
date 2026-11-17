@@ -68,6 +68,12 @@ button.small { font-size: 12px; padding: 1px 8px; }
 }
 .folded { color: #9aa6b6; }
 
+.image-panel { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
+.image-panel[open] { gap: 10px; }
+.image-panel summary { cursor: pointer; font-weight: 650; }
+#image-result { margin: 0; display: grid; gap: 8px; }
+#image-preview { max-width: 100%; max-height: 520px; border-radius: 10px; border: 1px solid var(--border); justify-self: start; }
+
 @media (max-width: 1000px) {
   .columns { grid-template-columns: 1fr; }
 }

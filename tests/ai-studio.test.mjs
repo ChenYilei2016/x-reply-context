@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 
 const files = ['ai-config.js', 'ai-context.js', 'ai-service.js',
-  'creation/compose-prompt.js', 'creation/angle-model.js', 'creation/draft-model.js', 'creation/rewrite-model.js', 'creation/style-model.js'];
+  'creation/compose-prompt.js', 'creation/angle-model.js', 'creation/draft-model.js', 'creation/rewrite-model.js', 'creation/style-model.js', 'creation/image-model.js'];
 const sources = await Promise.all(files.map(name => readFile(new URL(`../extension/${name}`, import.meta.url), 'utf8')));
 const profiles = [
   {id: 'main', name: '主用', baseUrl: 'https://model.example/v1', apiKey: 'main-key', model: 'writer'},
@@ -98,19 +98,19 @@ test('创作模型状态：每步的配置名、模型与授权情况，不返�
   const {service} = setup();
   assert.equal((await service.handle({type: 'AI_STUDIO_STATUS'}, {url: 'https://x.com/', tab: {id: 1}})).ok, false);
   const status = await service.handle({type: 'AI_STUDIO_STATUS'}, studio);
-  assert.deepEqual({...status.tasks}, {angles: 'angles', drafts: 'drafts', rewrite: 'drafts', styles: 'styles'});
+  assert.deepEqual({...status.tasks}, {angles: 'angles', drafts: 'drafts', rewrite: 'drafts', styles: 'styles', image_prompt: 'drafts'});
   assert.deepEqual(JSON.parse(JSON.stringify(status.steps.map(step => [step.id, step.name, step.model, step.permitted]))),
-    [['angles', '推理', 'reasoner', true], ['drafts', '主用', 'writer', true], ['styles', '主用', 'writer', true]]);
+    [['angles', '推理', 'reasoner', true], ['drafts', '主用', 'writer', true], ['styles', '主用', 'writer', true], ['images', '主用', 'gpt-image-2', true]]);
   assert.equal(JSON.stringify(status).includes('key'), false);
 });
 
 test('配置：删除的配置编号回到跟随；保存时为单独指定的创作配置申请域名', () => {
   const {scope: {XReplyAIConfig: config}} = setup();
   const normalized = config.normalizeProfiles({...baseConfig, creationProfileIds: {angles: 'gone', drafts: 'think', extra: 'main'}});
-  assert.deepEqual({...normalized.creationProfileIds}, {angles: '', drafts: 'think', styles: ''});
+  assert.deepEqual({...normalized.creationProfileIds}, {angles: '', drafts: 'think', styles: '', images: ''});
   assert.equal(config.creationProfile(normalized, 'angles').id, 'main');
   assert.deepEqual([...config.requiredOrigins(normalized)], ['https://think.example/*'], '未开启 AI 回复时只申请创作单独指定的域名');
   const legacy = config.normalizeProfiles({...baseConfig, creationProfileIds: undefined});
-  assert.deepEqual({...legacy.creationProfileIds}, {angles: '', drafts: '', styles: ''});
+  assert.deepEqual({...legacy.creationProfileIds}, {angles: '', drafts: '', styles: '', images: ''});
   assert.deepEqual([...config.requiredOrigins(legacy)], []);
 });

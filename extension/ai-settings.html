@@ -40,7 +40,11 @@ body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:32px auto;padding
 <details id="creationSettings" style="margin-top:18px">
 <summary>创作工作台模型</summary>
 <div id="creationProfiles"></div>
-<div class="hint">写作台的「找角度」和「成稿」可以各用一组 API，例如找角度用推理强的模型、成稿用文笔好的模型。选「跟随当前配置」时使用上方已保存的当前配置。创作功能不受「开启 AI API」开关影响。</div>
+<div class="hint">写作台的「找角度」「成稿」「拆解风格」「配图」可以各用一组 API，例如找角度用推理强的模型、成稿用文笔好的模型。选「跟随当前配置」时使用上方已保存的当前配置。创作功能不受「开启 AI API」开关影响。改写和配图提示词使用「成稿」的模型。</div>
+<label for="imageModel">出图模型</label><input id="imageModel" autocomplete="off" spellcheck="false" maxlength="100" placeholder="gpt-image-2">
+<div class="hint">「配图 API」只提供地址和 Key，出图用这里的模型名，请求发往 Base URL 下的 /images/generations。OpenAI 可填 gpt-image-2、gpt-image-2.5-flare 等（gpt-image-1 已停用）；中转站按其支持的名称填写。gpt-image-2 及之后的型号按精确比例出图，其他型号用最接近的标准尺寸。</div>
+<label for="imageQuality">出图质量</label><select id="imageQuality"><option value="medium">中（默认）</option><option value="low">低：便宜、快</option><option value="high">高：贵、慢</option><option value="auto">由模型决定</option></select>
+<div class="hint">每出一张图按你的 API 单独计费，质量越高越贵。</div>
 </details>
 <label>AI 逐字填入间隔（毫秒，所有 API 共用）</label>
 <div style="display:flex;gap:12px;align-items:center">

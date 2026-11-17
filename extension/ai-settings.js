@@ -90,6 +90,7 @@
     for(const id of ["save","profile","addProfile","openaiProfile","removeProfile"])get(id).disabled=false;
     renderCreationSteps();renderProfiles();get("polishProfile").value=config.polishProfileId;
     for(const step of XReplyAIConfig.creationSteps)creationSelect(step).value=config.creationProfileIds[step.id];
+    get("imageModel").value=config.imageModel;get("imageQuality").value=config.imageQuality;
     get("creationSettings").open=Object.values(config.creationProfileIds).some(Boolean);
     applied(config);status.textContent="";
   }).catch(error=>{status.textContent=error.message;});
@@ -136,6 +137,7 @@
     try {
       const next=XReplyAIConfig.normalizeProfiles({...config,enabled:get("enabled").checked,activeProfileId:selectedId,
         polishEnabled:get("polishEnabled").checked,polishProfileId:get("polishProfile").value,creationProfileIds:creationProfileIds(),
+        imageModel:get("imageModel").value,imageQuality:get("imageQuality").value,
         ...Object.fromEntries(promptFields.map(field=>[field,get(field).value])),
         ...Object.fromEntries(numericFields.map(field=>[field,get(field).valueAsNumber]))});
       const origins=XReplyAIConfig.requiredOrigins(next);

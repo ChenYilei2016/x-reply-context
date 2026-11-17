@@ -1,9 +1,9 @@
-importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-context.js","ai-service.js","companion.js","timed-replies.js","refresh-cycle.js","post-video.js","video-download.js","reply-skip-authors.js","interaction-report-data.js");
+importScripts("core.js","interaction-ledger.js","storage.js","ai-config.js","ai-context.js","ai-service.js","ai-image-service.js","companion.js","timed-replies.js","refresh-cycle.js","post-video.js","video-download.js","reply-skip-authors.js","interaction-report-data.js");
 importScripts("creation/material-model.js","creation/material-db.js","creation/feed-parser.js","creation/channel-http.js",
   "creation/channel-registry.js","creation/channels/rss-channels.js","creation/channels/hot-list-channels.js",
   "creation/channels/github-trending.js","creation/channels/bot-feed.js","creation/channel-scheduler.js","creation/creation-background.js",
-  "creation/compose-prompt.js","creation/angle-model.js","creation/draft-model.js","creation/rewrite-model.js","creation/style-model.js","creation/draft-record.js");
-let aiService;
+  "creation/compose-prompt.js","creation/angle-model.js","creation/draft-model.js","creation/rewrite-model.js","creation/style-model.js","creation/image-model.js","creation/draft-record.js");
+let aiService, imageService;
 let companion;
 let refreshCycle;
 let videoDownload;
@@ -322,6 +322,11 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse) => {
   }
   if (typeof message.type === "string" && message.type.startsWith("CREATION_")) {
     void creationService().handle(message,sender).then(sendResponse,error => sendResponse({ok:false,error:error?.message || "创作服务暂不可用。"}));
+    return true;
+  }
+  if (typeof message.type === "string" && message.type.startsWith("AI_IMAGE_")) {
+    imageService ||= globalThis.XReplyAIImageService.create();
+    void imageService.handle(message,sender).then(sendResponse,() => sendResponse({ok:false,error:"出图服务暂不可用，请检查 AI 设置。"}));
     return true;
   }
   if (typeof message.type === "string" && message.type.startsWith("AI_")) {
