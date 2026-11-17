@@ -19,18 +19,24 @@ function setup() {
     async rewrite(transform) { rewriteWith = transform; return {updated: 0, deleted: 0}; },
     async deleteChannelState(id) { removedStates.push(id); },
     async channelStates() { return {}; }, async count() { return 0; },
-    async putDrafts(list) { savedDrafts.push(...list); return 0; }
+    async putDrafts(list) { savedDrafts.push(...list); return 0; },
+    upserted: [], marks: [],
+    async upsertMany(list) { db.upserted.push(...list); return {inserted: list.length, updated: 0}; },
+    async setMark(id, mark, value) { db.marks.push([id, mark, value]); }
   };
   const remove = store => async keys => keys.forEach(key => delete store[key]);
   const chrome = {
-    runtime: {getURL: path => `chrome-extension://test/${path}`},
-    storage: {local: {get: async key => ({[key]: local[key]}), set: async () => {}, remove: remove(local)}, session: {remove: remove(session)}},
+    runtime: {id: 'ext', getURL: path => `chrome-extension://test/${path}`},
+    storage: {local: {get: async key => ({[key]: local[key]}), set: async values => Object.assign(local, values), remove: remove(local)}, session: {remove: remove(session)}},
+    tabs: {created: [], updated: [], create: async options => { chrome.tabs.created.push(options); return options; },
+      update: async (id, options) => { chrome.tabs.updated.push([id, options]); return {id, windowId: 7}; }},
+    windows: {update: async () => {}},
     permissions: {contains: async () => true},
     alarms: {created: null, get: async () => null, create: async (name, options) => { chrome.alarms.created = {name, ...options}; }}
   };
   const scope = vm.createContext({URL, XReplyMaterialDB: {create: () => db}});
   sources.forEach(source => vm.runInContext(source, scope));
-  return {scope, chrome, local, session, removedStates, savedDrafts, rewriteWith: () => rewriteWith};
+  return {scope, chrome, local, session, removedStates, savedDrafts, db, rewriteWith: () => rewriteWith};
 }
 
 test('下线 X 浏览采集：只来自该渠道的素材删除，多来源素材去掉该渠道并降为渠道报告', () => {
@@ -71,4 +77,56 @@ test('更新时迁移 0.26.0 旧草稿：保留正文、素材标题与链接和
   assert.equal(draft.updatedAt, 5);
   assert.deepEqual(JSON.parse(JSON.stringify(draft.materials)), [{id: '', title: 'IT之家新闻', url: 'https://www.ithome.com/0/1.htm'}]);
   for (const key of ['creationDrafts', 'creationNews', 'creationMarks', 'creationPreferences']) assert.equal(key in local, false);
+});
+
+const xTab = {id: 'ext', tab: {id: 5, index: 2}, frameId: 0, url: 'https://x.com/home'};
+const post = (id = '1890000000000000001') => ({id: `x:${id}`, kind: 'x_post', url: `https://x.com/alice/status/${id}`, text: '别人的爆款正文',
+  coverage: 'full', author: {handle: 'alice', name: '爱丽丝'}, metrics: {views: 250000, likes: 12000}});
+
+test('X 页面「改写」：写入素材库并收藏，已选素材换成这一条，写作台切到改写并在旁边打开', async () => {
+  const {scope, chrome, local, db} = setup();
+  local.creationBasket = ['https://a.example/1', 'x:2'];
+  const service = scope.XReplyCreationBackground.create(chrome);
+  const reply = await service.handle({type: 'CREATION_PICK_POST', action: 'rewrite', post: post()}, xTab);
+  assert.equal(reply.ok, true);
+  assert.equal(db.upserted[0].channelIds[0], 'x-pick');
+  assert.equal(db.upserted[0].metricsSource, 'channel_reported');
+  assert.deepEqual(db.marks, [['x:1890000000000000001', 'saved', true]]);
+  assert.deepEqual([...local.creationBasket], ['x:1890000000000000001']);
+  assert.equal(local.creationStudioIntent.mode, 'rewrite');
+  assert.deepEqual(JSON.parse(JSON.stringify(chrome.tabs.created)), [{url: 'chrome-extension://test/creation/studio.html', index: 3, openerTabId: 5}]);
+
+  chrome.runtime.getContexts = async () => [{tabId: 42}];
+  await service.handle({type: 'CREATION_PICK_POST', action: 'rewrite', post: post()}, xTab);
+  assert.equal(chrome.tabs.updated[0][0], 42, '写作台已打开时切换过去，不再新开');
+  assert.equal(chrome.tabs.created.length, 1);
+});
+
+test('X 页面「选入」：追加到已选素材，重复不追加，满 3 条时提示', async () => {
+  const {scope, chrome, local} = setup();
+  local.creationBasket = ['a'];
+  const service = scope.XReplyCreationBackground.create(chrome);
+  const pick = id => service.handle({type: 'CREATION_PICK_POST', action: 'pick', post: post(id)}, xTab);
+  assert.equal((await pick('11')).basketCount, 2);
+  const again = await pick('11');
+  assert.equal(again.alreadyPicked, true);
+  assert.equal(again.basketCount, 2);
+  assert.equal((await pick('12')).basketCount, 3);
+  await assert.rejects(pick('13'), /已选满 3 条/);
+  assert.deepEqual([...local.creationBasket], ['a', 'x:11', 'x:12']);
+  assert.equal(chrome.tabs.created.length, 0, '选入不打开写作台');
+});
+
+test('X 页面消息：只接受本扩展在 x.com 顶层框架的内容脚本，拒绝无效帖子与未知操作', async () => {
+  const {scope, chrome, db} = setup();
+  const service = scope.XReplyCreationBackground.create(chrome);
+  const message = {type: 'CREATION_PICK_POST', action: 'pick', post: post()};
+  assert.equal((await service.handle(message, {...xTab, url: 'https://evil.example/'})).ok, false);
+  assert.equal((await service.handle(message, {...xTab, frameId: 3})).ok, false);
+  assert.equal((await service.handle(message, {...xTab, id: 'other'})).ok, false);
+  assert.equal((await service.handle(message, {url: 'chrome-extension://test/creation/studio.html'})).ok, false, '创作页面也不能伪造选入');
+  await assert.rejects(service.handle({...message, action: 'delete'}, xTab), /未知操作/);
+  await assert.rejects(service.handle({...message, post: {...post(), kind: 'article'}}, xTab), /帖子内容无效/);
+  await assert.rejects(service.handle({...message, post: {...post(), id: 'https://a.example/1'}}, xTab), /帖子内容无效/);
+  assert.equal(db.upserted.length, 0);
 });

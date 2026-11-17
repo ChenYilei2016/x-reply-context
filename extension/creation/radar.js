@@ -30,7 +30,7 @@
   async function loadChannelNames() {
     const status = await chrome.runtime.sendMessage({ type: "CREATION_CHANNELS_STATUS" });
     if (!status?.ok) return;
-    for (const channel of status.channels) state.channelNames[channel.id] = channel.name;
+    for (const channel of [...status.channels, ...status.manualChannels]) state.channelNames[channel.id] = channel.name;
   }
 
   async function loadTopics() {

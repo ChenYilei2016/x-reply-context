@@ -56,5 +56,8 @@
     return { materials, rejected };
   }
 
-  globalThis.XReplyChannels = Object.freeze({ register, list, get, collect, resolveUrl });
+  /** 不需要拉取的手动渠道：只用于显示名称（素材由用户在 X 上点「改写」「选入」写入）。 */
+  const MANUAL = Object.freeze([Object.freeze({ id: "x-pick", name: "X 手动选入" })]);
+
+  globalThis.XReplyChannels = Object.freeze({ register, list, get, collect, resolveUrl, MANUAL });
 })();

@@ -80,6 +80,7 @@ export async function startChromeWithPipe() {
   let sequence = 0;
   let buffer = "";
   const pending = new Map();
+  const listeners = new Map();
   reader.on("data", chunk => {
     buffer += chunk.toString("utf8");
     let end;
@@ -89,9 +90,17 @@ export async function startChromeWithPipe() {
       if (message.id && pending.has(message.id)) {
         pending.get(message.id)(message);
         pending.delete(message.id);
+      } else if (message.method) {
+        for (const listener of listeners.get(message.method) || []) listener(message.params, message.sessionId);
       }
     }
   });
+
+  /** 订阅 CDP 事件，例如 Fetch.requestPaused；回调参数为 (params, sessionId)。 */
+  function on(method, listener) {
+    if (!listeners.has(method)) listeners.set(method, []);
+    listeners.get(method).push(listener);
+  }
 
   async function send(method, params = {}, sessionId) {
     const id = ++sequence;
@@ -114,7 +123,7 @@ export async function startChromeWithPipe() {
   }
 
   return {
-    send, evaluate, attach,
+    send, evaluate, attach, on,
     async stop() {
       browser.kill();
       await exited;

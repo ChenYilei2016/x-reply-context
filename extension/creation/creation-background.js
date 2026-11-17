@@ -16,6 +16,15 @@
   const LEGACY_DRAFTS_KEY = "creationDrafts";
   const LEGACY_KEYS = Object.freeze([LEGACY_DRAFTS_KEY, "creationNews", "creationMarks", "creationPreferences"]);
 
+  /** X 页面「改写」「选入」写入的素材渠道，以及与写作台共用的存储键。 */
+  const PICK_CHANNEL = "x-pick";
+  const PICK_ACTIONS = Object.freeze(["rewrite", "pick"]);
+  const BASKET_KEY = "creationBasket";
+  const BASKET_LIMIT = 3;
+  const STUDIO_INTENT_KEY = "creationStudioIntent";
+  const STUDIO_PAGE = "creation/studio.html";
+  const X_PAGE = /^https:\/\/(?:x|twitter)\.com\//;
+
   /** 去掉素材中的 X 浏览采集来源；只来自该渠道的素材删除，其余降为渠道报告的指标。 */
   function withoutRetiredXChannel(material) {
     if (!material.channelIds.includes(RETIRED_X_CHANNEL)) return material;
@@ -71,6 +80,47 @@
     const runScheduled = () => scheduler.run();
 
     const fromCreationPage = sender => typeof sender.url === "string" && sender.url.startsWith(pagePrefix);
+    /** 本扩展注入 X 页面的内容脚本（顶层框架）。 */
+    const fromXPage = sender => sender.id === chrome.runtime.id && Boolean(sender.tab) && !sender.frameId && X_PAGE.test(sender.url || "");
+
+    /** 切换到已打开的写作台标签页，没有时在当前标签页右侧新开。 */
+    async function openStudio(sender) {
+      const url = chrome.runtime.getURL(STUDIO_PAGE);
+      const [existing] = chrome.runtime.getContexts ? await chrome.runtime.getContexts({ contextTypes: ["TAB"], documentUrls: [url] }) : [];
+      if (existing?.tabId >= 0) {
+        const tab = await chrome.tabs.update(existing.tabId, { active: true });
+        await chrome.windows.update(tab.windowId, { focused: true });
+        return;
+      }
+      await chrome.tabs.create({ url, index: sender.tab.index + 1, openerTabId: sender.tab.id });
+    }
+
+    /**
+     * 用户在 X 上点「改写」或「选入」：帖子写入素材库并收藏（不会被低浏览规则清理）。
+     * 改写：已选素材换成这一条，写作台切到改写模式并打开；选入：加入已选素材（最多 3 条）。
+     */
+    async function pickPost(message, sender) {
+      if (!PICK_ACTIONS.includes(message.action)) throw new Error("未知操作");
+      const { material, error } = globalThis.XReplyMaterialModel.normalize(message.post, { channelId: PICK_CHANNEL, now: Date.now() });
+      if (!material || material.kind !== "x_post" || !/^x:\d{1,25}$/.test(material.id)) throw new Error(error || "帖子内容无效");
+      await db.upsertMany([material]);
+      await db.setMark(material.id, "saved", true);
+      const saved = (await chrome.storage.local.get(BASKET_KEY))[BASKET_KEY];
+      const basket = Array.isArray(saved) ? saved.filter(id => typeof id === "string").slice(0, BASKET_LIMIT) : [];
+      const alreadyPicked = basket.includes(material.id);
+      if (message.action === "rewrite") {
+        await chrome.storage.local.set({ [BASKET_KEY]: [material.id], [STUDIO_INTENT_KEY]: { mode: "rewrite", materialId: material.id, at: Date.now() } });
+        await openStudio(sender);
+        return { basketCount: 1, alreadyPicked };
+      }
+      if (alreadyPicked) return { basketCount: basket.length, alreadyPicked };
+      if (basket.length >= BASKET_LIMIT) throw new Error(`已选满 ${BASKET_LIMIT} 条，请先在写作台移出一条。`);
+      await chrome.storage.local.set({ [BASKET_KEY]: [...basket, material.id] });
+      return { basketCount: basket.length + 1, alreadyPicked };
+    }
+
+    /** X 页面内容脚本发来的消息处理表。 */
+    const xPageHandlers = { CREATION_PICK_POST: pickPost };
 
     /** 只接受开关和（允许配置的渠道的）地址；地址必须落在渠道声明的主机内。 */
     function channelSettingsPatch(message) {
@@ -89,7 +139,7 @@
 
     /** 页面消息处理表：消息类型 → 处理函数。 */
     const pageHandlers = {
-      CREATION_CHANNELS_STATUS: () => scheduler.status(),
+      CREATION_CHANNELS_STATUS: async () => ({ ...await scheduler.status(), manualChannels: globalThis.XReplyChannels.MANUAL }),
       CREATION_CHANNELS_RUN: message => scheduler.run({
         force: true,
         channelIds: Array.isArray(message.channelIds) ? message.channelIds.filter(id => typeof id === "string").slice(0, 50) : undefined
@@ -101,6 +151,10 @@
     };
 
     async function handle(message, sender) {
+      if (Object.hasOwn(xPageHandlers, message.type)) {
+        if (!fromXPage(sender)) return { ok: false, error: "仅 X 页面可以执行此操作" };
+        return { ok: true, ...await xPageHandlers[message.type](message, sender) };
+      }
       const handler = pageHandlers[message.type];
       if (!handler) return { ok: false, error: "不支持的创作操作" };
       if (!fromCreationPage(sender)) return { ok: false, error: "仅创作工作台页面可以执行此操作" };

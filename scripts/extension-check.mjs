@@ -44,6 +44,16 @@ function startMockModel() {
   return new Promise(resolve => server.listen(0, "127.0.0.1", () => resolve({ server, requests, port: server.address().port })));
 }
 
+/** X 页面固定内容：一条英文帖子（带一条引用帖），结构与 X 当前页面一致。 */
+const X_FIXTURE = `<!doctype html><html><body><main data-testid="primaryColumn">
+<article data-testid="tweet">
+  <div data-testid="User-Name"><a href="/alice" role="link"><span>Alice</span></a><a href="/alice" role="link"><span>@alice</span></a>
+    <a href="/alice/status/1890000000000000001" role="link"><time datetime="2026-11-16T09:30:00.000Z">Nov 16</time></a></div>
+  <div data-testid="tweetText" lang="en"><span>Agents are eating software. Here is what changed this week.</span></div>
+  <div role="link" tabindex="0"><div data-testid="tweetText"><span>quoted</span></div><div role="group" aria-label="1 reply"></div></div>
+  <div role="group" aria-label="12 replies, 340 reposts, 12K likes, 250K views"><div>reply</div><div>like</div></div>
+</article></main></body></html>`;
+
 const mockModel = await startMockModel();
 const chrome = await startChromeWithPipe();
 try {
@@ -199,6 +209,39 @@ try {
     draftsView.post.includes("5200") && draftsView.tiles.startsWith("1已发"), JSON.stringify(draftsView));
   check("0.26.0 旧草稿迁入草稿库", draftsView?.heads?.some(head => head.includes("旧版迁移")) &&
     !(await chrome.evaluate(worker, "chrome.storage.local.get('creationDrafts').then(saved => 'creationDrafts' in saved)")), JSON.stringify(draftsView?.heads));
+
+  // X 页面「改写」「选入」：用 CDP 拦截 x.com 请求返回固定页面，真实内容脚本注入后点击按钮。
+  const { targetId: xTarget } = await chrome.send("Target.createTarget", { url: "about:blank" });
+  const xPage = await chrome.attach(target => target.targetId === xTarget);
+  chrome.on("Fetch.requestPaused", (params, sessionId) => {
+    if (sessionId !== xPage) return;
+    const html = params.resourceType === "Document" ? X_FIXTURE : "";
+    void chrome.send("Fetch.fulfillRequest", { requestId: params.requestId, responseCode: html ? 200 : 404,
+      responseHeaders: [{ name: "content-type", value: "text/html; charset=utf-8" }], body: Buffer.from(html).toString("base64") }, xPage);
+  });
+  await chrome.send("Fetch.enable", { patterns: [{ urlPattern: "https://x.com/*" }] }, xPage);
+  await chrome.send("Page.navigate", { url: "https://x.com/home" }, xPage);
+  const buttons = await waitFor(() => chrome.evaluate(xPage, "document.querySelectorAll('.xrc-post-actions button').length").catch(() => 0),
+    10000, "帖子下方没有出现按钮").catch(error => error.message);
+  const inQuote = await chrome.evaluate(xPage, "document.querySelectorAll('div[role=link] .xrc-post-actions').length");
+  check("X 帖子操作栏出现「改写」「选入」，引用帖内不加", buttons === 2 && inQuote === 0, `${buttons}/${inQuote}`);
+  await chrome.evaluate(xPage, "document.querySelector('.xrc-post-rewrite').click()");
+  const picked = await waitFor(() => chrome.evaluate(worker, `(async () => {
+    const { creationBasket, creationStudioIntent } = await chrome.storage.local.get(["creationBasket", "creationStudioIntent"]);
+    const material = await XReplyMaterialDB.create().get("x:1890000000000000001");
+    return material && creationStudioIntent && { basket: creationBasket, intent: creationStudioIntent?.mode, channel: material.channelIds[0], saved: material.marks.saved,
+      views: material.metrics?.views, text: material.text };
+  })()`).catch(() => null), 10000, "点击后素材未入库").catch(error => error.message);
+  check("点「改写」后帖子入库（X 手动选入、已收藏）并带入写作台", picked?.channel === "x-pick" && picked.saved === true && picked.views === 250000 &&
+    JSON.stringify(picked.basket) === JSON.stringify(["x:1890000000000000001"]) && picked.intent === "rewrite" && picked.text.startsWith("Agents are"),
+    JSON.stringify(picked));
+  const toast = await waitFor(() => chrome.evaluate(xPage, "document.querySelector('.xrc-post-toast')?.textContent || ''"), 5000, "没有提示")
+    .catch(error => error.message);
+  check("点击后页面提示结果", toast.includes("已带入写作台"), toast);
+  await chrome.evaluate(worker, "chrome.storage.local.set({ creationPostActions: false })");
+  const removed = await waitFor(() => chrome.evaluate(xPage, "document.querySelectorAll('.xrc-post-actions').length === 0"), 5000, "关闭后按钮未移除")
+    .catch(error => error.message);
+  check("在弹窗关闭后按钮立即移除", removed === true, removed);
 } finally {
   await chrome.stop();
   mockModel.server.close();

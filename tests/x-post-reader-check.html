@@ -1,0 +1,66 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>X 帖子解析检查</title>
+<body>
+<!-- 中文界面：带 emoji、链接、@提及、图片，以及一条引用帖 -->
+<article data-testid="tweet" id="zh">
+  <div data-testid="User-Name">
+    <div><a href="/alice" role="link"><div dir="ltr"><span>爱丽丝 </span><img alt="🚀" src="data:,"></div></a></div>
+    <div><a href="/alice" role="link" tabindex="-1"><div dir="ltr"><span>@alice</span></div></a><span>·</span>
+      <a href="/alice/status/1890000000000000001" role="link"><time datetime="2026-11-16T09:30:00.000Z">11月16日</time></a></div>
+  </div>
+  <div data-testid="tweetText" lang="zh"><span>GPT 新版本实测</span><img alt="🔥" src="data:,"><span>
+第二行 </span><a href="/bob" role="link">@bob</a><span> 看这里 </span><a href="https://t.co/abc" role="link">openai.com/blog/new-mo…</a></div>
+  <div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/a.jpg"></div>
+  <div role="link" tabindex="0">
+    <div data-testid="User-Name"><a href="/carol" role="link"><span>卡罗尔</span></a><a href="/carol/status/1880000000000000009" role="link"><time datetime="2026-11-01T00:00:00.000Z"></time></a></div>
+    <div data-testid="tweetText" lang="zh"><span>被引用的原帖，不应读入</span></div>
+    <div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/quoted.jpg"></div>
+  </div>
+  <div role="group" aria-label="12 条回复、340 次转帖、1.2万 次喜欢、56 个书签、25万 次观看"></div>
+</article>
+
+<!-- 英文界面：长帖被截断（显示更多） -->
+<article data-testid="tweet" id="en">
+  <div data-testid="User-Name"><a href="/dave" role="link"><span>Dave</span></a><a href="/dave" role="link"><span>@dave</span></a>
+    <a href="/dave/status/1890000000000000002" role="link"><time datetime="2026-11-16T10:00:00.000Z">Nov 16</time></a></div>
+  <div data-testid="tweetText" lang="en"><span>Long English post about agents&nbsp;and tools</span></div>
+  <button data-testid="tweet-text-show-more-link">Show more</button>
+  <div role="group" aria-label="1,234 replies, 5.6K reposts, 78K likes, 900 bookmarks, 2.3M views"></div>
+</article>
+
+<!-- 没有正文（纯图片帖） -->
+<article data-testid="tweet" id="empty">
+  <a href="/eve/status/1890000000000000003" role="link"><time datetime="2026-11-16T10:00:00.000Z"></time></a>
+  <div role="group" aria-label="1 reply"></div>
+</article>
+
+<script src="/extension/creation/x-post-reader.js"></script>
+<script src="/extension/creation/material-model.js"></script>
+<script src="/tests/browser-check-harness.js"></script>
+<script>
+"use strict";
+BrowserCheck.run(async check => {
+  const { read, parseCount } = XReplyXPostReader;
+  const zh = read(document.getElementById("zh"));
+  check("帖子编号、规范链接与发布时间", zh.id === "x:1890000000000000001" && zh.url === "https://x.com/alice/status/1890000000000000001" &&
+    zh.publishedAt === "2026-11-16T09:30:00.000Z", JSON.stringify(zh));
+  check("正文保留换行、emoji 与提及，链接去掉省略号", zh.text === "GPT 新版本实测🔥\n第二行 @bob 看这里 openai.com/blog/new-mo", JSON.stringify(zh.text));
+  check("引用帖的正文和图片不读入", !zh.text.includes("被引用") && zh.media.length === 1 && zh.media[0].url.endsWith("a.jpg"), JSON.stringify(zh.media));
+  check("作者名含 emoji、账号", zh.author.handle === "alice" && zh.author.name === "爱丽丝 🚀", JSON.stringify(zh.author));
+  check("中文界面指标", zh.metrics.replies === 12 && zh.metrics.reposts === 340 && zh.metrics.likes === 12000 &&
+    zh.metrics.bookmarks === 56 && zh.metrics.views === 250000, JSON.stringify(zh.metrics));
+  check("未截断为正文", zh.coverage === "full" && zh.lang === "zh");
+
+  const en = read(document.getElementById("en"));
+  check("英文界面指标（逗号、K、M）", en.metrics.replies === 1234 && en.metrics.reposts === 5600 && en.metrics.likes === 78000 &&
+    en.metrics.views === 2300000, JSON.stringify(en.metrics));
+  check("“显示更多”截断时标为摘要，不间断空格转普通空格", en.coverage === "excerpt" && en.text === "Long English post about agents and tools", JSON.stringify(en));
+  check("没有正文时返回 null", read(document.getElementById("empty")) === null);
+  check("数字写法", parseCount("3.4亿") === 340000000 && parseCount("7,890") === 7890 && parseCount("无") === undefined);
+
+  const { material, error } = XReplyMaterialModel.normalize(zh, { channelId: "x-pick", now: Date.now() });
+  check("可被素材模型归一化", material && material.kind === "x_post" && material.metrics.views === 250000 && material.author.handle === "alice", error);
+});
+</script>
+</body>

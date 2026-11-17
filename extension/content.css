@@ -279,3 +279,17 @@ article[data-xrc-notification-hidden],
 .xrc-timed-badge-power{grid-column:1/-1;font-size:12px;line-height:18px}
 .xrc-timed-review-draft{grid-column:1/-1;justify-self:start}
 .xrc-timed-badge:not([data-state="running"]) .xrc-timed-badge-status{white-space:normal;overflow-wrap:anywhere}
+
+/* 创作：帖子操作栏上的「改写」「选入」（x-post-actions.js），不改变操作栏高度 */
+.xrc-post-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; }
+.xrc-post-action {
+  font: 600 12px/18px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  padding: 0 7px; border-radius: 9px; border: 1px solid rgba(29, 155, 240, .45); background: transparent; color: rgb(29, 155, 240); cursor: pointer;
+}
+.xrc-post-action:hover { background: rgba(29, 155, 240, .1); }
+.xrc-post-toast {
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 2147483000; max-width: 80vw;
+  padding: 8px 14px; border-radius: 8px; background: #0f1419; color: #fff; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+}
+.xrc-post-toast[data-error="true"] { background: #b42318; }
