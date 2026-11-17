@@ -20,7 +20,10 @@ test('改写请求：风格、长度、原创约束、人设与 X 规则', () =>
   assert.match(request.prompt, /我的人设/);
   assert.match(request.prompt, /把 <materials> 中的内容改写成我自己的 X 帖子（「中短帖观点」），写 3 个候选，每条约 \d+ 字/);
   assert.match(request.prompt, /不是同义改写/);
-  assert.match(request.prompt, /原内容里的“我”是原作者，不是我/);
+  assert.match(request.prompt, /X 帖子和文章是别人写的：其中的“我”是原作者/);
+  assert.match(request.prompt, /标 origin="mine" 的是我自己的笔记或草稿/);
+  assert.match(request.prompt, /事实保持资料原有的确定程度/);
+  assert.match(request.prompt, /text 里|字符串里的换行写成 \\n/);
   assert.match(request.prompt, /风格「X 爆文体」/);
   assert.match(request.prompt, /280 加权字符/);
   assert.match(request.prompt, /避开 AI 腔：不用“值得注意的是”/);

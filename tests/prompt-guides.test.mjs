@@ -33,7 +33,7 @@ test('写作要求进入各任务提示词；任务说明、事实约束与输�
   const custom = rewrite.buildRequest(input, {now: NOW, guide: '全部用短句，每段不超过两行。'}).prompt;
   assert.match(custom, /<writing_guide>\n全部用短句，每段不超过两行。/);
   assert.doesNotMatch(custom, /不是同义改写/, '默认写作要求被替换');
-  assert.match(custom, /原内容里的“我”是原作者/, '事实约束固定保留');
+  assert.match(custom, /其中的“我”是原作者/, '事实约束固定保留');
   assert.match(custom, /只写 <materials> 里有的事实/);
   assert.match(custom, /"drafts"/);
   assert.match(rewrite.buildRequest(input, {now: NOW}).prompt, /<writing_guide>\n这是二次创作，不是同义改写/);
@@ -44,7 +44,7 @@ test('写作要求进入各任务提示词；任务说明、事实约束与输�
   const styles = style.buildRequest({posts}, {now: NOW, guide: '自定义拆解'}).prompt;
   assert.match(styles, /<writing_guide>\n自定义拆解/);
   assert.match(styles, /example 必须是从帖子里原样摘出/, '防编造规则固定保留');
-  assert.match(image.buildPromptRequest({text: '正文', style: 'news', ratio: '1:1'}, {guide: '自定义配图'}).prompt, /自定义配图[\s\S]*不画真实人物/);
+  assert.match(image.buildPromptRequest({text: '正文', style: 'news', ratio: '1:1'}, {guide: '自定义配图'}).prompt, /自定义配图[\s\S]*人物均为虚构的普通人/);
 });
 
 test('粘贴内容可以没有链接；其他素材仍要求 HTTPS 链接', () => {
@@ -59,4 +59,20 @@ test('粘贴内容可以没有链接；其他素材仍要求 HTTPS 链接', () =
   assert.match(prompt.materialXml({...note, publishedAt: Date.parse('2026-11-16T09:00:00Z')}, 0), /published_at="2026-11-16T09:00:00.000Z"/);
   assert.throws(() => prompt.checkMaterials([{...material, kind: 'article'}]), /链接无效/);
   assert.equal(prompt.checkMaterials(Array(6).fill(material)).length, 6);
+});
+
+test('粘贴内容标为“我自己写的”时带 origin="mine"；其他类型不能自称是我的', () => {
+  const {scope: {XReplyComposePrompt: prompt}} = setup();
+  const [mine] = prompt.checkMaterials([{...material, mine: true}]);
+  assert.match(prompt.materialXml(mine, 0), /origin="mine"/);
+  const [unknown] = prompt.checkMaterials([material]);
+  assert.doesNotMatch(prompt.materialXml(unknown, 0), /origin=/);
+  const [article] = prompt.checkMaterials([{...material, kind: 'article', url: 'https://a.example/1', mine: true}]);
+  assert.doesNotMatch(prompt.materialXml(article, 0), /origin=/, '只有粘贴内容可以标为自己写的');
+});
+
+test('精修的事实范围包含正文本身', () => {
+  const {scope: {XReplyComposePrompt: prompt}} = setup();
+  assert.match(prompt.sharedRules('<post> 和 <materials>'), /^只写 <post> 和 <materials> 里有的事实/);
+  assert.match(prompt.SHARED_RULES, /^只写 <materials> 里有的事实/);
 });

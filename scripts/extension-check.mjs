@@ -355,7 +355,7 @@ try {
   const imagePrompt = await chrome.evaluate(studio, "document.getElementById('image-prompt').value");
   check("一键生图：先按正文写出图提示词（可修改）再出图", imagePrompt.includes("发光的服务器") && promptRequest.includes("新闻快讯"), imagePrompt);
   check("出图：发往 /images/generations，带出图模型、16:9 精确尺寸和风格，页面显示图片", shown === "1536x864 · gpt-image-2" &&
-    imageRequest.model === "gpt-image-2" && imageRequest.size === "1536x864" && imageRequest.prompt.includes("整体风格：新闻快讯"), JSON.stringify({ shown, size: imageRequest.size }));
+    imageRequest.model === "gpt-image-2" && imageRequest.size === "1536x864" && imageRequest.prompt.includes("【渲染风格】新闻快讯"), JSON.stringify({ shown, size: imageRequest.size }));
 
   // 换了候选：自动写的出图提示词和图片标为基于之前的正文，再点生图时先按当前正文重写提示词。
   await chrome.evaluate(studio, "document.querySelectorAll('#candidates button')[1].click()");
@@ -406,6 +406,19 @@ try {
     pastedRequest[1].content.includes("https://news.example/a"), JSON.stringify({ pasted, content: pastedRequest[1]?.content.slice(0, 200) }));
   check("写作设置里修改的写作要求进入提示词，固定规则保留", pastedRequest[0]?.content.includes("<writing_guide>\n每句话都要短，像发朋友圈。") &&
     pastedRequest[0].content.includes("只写 <materials> 里有的事实") && pastedRequest[0].content.includes("读者看不到你收到的资料"), (pastedRequest[0]?.content || "").slice(0, 160));
+
+  // 勾选“粘贴的正文是我自己写的”：粘贴内容带 origin="mine"，模型按我的经历和态度写。
+  const beforeMine = mockModel.requests.length;
+  await chrome.evaluate(studio, `(() => {
+    const mine = document.getElementById("source-mine");
+    mine.checked = true; mine.dispatchEvent(new Event("change"));
+    document.getElementById("write").click();
+  })()`);
+  await waitFor(() => mockModel.requests.length > beforeMine || null, 15000, "勾选后的请求未发出").catch(() => {});
+  await waitFor(() => chrome.evaluate(studio, "!document.getElementById('write').disabled"), 15000, "生成未结束").catch(() => {});
+  const mineRequest = mockModel.requests.at(-1)?.messages || [];
+  check("勾选“粘贴的正文是我自己写的”后，粘贴内容带 origin=\"mine\"，规则说明其中的“我”就是我", mineRequest[1]?.content.includes('origin="mine"') &&
+    !pastedRequest[1]?.content.includes("origin=") && mineRequest[0]?.content.includes("其中的“我”就是我"), (mineRequest[1]?.content || "").slice(0, 160));
 
   // 正文自查与精修：正文里提到“素材”、用了 AI 套话 → 列出问题 → 「修掉问题」把自查结果交给成稿模型 → 结果替换正文，可撤销。
   await chrome.evaluate(studio, `(() => {

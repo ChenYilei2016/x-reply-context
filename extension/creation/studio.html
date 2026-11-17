@@ -46,6 +46,8 @@
             <span id="source-summary" class="muted"></span>
           </div>
           <textarea id="source-text" rows="7" spellcheck="false"></textarea>
+          <label id="source-mine-row" class="mine-toggle" hidden><input type="checkbox" id="source-mine">
+            粘贴的正文是我自己写的 <span class="muted">（其中的“我”就是我，保留我的经历和态度；不勾时按别人写的处理）</span></label>
           <ul id="source-chips" class="chips" aria-label="本次使用的来源"></ul>
           <details class="tips">
             <summary>可以放什么</summary>
@@ -55,20 +57,6 @@
               <li>X 帖子：在 X 上点帖子下的「改写」「选入」直接带进来（X 链接需要登录，读不了）。</li>
               <li>选题雷达里「选入」的素材会显示成上面的标签，和粘贴的内容一起融合。</li>
             </ul>
-          </details>
-        </section>
-
-        <section class="card" data-mode-only="angle" aria-labelledby="angles-title">
-          <div class="card-head">
-            <h2 id="angles-title" class="field-title">角度</h2>
-            <span class="model" data-step="angles"></span>
-          </div>
-          <button type="button" id="find-angles">找角度</button>
-          <p id="angles-hint" class="muted"></p>
-          <ol id="angles" class="angles"></ol>
-          <details id="references" class="references" hidden>
-            <summary id="references-summary"></summary>
-            <ul id="reference-list"></ul>
           </details>
         </section>
 
@@ -89,14 +77,31 @@
             <label>风格模板<select id="benchmark"></select></label>
             <label class="grow">本次附加要求<input id="instructions" maxlength="500" placeholder="可选，例如：语气更直接，保留关键数据"></label>
           </div>
-          <p id="angle-chip" class="angle-chip" hidden><span></span><button type="button" id="angle-clear">不用角度</button></p>
           <p id="compose-hint" class="muted"></p>
+        </section>
+
+        <section class="card" data-mode-only="angle" aria-labelledby="angles-title">
+          <div class="card-head">
+            <h2 id="angles-title" class="field-title">角度</h2>
+            <span class="model" data-step="angles"></span>
+          </div>
+          <button type="button" id="find-angles">找角度</button>
+          <p id="angles-hint" class="muted"></p>
+          <ol id="angles" class="angles"></ol>
+          <details id="references" class="references" hidden>
+            <summary id="references-summary"></summary>
+            <ul id="reference-list"></ul>
+          </details>
+        </section>
+
+        <div class="generate-bar">
+          <p id="angle-chip" class="angle-chip" hidden><span></span><button type="button" id="angle-clear">不用角度</button></p>
           <div class="generate">
             <button type="button" id="write" class="primary big">生成</button>
             <button type="button" id="cancel" hidden>取消</button>
           </div>
           <p class="muted generate-meta"><span class="model" data-step="drafts"></span><span class="shortcut">⌘/Ctrl + Enter</span></p>
-        </section>
+        </div>
       </section>
 
       <section class="pane output-pane" aria-label="候选与编辑">
@@ -149,7 +154,7 @@
             <div class="row"><button type="button" id="image-prompt-button">按正文重写提示词</button></div>
           </details>
           <figure id="image-result" hidden>
-            <img id="image-preview" alt="生成的配图">
+            <img id="image-preview" alt="生成的配图" title="点击放大或缩小">
             <figcaption class="row">
               <button type="button" id="image-download">下载</button>
               <button type="button" id="image-copy">复制图片</button>
@@ -184,7 +189,7 @@
           <details>
             <summary>固定规则（不可修改，保证不编造、正文不提资料本身、结果能解析）</summary>
             <pre id="guide-fixed" class="fixed-rules"></pre>
-            <p class="muted">另外固定的还有：任务说明、改写时“原内容的我是原作者”、拆解风格时示例原句必须出自原帖，以及各任务的输出格式。</p>
+            <p class="muted">另外固定的还有：各任务的任务说明、拆解风格时示例原句必须出自原帖、配图的人物为虚构普通人且不出现商标水印，以及各任务的输出格式。</p>
           </details>
           <p class="field-title">模型</p>
           <ul class="models">

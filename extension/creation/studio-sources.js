@@ -23,6 +23,8 @@
     const input = globalThis.XReplySourceInput;
     const reader = globalThis.XReplyLinkReader;
     let text = "";
+    /** 粘贴的正文是否是我自己写的（其中的“我”就是我）。 */
+    let mine = false;
     let parsed = input.parse("");
     let basketIds = [], basket = [], missing = [];
     /** 链接读取结果按链接缓存，本页有效。 */
@@ -32,6 +34,10 @@
       text = value;
       parsed = input.parse(value);
       for (const { url } of parsed.links) if (!links.has(url)) links.set(url, { status: LinkStatus.IDLE });
+    }
+
+    function setMine(value) {
+      mine = Boolean(value);
     }
 
     async function loadBasket() {
@@ -79,7 +85,7 @@
       const list = [];
       if (parsed.body) {
         list.push({ key: "paste", library: null, prompt: { kind: "note", title: "", text: parsed.body, url: "", source: "",
-          coverage: input.coverageOf(parsed.body), publishedAt: null, author: "" } });
+          coverage: input.coverageOf(parsed.body), publishedAt: null, author: "", mine } });
       }
       for (const { url } of parsed.links) {
         const entry = links.get(url);
@@ -94,10 +100,10 @@
      * 内容的标识：粘贴的正文、链接与已选素材任一变化都会改变。用于判断角度、候选是否还对应当前内容。
      * 按输入计算，不依赖链接是否已读取（重新打开页面时链接尚未读取，标识应保持不变）。
      */
-    const signature = () => fingerprint([parsed.body, ...parsed.links.map(link => link.url), ...basketIds].join("\n"));
+    const signature = () => fingerprint([mine ? "mine" : "", parsed.body, ...parsed.links.map(link => link.url), ...basketIds].join("\n"));
 
     return {
-      setText, text: () => text, body: () => parsed.body, droppedLinks: () => parsed.droppedLinks,
+      setText, setMine, mine: () => mine, text: () => text, body: () => parsed.body, droppedLinks: () => parsed.droppedLinks,
       links: () => parsed.links.map(link => ({ ...link, ...links.get(link.url) })),
       loadBasket, basket: () => basket, missing: () => missing, removeFromBasket, resolve, sources, signature
     };

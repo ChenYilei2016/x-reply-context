@@ -14,7 +14,7 @@
   const RewriteStyle = Object.freeze(defineEnum([
     { id: "standard", label: "标准改写", guide: "保留核心信息和大致顺序，换成我的说法，并加入一句我自己的判断。" },
     { id: "hook", label: "钩子开头", guide: "第一句用强钩子抓人（反差、悬念、具体数字或一个好问题），随后给信息和判断。" },
-    { id: "viral", label: "X 爆文体", guide: "第一句亮观点或反差；中间 2～4 个要点，每个一两句、单独成行；结尾一句有力的判断或一个问题。" },
+    { id: "viral", label: "X 爆文体", guide: "第一句亮观点或反差；中间 2～3 个要点，每个一句、单独成行；结尾一句有力的判断或一个问题。字数紧时宁可少一个要点，也不要把要点写成口号。" },
     { id: "narrative", label: "叙事表达", guide: "从一个具体场景或人物切入，按发生顺序展开，最后落到我的观点。" },
     { id: "newsflash", label: "热点快讯", guide: "第一句说清谁做了什么，随后 2～3 个关键信息点，最后一句说明对普通用户或开发者的影响。" }
   ]));
@@ -40,14 +40,13 @@
     return Math.min(1000, Math.max(50, Math.round(size / 10) * 10));
   }
 
-  /** 可编辑的写作要求（默认值）。“原文的我是原作者”属于事实约束，固定在任务说明里，不随写作要求修改。 */
+  /** 可编辑的写作要求（默认值）。资料里的“我”是谁属于固定规则（compose-prompt 的 AUTHOR_RULES），不随写作要求修改。 */
   const DEFAULT_GUIDE = [
-    "这是二次创作，不是同义改写：保留核心事实和信息量，用我的视角重新组织，加入我自己的判断或补充。",
-    "不照搬原句，不沿用原作者独特的比喻和金句。几个候选的开头手法各不相同。",
+    "这是二次创作，不是同义改写：保留核心事实和信息量，用我的视角重新组织，加入我的判断、类比或提问；补的是观点，不是事实。",
+    "改写别人的帖子时，不照搬原句，不沿用原作者独特的比喻和金句；改写我自己的笔记时，可以保留我原有的说法，重点是整理成一条能直接发的帖子。几个候选的开头手法各不相同。",
     prompt.VOICE_RULES,
     prompt.X_POST_RULES
   ].join("\n");
-  const AUTHOR_RULE = "原内容里的“我”是原作者，不是我：不要把原作者的经历、身份和观点写成我的；需要提到时写成“有人说”，有作者账号时写成“@作者 提到”。";
 
   const LOCALIZE_RULE = "原内容主要不是中文：先理解原意，再用地道的中文重写，不逐句直译、不带翻译腔；产品名、人名和专有名词保留原文或通用译名。";
   const FUSION_RULE = "多条内容讲同一件事时融合信息、去掉重复、按逻辑重组；不相关时只改写最主要的一条，不强行拼接。";
@@ -72,7 +71,6 @@
     const chars = length.chars ?? sameLengthChars(texts, localized);
     const task = [
       `把 <materials> 中的${materials.length > 1 ? "多条内容融合" : "内容"}改写成我自己的 X 帖子（「${format.label}」），写 ${CANDIDATE_COUNT} 个候选，每条约 ${chars} 字。`,
-      AUTHOR_RULE,
       `风格「${style.label}」：${style.guide}`,
       ...(format.quotesSource ? [format.guide] : []),
       ...(materials.length > 1 ? [FUSION_RULE] : []),

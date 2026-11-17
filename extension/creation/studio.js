@@ -28,7 +28,7 @@
 
   const SAVE_DELAY = 400;
   /** 普通提示显示多久后自动收起；错误提示一直显示到下一条提示或被点掉。 */
-  const TOAST_DURATION = 8000;
+  const TOAST_DURATION = 6000;
   /** 每个候选保留的精修前版本数（用于撤销）。 */
   const REVISE_HISTORY = 5;
   /** 写法：AI 改写（改写任务）、找角度写（成稿任务）；手写的候选不属于任何一种。 */
@@ -41,7 +41,7 @@
   const $ = id => document.getElementById(id);
   const state = {
     channelNames: {}, templates: [], references: [],
-    composeMode: ComposeMode.REWRITE, sourceText: "",
+    composeMode: ComposeMode.REWRITE, sourceText: "", sourceMine: false,
     angles: [], angleIndex: null, angleSignature: "",
     rewriteStyle: RewriteStyle.DEFAULT.id, rewriteLength: RewriteLength.DEFAULT.id,
     formatId: PostFormat.DEFAULT.id, benchmarkId: "", instructions: "",
@@ -127,6 +127,7 @@
     if (!saved) return;
     if (Object.values(ComposeMode).includes(saved.composeMode) && saved.composeMode !== ComposeMode.MANUAL) state.composeMode = saved.composeMode;
     if (typeof saved.sourceText === "string") state.sourceText = saved.sourceText;
+    state.sourceMine = saved.sourceMine === true;
     if (Array.isArray(saved.angles)) state.angles = saved.angles.filter(angle => AngleType.from(angle?.type));
     state.angleSignature = typeof saved.angleSignature === "string" ? saved.angleSignature : "";
     state.angleIndex = Number.isInteger(saved.angleIndex) && state.angles[saved.angleIndex] ? saved.angleIndex : null;
@@ -146,7 +147,7 @@
   }
 
   const saveSession = () => store.saveSession({
-    composeMode: state.composeMode, sourceText: state.sourceText,
+    composeMode: state.composeMode, sourceText: state.sourceText, sourceMine: state.sourceMine,
     angles: state.angles, angleSignature: state.angleSignature, angleIndex: state.angleIndex,
     rewriteStyle: state.rewriteStyle, rewriteLength: state.rewriteLength, formatId: state.formatId,
     benchmarkId: state.benchmarkId, instructions: state.instructions,
@@ -181,6 +182,8 @@
 
   function renderSources() {
     if (document.activeElement !== $("source-text")) $("source-text").value = state.sourceText;
+    $("source-mine-row").hidden = !sources.body();
+    $("source-mine").checked = state.sourceMine;
     const chips = [];
     for (const entry of sources.links()) {
       const title = entry.status === LinkStatus.OK ? (entry.material.title || entry.material.text).slice(0, 40) : entry.url.replace(/^https?:\/\//, "").slice(0, 40);
@@ -692,6 +695,13 @@
     render(); // 角度、候选是否过期，原文字数与重合度都跟着内容变
     later("session", saveSession);
   });
+  $("source-mine").addEventListener("change", () => {
+    state.sourceMine = $("source-mine").checked;
+    sources.setMine(state.sourceMine);
+    render();
+    later("session", saveSession);
+  });
+
   /** 建单选按钮组：options 为 [{ id, label, hint?, title? }]，点选写入 state[key]。 */
   function segmented(id, key, options) {
     $(id).replaceChildren(...options.map(option => {
@@ -766,6 +776,7 @@
   $("regenerate").addEventListener("click", run(generate));
   window.addEventListener("resize", fitEditor);
   $("image-prompt-button").addEventListener("click", run(async () => { if (await writeImagePrompt()) setStatus("出图提示词已重写，可以修改后点「生图」。"); }));
+  $("image-preview").addEventListener("click", () => $("image-preview").classList.toggle("expanded"));
   $("image-download").addEventListener("click", downloadImage);
   $("image-copy").addEventListener("click", run(copyImage));
   store.onBasketChanged(run(reloadBasket));
@@ -777,6 +788,7 @@
     await Promise.all([loadChannelNames().catch(() => {}), restoreSession(), loadTemplates(), settings.load(),
       ai.load().catch(error => setStatus(error.message, true))]);
     sources.setText(state.sourceText);
+    sources.setMine(state.sourceMine);
     await sources.loadBasket();
     settings.render();
     render();
