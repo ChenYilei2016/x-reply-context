@@ -47,7 +47,7 @@
     Object.freeze({id:"images",label:"配图"})
   ]);
   /** 写作台的任务及其使用哪个步骤的 API：改写与成稿共用「成稿」。 */
-  const creationTasks = Object.freeze({angles:"angles",drafts:"drafts",rewrite:"drafts",styles:"styles",image_prompt:"drafts"});
+  const creationTasks = Object.freeze({angles:"angles",drafts:"drafts",rewrite:"drafts",revise:"drafts",styles:"styles",image_prompt:"drafts"});
   /**
    * 两层配置：API 连接（profiles：地址、Key、默认模型）由各功能共用；每个功能选一个连接，并可单独填模型名。
    * 功能的模型留空时用连接的默认模型；配图的模型是出图模型（对话模型不能出图），留空时用 gpt-image-2。

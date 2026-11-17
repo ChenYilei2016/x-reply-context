@@ -48,6 +48,7 @@
     angles: (input, options) => globalThis.XReplyAngleModel.buildRequest(input, options),
     drafts: (input, options) => globalThis.XReplyDraftModel.buildRequest(input, options),
     rewrite: (input, options) => globalThis.XReplyRewriteModel.buildRequest(input, options),
+    revise: (input, options) => globalThis.XReplyReviseModel.buildRequest(input, options),
     image_prompt: (input, options) => globalThis.XReplyImageModel.buildPromptRequest(input, options),
     styles: (input, options) => globalThis.XReplyStyleModel.buildRequest(input, options)
   };
