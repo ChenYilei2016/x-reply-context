@@ -46,8 +46,10 @@ function startMockModel() {
         return;
       }
       const system = parsed.messages[0].content;
-      const result = system.includes("写作角度") ? angles : system.includes("拆解 <posts>") ? style : system.includes("出图提示词") ? null : drafts;
-      const content = result ? `<reply>${JSON.stringify(result)}</reply>` : "<reply>深夜机房里一台发光的服务器，画面中不要出现文字</reply>";
+      const plain = system.includes("出图提示词") ? "深夜机房里一台发光的服务器，画面中不要出现文字" :
+        system.includes("修改 <post>") ? "OpenAI 降价一半，小团队终于用得起 Agent 了。" : null;
+      const result = system.includes("写作角度") ? angles : system.includes("拆解 <posts>") ? style : drafts;
+      const content = plain ? `<reply>${plain}</reply>` : `<reply>${JSON.stringify(result)}</reply>`;
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }));
     });
@@ -285,8 +287,7 @@ try {
     rewriteMode.status.includes("已带入 X 帖子"), JSON.stringify(rewriteMode));
   await chrome.evaluate(studio, `(() => {
     window.confirm = () => true; // 检查进程内替换确认框，页面原有候选会被替换
-    const style = document.getElementById("rewrite-style");
-    style.value = "hook"; style.dispatchEvent(new Event("change"));
+    document.querySelector("#rewrite-style [data-value=hook]").click();
     document.getElementById("write").click();
   })()`);
   const rewritten = await waitFor(() => chrome.evaluate(studio, `(() => {
@@ -296,7 +297,7 @@ try {
   })()`).catch(() => null), 15000, "改写候选未出现").catch(error => error.message);
   const rewriteRequest = mockModel.requests.at(-1)?.messages[0].content || "";
   check("改写出 3 个候选：提示词含风格、原创约束与本地化，跨语言不算重合度", rewritten?.originalityHidden === true &&
-    rewriteRequest.includes("风格「钩子开头」") && rewriteRequest.includes("不是同义词替换") && rewriteRequest.includes("地道的中文"),
+    rewriteRequest.includes("风格「钩子开头」") && rewriteRequest.includes("不是同义改写") && rewriteRequest.includes("地道的中文"),
     JSON.stringify(rewritten));
   await chrome.evaluate(studio, "document.getElementById('save-draft').click()");
   const rewriteDraft = await waitFor(() => chrome.evaluate(worker,
@@ -387,6 +388,29 @@ try {
     pastedRequest[1].content.includes("https://news.example/a"), JSON.stringify({ pasted, content: pastedRequest[1]?.content.slice(0, 200) }));
   check("写作设置里修改的写作要求进入提示词，固定规则保留", pastedRequest[0]?.content.includes("<writing_guide>\n每句话都要短，像发朋友圈。") &&
     pastedRequest[0].content.includes("只写 <materials> 里有的事实") && pastedRequest[0].content.includes("读者看不到你收到的资料"), (pastedRequest[0]?.content || "").slice(0, 160));
+
+  // 正文自查与精修：正文里提到“素材”、用了 AI 套话 → 列出问题 → 「修掉问题」把自查结果交给成稿模型 → 结果替换正文，可撤销。
+  await chrome.evaluate(studio, `(() => {
+    const editor = document.getElementById("editor");
+    editor.value = "素材称 OpenAI 降价了。值得注意的是，这是信号。"; editor.dispatchEvent(new Event("input"));
+  })()`);
+  const lint = await chrome.evaluate(studio, `(() => {
+    const fix = document.querySelector("#revise-actions .fix");
+    return { items: [...document.querySelectorAll("#lint li")].map(item => item.textContent), fix: fix?.textContent, hidden: fix?.hidden,
+      badge: document.querySelector("#candidates [aria-selected=true] .badge.warn")?.textContent };
+  })()`);
+  check("正文自查列出提到资料与 AI 套话，候选卡片和精修按钮同步提示", lint.items.length === 2 && lint.fix === "修掉 2 处问题" && !lint.hidden &&
+    lint.badge === "2 处待改", JSON.stringify(lint));
+  await chrome.evaluate(studio, "document.querySelector('#revise-actions .fix').click()");
+  const revised = await waitFor(() => chrome.evaluate(studio, `(() => document.getElementById("editor").value.startsWith("OpenAI 降价一半") &&
+    { lintHidden: document.getElementById("lint").hidden, undo: !document.getElementById("revise-undo").hidden })()`).catch(() => null), 15000, "精修结果未出现")
+    .catch(error => error.message);
+  const reviseRequest = mockModel.requests.at(-1)?.messages || [];
+  check("「修掉问题」把自查结果发给成稿模型，结果替换正文且可撤销", revised?.lintHidden === true && revised.undo &&
+    reviseRequest[0]?.content.includes("修掉 <issues> 里列出的问题") && reviseRequest[1]?.content.includes("提到了资料本身"), JSON.stringify(revised));
+  await chrome.evaluate(studio, "document.getElementById('revise-undo').click()");
+  const undone = await chrome.evaluate(studio, "document.getElementById('editor').value");
+  check("撤销精修恢复修改前的正文", undone.startsWith("素材称"), undone);
 } finally {
   await chrome.stop();
   mockModel.server.close();

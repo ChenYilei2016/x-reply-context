@@ -1,5 +1,6 @@
-// 写作台页（单栏）：基于内容（粘贴正文、链接、已选素材）→ AI 改写或找角度写 → 3 个候选 → 编辑（加权字数、首屏、原创度）
-// → 保存草稿、去 X 发布 → 一键配图。来源见 studio-sources.js，写作设置见 studio-settings.js。
+// 写作台页（宽屏左右两栏）：左边基于内容（粘贴正文、链接、已选素材）选写法 → AI 改写或找角度写；
+// 右边 3 个候选 → 编辑（加权字数、首屏、原创度、正文自查）→ 精修 → 保存草稿、去 X 发布 → 一键配图。
+// 来源见 studio-sources.js，写作设置见 studio-settings.js，正文自查见 post-lint.js。
 (() => {
   "use strict";
 
@@ -9,6 +10,8 @@
   const { AngleType, AngleCoverage, ...angleModel } = globalThis.XReplyAngleModel;
   const { PostFormat, ...draftModel } = globalThis.XReplyDraftModel;
   const { RewriteStyle, RewriteLength, OriginalityLevel, ...rewriteModel } = globalThis.XReplyRewriteModel;
+  const { ReviseAction, ...reviseModel } = globalThis.XReplyReviseModel;
+  const postLint = globalThis.XReplyPostLint;
   const { ImageStyle, ImageRatio } = globalThis.XReplyImageModel;
   const xText = globalThis.XReplyXText;
   const record = globalThis.XReplyDraftRecord;
@@ -24,6 +27,10 @@
   const settings = globalThis.XReplyStudioSettings.create({ store, drafts, onError: error => setStatus(error.message, true) });
 
   const SAVE_DELAY = 400;
+  /** 普通提示显示多久后自动收起；错误提示一直显示到下一条提示或被点掉。 */
+  const TOAST_DURATION = 8000;
+  /** 每个候选保留的精修前版本数（用于撤销）。 */
+  const REVISE_HISTORY = 5;
   /** 写法：AI 改写（改写任务）、找角度写（成稿任务）；手写的候选不属于任何一种。 */
   const ComposeMode = Object.freeze({ REWRITE: "rewrite", ANGLE: "angle", MANUAL: "manual" });
   const SOURCE_PLACEHOLDER = Object.freeze({
@@ -38,7 +45,7 @@
     angles: [], angleIndex: null, angleSignature: "",
     rewriteStyle: RewriteStyle.DEFAULT.id, rewriteLength: RewriteLength.DEFAULT.id,
     formatId: PostFormat.DEFAULT.id, benchmarkId: "", instructions: "",
-    candidates: [], candidateIndex: 0,
+    candidates: [], candidateIndex: 0, reviseInstruction: "", revising: null,
     imageStyle: ImageStyle.DEFAULT.id, imageRatio: ImageRatio.DEFAULT.id, imagePrompt: "",
     /** 出图结果只留在内存，不写入存储（base64 图片较大）。 */
     image: null, imagePending: null
@@ -66,9 +73,11 @@
   }
 
   function setStatus(text, error = false) {
+    clearTimeout(timers.toast);
     $("status").textContent = text;
     $("status").dataset.error = String(error);
     $("status").hidden = !text;
+    if (text && !error) timers.toast = setTimeout(() => { $("status").hidden = true; }, TOAST_DURATION);
   }
 
   /** 延迟执行，连续输入只保存一次。 */
@@ -88,6 +97,8 @@
   const candidateOriginality = candidate =>
     candidate.approach?.mode === ComposeMode.REWRITE ? rewriteModel.originality(candidate.text, sourceTexts()) : null;
   const anglesCurrent = () => state.angleSignature === sources.signature();
+  /** 候选正文的自查问题；引用转发时读者能看到原帖。 */
+  const candidateIssues = candidate => postLint.check(candidate?.text || "", { quotes: currentFormat().quotesSource });
 
   // ---------- 数据 ----------
 
@@ -115,7 +126,8 @@
     if (ImageStyle.from(saved.imageStyle)) state.imageStyle = saved.imageStyle;
     if (ImageRatio.from(saved.imageRatio)) state.imageRatio = saved.imageRatio;
     if (Array.isArray(saved.candidates)) {
-      state.candidates = saved.candidates.filter(item => typeof item?.text === "string" && typeof item.original === "string");
+      state.candidates = saved.candidates.filter(item => typeof item?.text === "string" && typeof item.original === "string")
+        .map(item => ({ ...item, history: Array.isArray(item.history) ? item.history.filter(text => typeof text === "string").slice(-REVISE_HISTORY) : [] }));
     }
     state.candidateIndex = Number.isInteger(saved.candidateIndex) && state.candidates[saved.candidateIndex] ? saved.candidateIndex : 0;
   }
@@ -168,7 +180,7 @@
     $("source-chips").replaceChildren(...chips);
     const list = sources.sources();
     const parts = [];
-    if (sources.body()) parts.push(`粘贴正文 ${sources.body().length} 字`);
+    if (sources.body()) parts.push(`粘贴正文 ${sources.body().replace(/\s/g, "").length} 字`);
     const linkCount = sources.links().length;
     if (linkCount) parts.push(`链接 ${linkCount} 个`);
     if (sources.basket().length) parts.push(`已选素材 ${sources.basket().length} 条`);
@@ -236,11 +248,35 @@
 
   // ---------- 渲染：生成与编辑 ----------
 
+  /** 单选按钮组只更新选中态；按钮在初始化时按枚举建好。 */
+  function renderSegmented(id, value) {
+    for (const button of $(id).children) {
+      button.setAttribute("aria-checked", String(button.dataset.value === value));
+      button.disabled = Boolean(ai.pending);
+    }
+  }
+
+  function renderCandidate(candidate, index) {
+    const manual = candidate.approach?.mode === ComposeMode.MANUAL;
+    const head = element("span", manual ? "手写" : `候选 ${index + 1}${candidate.hookStyle ? ` · ${candidate.hookStyle}` : ""}`, "candidate-head");
+    if (!manual && candidate.text !== candidate.original) head.append(element("span", "已改", "badge edited"));
+    if (candidateOriginality(candidate)?.level === OriginalityLevel.from("close")) head.append(element("span", "太像原文", "badge warn"));
+    const issues = candidateIssues(candidate).length;
+    if (issues) head.append(element("span", `${issues} 处待改`, "badge warn"));
+    const tab = element("button");
+    tab.type = "button";
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", String(index === state.candidateIndex));
+    tab.append(head, element("span", candidate.text.trim() || "（空）", "candidate-text"));
+    tab.addEventListener("click", () => { state.candidateIndex = index; render(); later("session", saveSession); });
+    return tab;
+  }
+
   function renderControls() {
     const rewriting = state.composeMode === ComposeMode.REWRITE;
-    $("rewrite-style").value = state.rewriteStyle;
-    $("rewrite-length").value = state.rewriteLength;
-    $("format").value = state.formatId;
+    renderSegmented("rewrite-style", state.rewriteStyle);
+    renderSegmented("rewrite-length", state.rewriteLength);
+    renderSegmented("format", state.formatId);
     $("benchmark").replaceChildren(new Option("不套用", ""), ...state.templates.map(template => new Option(template.name, template.id)));
     $("benchmark").value = currentBenchmark()?.id || "";
     if (document.activeElement !== $("instructions")) $("instructions").value = state.instructions;
@@ -250,18 +286,12 @@
     $("compose-hint").textContent = rewriting ? "" : angle ? "" : "可以先找角度再写，也可以直接按内容生成观点帖。";
     const busy = ai.pending && ["drafts", "rewrite"].includes(ai.pending.task);
     $("write").disabled = Boolean(ai.pending);
-    $("write").textContent = busy ? "正在生成…" : `✏️ ${rewriting ? "改写" : "生成"}${state.candidates.length ? "（重新出 3 个候选）" : ""}`;
+    const verb = rewriting ? "改写" : "生成";
+    $("write").textContent = busy ? "正在生成 3 个候选…" : state.candidates.some(candidate => candidate.approach?.mode !== ComposeMode.MANUAL) ?
+      `↻ 重新${verb} 3 个候选` : `✏️ ${verb}出 3 个候选`;
     $("cancel").hidden = !ai.pending;
-    $("candidates").replaceChildren(...state.candidates.map((candidate, index) => {
-      const close = candidateOriginality(candidate)?.level === OriginalityLevel.from("close");
-      const label = candidate.approach?.mode === ComposeMode.MANUAL ? "手写" : `候选 ${index + 1}${candidate.hookStyle ? ` · ${candidate.hookStyle}` : ""}`;
-      const tab = element("button", `${label}${candidate.text !== candidate.original ? " · 已改" : ""}${close ? " · ⚠ 太像原文" : ""}`);
-      tab.type = "button";
-      tab.setAttribute("role", "tab");
-      tab.setAttribute("aria-selected", String(index === state.candidateIndex));
-      tab.addEventListener("click", () => { state.candidateIndex = index; render(); later("session", saveSession); });
-      return tab;
-    }));
+    $("output-empty").hidden = state.candidates.length > 0;
+    $("candidates").replaceChildren(...state.candidates.map(renderCandidate));
   }
 
   /** 发布时的完整正文：引用转发在末尾附上原帖链接（X 会把末尾的帖子链接显示为引用）。 */
@@ -308,6 +338,29 @@
     $("save-draft").textContent = candidate?.draftId ? "更新草稿" : "保存草稿";
     $("revert").hidden = !candidate || candidate.approach?.mode === ComposeMode.MANUAL;
     $("revert").disabled = !candidate || candidate.text === candidate.original;
+    renderReview(candidate);
+  }
+
+  /** 正文自查与精修：问题列表、「修掉 N 处问题」、各精修动作和撤销。 */
+  function renderReview(candidate) {
+    const issues = candidateIssues(candidate);
+    $("lint").hidden = !issues.length;
+    $("lint").replaceChildren(...issues.map(issue => {
+      const item = element("li");
+      item.append(element("strong", `⚠ ${issue.label}`), `：${issue.matches.map(match => `“${match}”`).join("、")} · ${issue.tip}`);
+      return item;
+    }));
+    const empty = !candidate?.text.trim();
+    for (const button of $("revise-actions").children) {
+      const action = ReviseAction.from(button.dataset.action);
+      button.hidden = action.needsIssues && !issues.length;
+      button.disabled = empty || Boolean(ai.pending);
+      button.textContent = state.revising === action.id ? "精修中…" : action.needsIssues ? `修掉 ${issues.length} 处问题` : action.label;
+    }
+    if (document.activeElement !== $("revise-instruction")) $("revise-instruction").value = state.reviseInstruction;
+    $("revise-instruction").disabled = empty || Boolean(ai.pending);
+    $("revise-undo").hidden = !candidate?.history?.length;
+    $("revise-undo").disabled = Boolean(ai.pending);
   }
 
   function renderImage() {
@@ -399,7 +452,7 @@
     setStatus(`正在生成 3 个候选 · ${list.length} 条来源 · ${currentFormat().label} · ${label}${benchmark ? ` · 风格「${benchmark.name}」` : ""} · 最长等待 90 秒`);
     const text = await ai.request(task, input);
     if (text === null) return;
-    state.candidates = draftModel.parse(text).map(draft => ({ ...draft, original: draft.text, approach }));
+    state.candidates = draftModel.parse(text).map(draft => ({ ...draft, original: draft.text, approach, history: [] }));
     state.candidateIndex = 0;
     await saveSession();
     render();
@@ -410,13 +463,50 @@
   function editText(text) {
     let candidate = currentCandidate();
     if (!candidate) {
-      candidate = { hookStyle: "", text: "", original: "", approach: { mode: ComposeMode.MANUAL } };
+      candidate = { hookStyle: "", text: "", original: "", approach: { mode: ComposeMode.MANUAL }, history: [] };
       state.candidates = [candidate];
       state.candidateIndex = 0;
     }
     candidate.text = text;
     renderControls();
     renderEditor();
+    later("session", saveSession);
+  }
+
+  // ---------- 精修 ----------
+
+  /** 精修当前正文：结果替换正文，旧版本进撤销栈。带上已读取的内容做事实核对（不触发读取链接）。 */
+  async function revise(actionId) {
+    if (ai.pending) return;
+    const candidate = currentCandidate();
+    if (!candidate?.text.trim()) throw new Error("先生成或写好正文。");
+    const action = ReviseAction.from(actionId);
+    const input = { text: candidate.text, action: action.id, persona: settings.persona(), materials: promptSources() };
+    if (action.needsIssues) input.issues = postLint.describe(candidateIssues(candidate));
+    if (action.needsInstruction) input.instruction = state.reviseInstruction.trim();
+    state.revising = action.id;
+    setStatus(`正在精修：${action.label}…`);
+    try {
+      const result = await ai.request("revise", input);
+      if (result === null || currentCandidate() !== candidate) return;
+      candidate.history = [...(candidate.history || []), candidate.text].slice(-REVISE_HISTORY);
+      candidate.text = reviseModel.parse(result);
+      $("editor").value = candidate.text;
+      if (action.needsInstruction) state.reviseInstruction = "";
+      await saveSession();
+      setStatus(`已精修（${action.label}），可以继续改或点「撤销精修」。`);
+    } finally {
+      state.revising = null;
+      render();
+    }
+  }
+
+  function undoRevise() {
+    const candidate = currentCandidate();
+    if (!candidate?.history?.length) return;
+    candidate.text = candidate.history.pop();
+    $("editor").value = candidate.text;
+    render();
     later("session", saveSession);
   }
 
@@ -566,13 +656,52 @@
     renderEditor();
     later("session", saveSession);
   });
-  $("rewrite-style").replaceChildren(...RewriteStyle.values().map(style => new Option(style.label, style.id)));
-  $("rewrite-length").replaceChildren(...RewriteLength.values().map(length => new Option(length.id === "same" ? "基于原文" : length.label, length.id)));
-  $("format").replaceChildren(...PostFormat.values().map(item => new Option(`${item.label}（${item.min}～${item.max} 字）`, item.id)));
+  /** 建单选按钮组：options 为 [{ id, label, hint?, title? }]，点选写入 state[key]。 */
+  function segmented(id, key, options) {
+    $(id).replaceChildren(...options.map(option => {
+      const button = element("button", option.label);
+      button.type = "button";
+      button.setAttribute("role", "radio");
+      button.dataset.value = option.id;
+      if (option.hint) button.append(element("small", option.hint));
+      if (option.title) button.title = option.title;
+      button.addEventListener("click", () => { state[key] = option.id; render(); later("session", saveSession); });
+      return button;
+    }));
+  }
+  segmented("rewrite-style", "rewriteStyle", RewriteStyle.values().map(style => ({ id: style.id, label: style.label, title: style.guide })));
+  segmented("rewrite-length", "rewriteLength", RewriteLength.values().map(length => ({ id: length.id, label: length.chars ? `${length.chars} 字` : "接近原文" })));
+  segmented("format", "formatId", PostFormat.values().map(item => ({ id: item.id, label: item.label, hint: `${item.min}～${item.max} 字`, title: item.guide })));
   $("image-style").replaceChildren(...ImageStyle.values().map(style => new Option(style.label, style.id)));
   $("image-ratio").replaceChildren(...ImageRatio.values().map(ratio => new Option(ratio.label, ratio.id)));
-  for (const [id, key] of [["rewrite-style", "rewriteStyle"], ["rewrite-length", "rewriteLength"], ["format", "formatId"],
-    ["benchmark", "benchmarkId"], ["image-style", "imageStyle"], ["image-ratio", "imageRatio"]]) choose(id, key);
+  for (const [id, key] of [["benchmark", "benchmarkId"], ["image-style", "imageStyle"], ["image-ratio", "imageRatio"]]) choose(id, key);
+  $("revise-actions").replaceChildren(...ReviseAction.values().filter(action => !action.needsInstruction).map(action => {
+    const button = element("button", action.label, action.needsIssues ? "fix" : undefined);
+    button.type = "button";
+    button.dataset.action = action.id;
+    button.title = action.guide;
+    button.addEventListener("click", run(() => revise(action.id)));
+    return button;
+  }));
+  $("revise-instruction").addEventListener("input", () => { state.reviseInstruction = $("revise-instruction").value; });
+  $("revise-instruction").addEventListener("keydown", event => {
+    if (event.key !== "Enter" || event.isComposing) return;
+    event.preventDefault();
+    if (state.reviseInstruction.trim()) run(() => revise(ReviseAction.from("custom").id))();
+  });
+  $("revise-undo").addEventListener("click", undoRevise);
+  $("open-settings").addEventListener("click", () => $("settings").showModal());
+  $("settings-close").addEventListener("click", () => $("settings").close());
+  // 点抽屉外的遮罩关闭。
+  $("settings").addEventListener("click", event => { if (event.target === $("settings")) $("settings").close(); });
+  $("status").addEventListener("click", () => { $("status").hidden = true; });
+  // ⌘/Ctrl + Enter：在左边任意位置生成；精修输入框里不触发。
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.isComposing) return;
+    if (!event.target.closest?.(".input-pane")) return;
+    event.preventDefault();
+    run(generate)();
+  });
   $("instructions").addEventListener("input", () => { state.instructions = $("instructions").value; later("session", saveSession); });
   $("find-angles").addEventListener("click", run(findAngles));
   $("angle-clear").addEventListener("click", () => { state.angleIndex = null; render(); later("session", saveSession); });
