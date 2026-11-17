@@ -192,12 +192,12 @@ bot 返回的指标标记为 `channel_reported`。等你在 X 上刷到同一条
 | `creation/material-db.js` | IndexedDB：素材、快照、话题、草稿、渠道状态；保留策略 |
 | `creation/channels/*.js` | 各渠道适配器（RSS、百度、B站、GitHub、bot feed） |
 | `creation/channel-scheduler.js` | 后台定时调度、并发、退避、渠道状态 |
-| `creation/x-capture.js` | 从 X 响应提取帖子指标，批量上报（接入现有拦截） |
+| ~~`creation/x-capture.js`~~ | ~~从 X 响应提取帖子指标~~（0.28.1 已下线） |
 | `creation/topic-cluster.js` | 话题聚合 |
-| `creation/compose-model.js` | 角度、成稿提示词构建，结构化结果解析 |
-| `creation/x-text.js` | 加权字数、首屏位置、intent 链接 |
+| `creation/compose-prompt.js`、`angle-model.js`、`draft-model.js` | 提示词公共片段与 JSON 容错提取；角度的构建、解析与参考帖对照；成稿形态、样本与候选解析 |
+| `creation/x-text.js` | 加权字数、首屏位置（intent 链接在 T12 补充） |
 | `creation/publish-link.js` | 已发帖关联、复盘数据 |
-| `creation.html` + `creation/views/*.js` | 雷达、详情、创作、草稿、渠道设置各自的视图 |
+| `creation/radar.*`、`channels.*`、`studio.*` | 选题雷达、渠道设置、写作台各自一页；`workbench.css` 为共用样式，`studio-store.js` 负责写作台的数据读取与本地保存 |
 
 存储从 `chrome.storage.local` 改为 IndexedDB：X 采集每天可能有几千条，按采集时间和流速建索引，分页读取，不一次全量加载。0.26.0 的草稿首次打开时自动迁移。
 
@@ -249,7 +249,7 @@ bot 返回的指标标记为 `channel_reported`。等你在 X 上刷到同一条
 | T8 | 雷达界面重写：分类标签、排序、话题卡、详情抽屉、渠道状态页；代码按视图拆分，替换 0.26.0 界面 | T2 T7 | 预览页 + 真实数据可用 |
 | T9 | ~~时间线流速勋章~~（0.28.1 已下线） | — | — |
 
-### 0.29.0 角度与成稿
+### 0.29.0 角度与成稿（已完成）
 
 | 编号 | 任务 | 依赖 | 完成标准 |
 | --- | --- | --- | --- |
