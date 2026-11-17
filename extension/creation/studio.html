@@ -101,6 +101,7 @@
 
       <section class="pane output-pane" aria-label="候选与编辑">
         <section class="card output" aria-label="候选与编辑">
+          <p id="candidates-stale" class="stale" hidden><span>左边的内容已变化，这些候选基于之前的内容。</span><button type="button" id="regenerate">按新内容重新生成</button></p>
           <p id="output-empty" class="empty">生成后 3 个候选会排在这里，点一个进入编辑。<br>也可以直接在下面手写，同样能精修、发布和配图。</p>
           <div id="candidates" class="candidates" role="tablist" aria-label="候选稿"></div>
           <textarea id="editor" rows="9" aria-label="正文编辑" placeholder="正文"></textarea>
@@ -143,7 +144,7 @@
           </div>
           <p class="muted">按正文出图（正文为空时用左边的内容）。每张图按你的 API 单独计费，图片只留在本页。</p>
           <details id="image-prompt-details">
-            <summary>出图提示词（可修改）</summary>
+            <summary id="image-prompt-summary">出图提示词</summary>
             <textarea id="image-prompt" rows="4" maxlength="4000" placeholder="点「生图」会先自动写好提示词；也可以自己写，写了就直接用"></textarea>
             <div class="row"><button type="button" id="image-prompt-button">按正文重写提示词</button></div>
           </details>
@@ -202,11 +203,14 @@
     <li class="angle">
       <div class="angle-badges"></div>
       <p class="angle-hook"></p>
-      <ol class="angle-outline"></ol>
-      <p class="angle-meta"></p>
       <p class="angle-risk"></p>
-      <p class="angle-potential"></p>
-      <button type="button" class="use">用这个角度</button>
+      <details class="angle-more">
+        <summary></summary>
+        <ol class="angle-outline"></ol>
+        <p class="angle-meta"></p>
+        <p class="angle-potential"></p>
+      </details>
+      <button type="button" class="use">用这个角度写 →</button>
     </li>
   </template>
 

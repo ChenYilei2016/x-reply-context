@@ -5,6 +5,16 @@
 
   const LinkStatus = Object.freeze({ IDLE: "idle", LOADING: "loading", OK: "ok", ERROR: "error" });
 
+  /** 短指纹（长度 + FNV-1a 32 位），只用于判断内容是否变化，存进写作进度时不必保存全文。 */
+  function fingerprint(value) {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return `${value.length}:${hash.toString(36)}`;
+  }
+
   /**
    * @param deps.db 素材库；deps.store 写作台存储（已选素材）；deps.prompt 提示词模块；
    *   deps.sourceName (material) => 渠道名；deps.onChange 状态变化时回调
@@ -80,8 +90,11 @@
       return list.slice(0, prompt.LIMITS.materials);
     }
 
-    /** 来源变化的标识：用于判断已找的角度是否还对应当前内容。 */
-    const signature = () => sources().map(source => source.key === "paste" ? `paste:${source.prompt.text.length}` : source.key).join("|");
+    /**
+     * 内容的标识：粘贴的正文、链接与已选素材任一变化都会改变。用于判断角度、候选是否还对应当前内容。
+     * 按输入计算，不依赖链接是否已读取（重新打开页面时链接尚未读取，标识应保持不变）。
+     */
+    const signature = () => fingerprint([parsed.body, ...parsed.links.map(link => link.url), ...basketIds].join("\n"));
 
     return {
       setText, text: () => text, body: () => parsed.body, droppedLinks: () => parsed.droppedLinks,
@@ -90,5 +103,5 @@
     };
   }
 
-  globalThis.XReplyStudioSources = Object.freeze({ create, LinkStatus });
+  globalThis.XReplyStudioSources = Object.freeze({ create, LinkStatus, fingerprint });
 })();

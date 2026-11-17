@@ -17,7 +17,7 @@
   const record = globalThis.XReplyDraftRecord;
   const publishLink = globalThis.XReplyPublishLink;
   const styleModel = globalThis.XReplyStyleModel;
-  const { LinkStatus } = globalThis.XReplyStudioSources;
+  const { LinkStatus, fingerprint } = globalThis.XReplyStudioSources;
 
   const db = globalThis.XReplyMaterialDB.create();
   const store = globalThis.XReplyStudioStore.create({ db, cluster: globalThis.XReplyTopicCluster.cluster, draftModel, prompt });
@@ -45,7 +45,10 @@
     angles: [], angleIndex: null, angleSignature: "",
     rewriteStyle: RewriteStyle.DEFAULT.id, rewriteLength: RewriteLength.DEFAULT.id,
     formatId: PostFormat.DEFAULT.id, benchmarkId: "", instructions: "",
-    candidates: [], candidateIndex: 0, reviseInstruction: "", revising: null,
+    /** candidatesSignature：生成候选时的内容标识（null 表示未知，不提示过期）。 */
+    candidates: [], candidateIndex: 0, candidatesSignature: null, reviseInstruction: "", revising: null,
+    /** imagePromptBasis：模型写出图提示词时依据的正文指纹；null 表示提示词是用户自己写或改过的。 */
+    imagePromptBasis: null,
     imageStyle: ImageStyle.DEFAULT.id, imageRatio: ImageRatio.DEFAULT.id, imagePrompt: "",
     /** 出图结果只留在内存，不写入存储（base64 图片较大）。 */
     image: null, imagePending: null
@@ -97,6 +100,14 @@
   const candidateOriginality = candidate =>
     candidate.approach?.mode === ComposeMode.REWRITE ? rewriteModel.originality(candidate.text, sourceTexts()) : null;
   const anglesCurrent = () => state.angleSignature === sources.signature();
+  /** 出图依据：当前正文，正文为空时用左边的内容。 */
+  const imageSourceText = () => currentCandidate()?.text.trim() || sourceTexts().join("\n").trim();
+  /** 出图提示词是模型按另一段正文写的（用户改过的提示词不算过期，不自动覆盖）。 */
+  const imagePromptStale = () => Boolean(state.imagePrompt.trim()) && state.imagePromptBasis !== null &&
+    state.imagePromptBasis !== fingerprint(imageSourceText());
+  /** 模型生成的候选是否基于之前的内容（左边的内容改过之后）。 */
+  const candidatesStale = () => state.candidatesSignature !== null && state.candidatesSignature !== sources.signature() &&
+    state.candidates.some(candidate => candidate.approach?.mode !== ComposeMode.MANUAL);
   /** 候选正文的自查问题；引用转发时读者能看到原帖。 */
   const candidateIssues = candidate => postLint.check(candidate?.text || "", { quotes: currentFormat().quotesSource });
 
@@ -130,6 +141,8 @@
         .map(item => ({ ...item, history: Array.isArray(item.history) ? item.history.filter(text => typeof text === "string").slice(-REVISE_HISTORY) : [] }));
     }
     state.candidateIndex = Number.isInteger(saved.candidateIndex) && state.candidates[saved.candidateIndex] ? saved.candidateIndex : 0;
+    if (typeof saved.candidatesSignature === "string") state.candidatesSignature = saved.candidatesSignature;
+    if (typeof saved.imagePromptBasis === "string") state.imagePromptBasis = saved.imagePromptBasis;
   }
 
   const saveSession = () => store.saveSession({
@@ -137,8 +150,8 @@
     angles: state.angles, angleSignature: state.angleSignature, angleIndex: state.angleIndex,
     rewriteStyle: state.rewriteStyle, rewriteLength: state.rewriteLength, formatId: state.formatId,
     benchmarkId: state.benchmarkId, instructions: state.instructions,
-    candidates: state.candidates, candidateIndex: state.candidateIndex,
-    imageStyle: state.imageStyle, imageRatio: state.imageRatio, imagePrompt: state.imagePrompt
+    candidates: state.candidates, candidateIndex: state.candidateIndex, candidatesSignature: state.candidatesSignature,
+    imageStyle: state.imageStyle, imageRatio: state.imageRatio, imagePrompt: state.imagePrompt, imagePromptBasis: state.imagePromptBasis
   });
 
   // ---------- 渲染：写法与来源 ----------
@@ -222,18 +235,22 @@
     node.querySelector(".angle-risk").textContent = angle.risk ? `风险：${angle.risk}` : "";
     node.querySelector(".angle-risk").hidden = !angle.risk;
     node.querySelector(".angle-potential").textContent = potentialText(angle);
+    node.querySelector(".angle-more summary").textContent = `提纲 ${angle.outline.length} 条 · ${angle.coveringPosts.length ? "已有人写" : "依据与潜力"}`;
     const use = node.querySelector(".use");
-    use.textContent = index === state.angleIndex ? "已选这个角度" : "用这个角度";
+    use.textContent = index === state.angleIndex ? "↻ 按这个角度重新写" : "用这个角度写 →";
     use.disabled = Boolean(ai.pending);
-    use.addEventListener("click", () => { state.angleIndex = index; render(); later("session", saveSession); $("write").focus(); });
+    // 选中即生成：少点一次「生成」。
+    use.addEventListener("click", run(async () => { state.angleIndex = index; render(); await saveSession(); await generate(); }));
     return node;
   }
 
   function renderAngles() {
     $("angles").replaceChildren(...state.angles.map(renderAngle));
     const stale = state.angles.length > 0 && !anglesCurrent();
-    $("angles-hint").textContent = stale ? "内容已经变化，下面是之前的角度，建议重新找角度。" :
-      state.angles.length ? "挑一个角度后点下面的「生成」。" : "模型返回 3～5 个角度，并对照素材库里同话题的 X 帖子标出“已有人写”；潜力只看真实数据。";
+    $("angles-hint").textContent = stale ? "左边的内容已经变化，下面是之前的角度，建议重新找角度。" :
+      state.angles.length ? "点「用这个角度写」直接出 3 个候选；也可以不选角度，用下面的按钮按内容生成。" :
+        "模型返回 3～5 个角度，并对照素材库里同话题的 X 帖子标出“已有人写”；潜力只看真实数据。";
+    $("angles-hint").dataset.stale = String(stale);
     $("find-angles").disabled = Boolean(ai.pending);
     $("find-angles").textContent = ai.pending?.task === "angles" ? "正在找角度…" : state.angles.length ? "重新找角度" : "🔍 找角度";
     $("references").hidden = !state.references.length;
@@ -286,11 +303,14 @@
     $("compose-hint").textContent = rewriting ? "" : angle ? "" : "可以先找角度再写，也可以直接按内容生成观点帖。";
     const busy = ai.pending && ["drafts", "rewrite"].includes(ai.pending.task);
     $("write").disabled = Boolean(ai.pending);
-    const verb = rewriting ? "改写" : "生成";
-    $("write").textContent = busy ? "正在生成 3 个候选…" : state.candidates.some(candidate => candidate.approach?.mode !== ComposeMode.MANUAL) ?
-      `↻ 重新${verb} 3 个候选` : `✏️ ${verb}出 3 个候选`;
+    const again = state.candidates.some(candidate => candidate.approach?.mode !== ComposeMode.MANUAL);
+    const action = rewriting ? (again ? "↻ 重新改写" : "✏️ 改写") : angle ? `${again ? "↻" : "✏️"} 按「${AngleType.from(angle.type).label}」角度写` :
+      again ? "↻ 重新生成" : "✏️ 生成";
+    $("write").textContent = busy ? "正在生成 3 个候选…" : `${action} 3 个候选`;
     $("cancel").hidden = !ai.pending;
     $("output-empty").hidden = state.candidates.length > 0;
+    $("candidates-stale").hidden = !candidatesStale();
+    $("regenerate").disabled = Boolean(ai.pending);
     $("candidates").replaceChildren(...state.candidates.map(renderCandidate));
   }
 
@@ -314,6 +334,7 @@
     const candidate = currentCandidate();
     const text = candidate?.text || "";
     if ($("editor").value !== text && document.activeElement !== $("editor")) $("editor").value = text;
+    fitEditor();
     const measure = xText.measure(publishText(text));
     const parts = [];
     const original = sourceChars();
@@ -339,6 +360,13 @@
     $("revert").hidden = !candidate || candidate.approach?.mode === ComposeMode.MANUAL;
     $("revert").disabled = !candidate || candidate.text === candidate.original;
     renderReview(candidate);
+  }
+
+  /** 编辑框高度跟随正文（最多大半屏），长帖不在框内滚动。 */
+  function fitEditor() {
+    const editor = $("editor");
+    editor.style.height = "auto";
+    editor.style.height = `${Math.min(editor.scrollHeight + 4, Math.round(window.innerHeight * 0.62))}px`;
   }
 
   /** 正文自查与精修：问题列表、「修掉 N 处问题」、各精修动作和撤销。 */
@@ -373,9 +401,15 @@
     $("image-cancel").hidden = !state.imagePending;
     $("image-prompt-button").disabled = Boolean(ai.pending);
     $("image-result").hidden = !state.image;
+    const stale = imagePromptStale();
+    $("image-prompt-summary").textContent = !state.imagePrompt.trim() ? "出图提示词（点「生图」时自动写）" :
+      state.imagePromptBasis === null ? "出图提示词（你改过，正文变化后不会自动更新）" :
+        stale ? "出图提示词（基于之前的正文，生图时会按当前正文重写）" : "出图提示词（按当前正文，可修改）";
+    $("image-prompt-summary").dataset.stale = String(stale);
     if (state.image) {
       if ($("image-preview").src !== state.image.dataUrl) $("image-preview").src = state.image.dataUrl;
-      $("image-meta").textContent = [state.image.size, state.image.model].filter(Boolean).join(" · ");
+      const old = state.image.basis !== fingerprint(imageSourceText());
+      $("image-meta").textContent = [state.image.size, state.image.model, old ? "基于之前的正文" : ""].filter(Boolean).join(" · ");
     }
   }
 
@@ -454,6 +488,7 @@
     if (text === null) return;
     state.candidates = draftModel.parse(text).map(draft => ({ ...draft, original: draft.text, approach, history: [] }));
     state.candidateIndex = 0;
+    state.candidatesSignature = sources.signature();
     await saveSession();
     render();
     setStatus(`得到 ${state.candidates.length} 个候选，可切换、直接编辑，再发布或生图。`);
@@ -569,21 +604,23 @@
 
   /** 写出图提示词：优先按当前正文，正文为空时按上方内容。 */
   async function writeImagePrompt() {
-    const text = currentCandidate()?.text.trim() || sourceTexts().join("\n").trim();
+    const text = imageSourceText();
     if (!text) throw new Error("先写好正文，或在「基于内容」里粘贴内容。");
-    setStatus("正在写出图提示词…");
+    setStatus("正在按当前正文写出图提示词…");
     const result = await ai.request("image_prompt", { text, style: state.imageStyle, ratio: state.imageRatio });
     if (result === null) return false;
     state.imagePrompt = result;
+    state.imagePromptBasis = fingerprint(text);
     await saveSession();
     render();
     return true;
   }
 
-  /** 生图：没有提示词时先自动写，再用「配图」的 API 和出图模型生成。 */
+  /** 生图：没有提示词、或自动写的提示词基于之前的正文时，先按当前正文重写，再用「配图」的 API 和出图模型生成。 */
   async function generateImage() {
     if (state.imagePending || ai.pending) return;
-    if (!state.imagePrompt.trim() && !await writeImagePrompt()) return;
+    if ((!state.imagePrompt.trim() || imagePromptStale()) && !await writeImagePrompt()) return;
+    const basis = fingerprint(imageSourceText());
     const id = crypto.randomUUID();
     state.imagePending = id;
     render();
@@ -593,7 +630,7 @@
         input: { prompt: state.imagePrompt, style: state.imageStyle, ratio: state.imageRatio } });
       if (state.imagePending !== id || result?.cancelled) return;
       if (!result?.ok) throw new Error(result?.error || "出图服务暂不可用。");
-      state.image = { ...result.image, model: result.model };
+      state.image = { ...result.image, model: result.model, basis };
       setStatus("图片已生成，可下载或复制后在 X 发帖时上传。想换画面可以展开「出图提示词」修改后重新生图。");
     } finally {
       if (state.imagePending === id) state.imagePending = null;
@@ -652,8 +689,7 @@
   $("source-text").addEventListener("input", () => {
     state.sourceText = $("source-text").value;
     sources.setText(state.sourceText);
-    renderSources();
-    renderEditor();
+    render(); // 角度、候选是否过期，原文字数与重合度都跟着内容变
     later("session", saveSession);
   });
   /** 建单选按钮组：options 为 [{ id, label, hint?, title? }]，点选写入 state[key]。 */
@@ -707,7 +743,7 @@
   $("angle-clear").addEventListener("click", () => { state.angleIndex = null; render(); later("session", saveSession); });
   $("write").addEventListener("click", run(generate));
   $("cancel").addEventListener("click", () => { if (ai.cancel()) setStatus("已取消。"); });
-  $("editor").addEventListener("input", () => editText($("editor").value));
+  $("editor").addEventListener("input", () => { editText($("editor").value); fitEditor(); });
   $("revert").addEventListener("click", () => {
     const candidate = currentCandidate();
     if (!candidate) return;
@@ -721,7 +757,14 @@
   $("copy").addEventListener("click", run(copyText));
   $("image-generate").addEventListener("click", run(generateImage));
   $("image-cancel").addEventListener("click", cancelImage);
-  $("image-prompt").addEventListener("input", () => { state.imagePrompt = $("image-prompt").value; later("session", saveSession); });
+  $("image-prompt").addEventListener("input", () => {
+    state.imagePrompt = $("image-prompt").value;
+    state.imagePromptBasis = null; // 用户改过：正文变化后不再自动覆盖
+    renderImage();
+    later("session", saveSession);
+  });
+  $("regenerate").addEventListener("click", run(generate));
+  window.addEventListener("resize", fitEditor);
   $("image-prompt-button").addEventListener("click", run(async () => { if (await writeImagePrompt()) setStatus("出图提示词已重写，可以修改后点「生图」。"); }));
   $("image-download").addEventListener("click", downloadImage);
   $("image-copy").addEventListener("click", run(copyImage));

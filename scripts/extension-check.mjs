@@ -357,6 +357,24 @@ try {
   check("出图：发往 /images/generations，带出图模型、16:9 精确尺寸和风格，页面显示图片", shown === "1536x864 · gpt-image-2" &&
     imageRequest.model === "gpt-image-2" && imageRequest.size === "1536x864" && imageRequest.prompt.includes("整体风格：新闻快讯"), JSON.stringify({ shown, size: imageRequest.size }));
 
+  // 换了候选：自动写的出图提示词和图片标为基于之前的正文，再点生图时先按当前正文重写提示词。
+  await chrome.evaluate(studio, "document.querySelectorAll('#candidates button')[1].click()");
+  const staleImage = await chrome.evaluate(studio, `({ summary: document.getElementById("image-prompt-summary").textContent,
+    meta: document.getElementById("image-meta").textContent, text: document.getElementById("editor").value })`);
+  const requestsBefore = mockModel.requests.length;
+  await chrome.evaluate(studio, "document.getElementById('image-generate').click()");
+  await waitFor(() => mockModel.requests.length >= requestsBefore + 2 || null, 15000, "未重写提示词并出图").catch(() => {});
+  await waitFor(() => chrome.evaluate(studio, "!document.getElementById('image-generate').disabled"), 15000, "出图未结束").catch(() => {});
+  const rewrittenPrompt = mockModel.requests[requestsBefore]?.messages?.[1]?.content || "";
+  const freshImage = await chrome.evaluate(studio, `({ summary: document.getElementById("image-prompt-summary").textContent, meta: document.getElementById("image-meta").textContent })`);
+  check("换候选后出图提示词和图片标为基于之前的正文，生图时先按当前正文重写提示词", staleImage.summary.includes("基于之前的正文") &&
+    staleImage.meta.includes("基于之前的正文") && rewrittenPrompt.includes(staleImage.text) && freshImage.summary.includes("按当前正文") &&
+    !freshImage.meta.includes("基于之前的正文"), JSON.stringify({ staleImage, freshImage }));
+  // 左边的内容改了：候选上方提示基于之前的内容，可一键按新内容重新生成。
+  await chrome.evaluate(studio, `(() => { const source = document.getElementById("source-text"); source.value += "\\n补充一句"; source.dispatchEvent(new Event("input")); })()`);
+  const staleCandidates = await chrome.evaluate(studio, "!document.getElementById('candidates-stale').hidden");
+  check("左边内容变化后提示候选基于之前的内容", staleCandidates === true, staleCandidates);
+
   // 直接粘贴：不选素材，粘贴正文和一个文章链接 → 读取链接正文 → 改写；写作要求可修改并生效。
   chrome.on("Fetch.requestPaused", (params, sessionId) => {
     if (sessionId !== studio) return;
