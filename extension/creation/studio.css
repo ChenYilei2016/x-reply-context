@@ -13,7 +13,8 @@ button.ghost { background: transparent; }
 
 /* ---------- 布局 ---------- */
 .studio-grid { display: grid; grid-template-columns: minmax(380px, 5fr) minmax(460px, 7fr); gap: 20px; align-items: start; }
-.pane { display: grid; gap: 14px; min-width: 0; }
+.pane, .card, .generate-bar, .angles, .angle { grid-template-columns: minmax(0, 1fr); }
+.pane { display: grid; gap: 14px; min-width: 0; overflow-wrap: anywhere; }
 .output-pane { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; padding-bottom: 4px; scrollbar-gutter: stable; }
 .card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: grid; gap: 12px; }
 .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -47,15 +48,16 @@ button.ghost { background: transparent; }
 .segmented button[aria-checked="true"] { background: #eaf2ff; border-color: var(--blue); color: #1d64d8; font-weight: 600; }
 .segmented button small { color: var(--muted); font-size: 11px; margin-left: 4px; }
 .option-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
-.option-row label { display: grid; gap: 6px; font-size: 12px; font-weight: 650; color: #55657a; }
+.option-row label { max-width: 100%; min-width: 0; grid-template-columns: minmax(0, 1fr); display: grid; gap: 6px; font-size: 12px; font-weight: 650; color: #55657a; }
 .option-row .grow { flex: 1; min-width: 200px; }
-.option-row select { min-width: 120px; }
+.option-row select { width: clamp(120px, 15vw, 220px); max-width: 100%; }
+.option-row input { width: 100%; min-width: 0; }
 /* 生成按钮固定在左栏底部：角度、长文较多时也不用滚到底才能生成。 */
 .generate-bar { position: sticky; bottom: 0; z-index: 2; display: grid; gap: 8px; background: #fff; border: 1px solid var(--border); border-radius: 12px;
   padding: 12px 14px; box-shadow: 0 -6px 18px rgba(20, 40, 70, .06); }
 .generate { display: flex; gap: 8px; }
 button.big { flex: 1; font-size: 15px; font-weight: 650; padding: 10px 16px; border-radius: 10px; }
-.generate-meta { display: flex; justify-content: space-between; gap: 8px; }
+.generate-meta { flex-wrap: wrap; display: flex; justify-content: space-between; gap: 8px; }
 .shortcut { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
 
 /* ---------- 角度 ---------- */
@@ -143,16 +145,17 @@ button.image:hover:not(:disabled) { background: #5a2be0; color: #fff; }
 .fixed-rules { white-space: pre-wrap; font: 12px/1.6 inherit; background: #f5f7fa; border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
 
 /* ---------- 提示 ---------- */
-/* 提示放在页头中间的空白处，不挡住两栏底部的按钮。 */
-.toast { position: fixed; top: 18px; left: calc(50% + 98px); transform: translateX(-50%); z-index: 10; max-width: min(520px, calc(100vw - 260px)); margin: 0; font-size: 13px; color: #33445a;
-  background: #fff; border: 1px solid var(--border); border-left: 4px solid var(--blue); border-radius: 10px; padding: 10px 14px; box-shadow: 0 8px 28px rgba(20, 40, 70, .14); cursor: pointer; }
-.toast[data-error="true"] { border-left-color: #d0453a; color: #9b2f25; }
+/* 侧栏独占状态区域，滚动写作区时也能读到进度。 */
+.studio-status { margin: auto 0 0; padding: 10px; color: #33445a; font-size: 13px;
+  background: #f3f7ff; border-left: 3px solid var(--blue); overflow-wrap: anywhere; }
+.studio-status[data-error="true"] { background: #fff4f2; border-color: #d0453a; color: #9b2f25; }
 
 @media (max-width: 1180px) {
-  .studio-grid { grid-template-columns: 1fr; }
+  .studio-grid { grid-template-columns: minmax(0, 1fr); }
+  .generate-bar { position: static; box-shadow: none; }
   .output-pane { position: static; max-height: none; overflow: visible; }
 }
 @media (max-width: 900px) {
   .settings-grid { grid-template-columns: 1fr; }
-  .toast { left: 50%; max-width: calc(100vw - 32px); }
+  .studio-status { flex-basis: 100%; margin-top: 4px; }
 }

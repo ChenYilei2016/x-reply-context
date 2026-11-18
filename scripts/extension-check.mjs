@@ -179,6 +179,24 @@ try {
   check("成稿：按所选角度出 3 个候选并进入编辑区", candidates === 3 && editor.text.startsWith("黄仁勋辞任 CEO") &&
     draftsRequest.includes("辞任 CEO 不等于离开英伟达") && /加权字数 \d+/.test(editor.meter), JSON.stringify({ candidates, editor }));
 
+  // 单行角度摘要可以省略，但不能撑大左栏。
+  for (const width of [1480, 390]) {
+    await chrome.send("Emulation.setDeviceMetricsOverride", { width, height: 850, deviceScaleFactor: 1, mobile: false }, studio);
+    const fits = await chrome.evaluate(studio, `(() => {
+      const chip = document.querySelector("#angle-chip span"), original = chip.textContent;
+      chip.textContent = "Qoduck 赢在哪？按这次评测的描述，它更会把东西做漂亮。".repeat(4);
+      const left = document.querySelector(".input-pane").getBoundingClientRect();
+      const right = document.querySelector(".output-pane").getBoundingClientRect();
+      const bar = document.querySelector(".generate-bar").getBoundingClientRect();
+      const ok = bar.right <= left.right + 1 && document.documentElement.scrollWidth <= innerWidth &&
+        (innerWidth > 1180 ? right.left > bar.right : right.top >= left.bottom);
+      chip.textContent = original;
+      return ok;
+    })()`);
+    check(`长角度标题在 ${width}px 窗口内显示，生成栏不越界`, fits);
+  }
+  await chrome.send("Emulation.clearDeviceMetricsOverride", {}, studio);
+
   await chrome.evaluate(studio, `(() => { const editor = document.getElementById('editor'); editor.value = "中".repeat(150); editor.dispatchEvent(new Event("input")); })()`);
   const fold = await chrome.evaluate(studio, "({ line: Boolean(document.querySelector('#fold-preview .fold-line')), before: document.querySelector('#fold-preview span')?.textContent.length, meter: document.getElementById('meter').textContent })");
   check("编辑区：加权字数与首屏标线", fold.line && fold.before === 140 && fold.meter.includes("加权字数 300"), JSON.stringify(fold));
