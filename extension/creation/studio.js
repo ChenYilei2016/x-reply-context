@@ -399,10 +399,10 @@
     $("image-ratio").value = state.imageRatio;
     if (document.activeElement !== $("image-prompt")) $("image-prompt").value = state.imagePrompt;
     const writing = ai.pending?.task === "image_prompt";
-    $("image-generate").disabled = Boolean(state.imagePending) || Boolean(ai.pending);
+    $("image-compose").disabled = $("image-generate").disabled = Boolean(state.imagePending) || Boolean(ai.pending);
     $("image-generate").textContent = writing ? "正在写提示词…" : state.imagePending ? "正在出图，约 30 秒～2 分钟…" : state.image ? "🎨 重新生图" : "🎨 生图";
     $("image-cancel").hidden = !state.imagePending;
-    $("image-prompt-button").disabled = Boolean(ai.pending);
+    $("image-prompt-button").disabled = Boolean(ai.pending) || Boolean(state.imagePending);
     $("image-result").hidden = !state.image;
     const stale = imagePromptStale();
     $("image-prompt-summary").textContent = !state.imagePrompt.trim() ? "出图提示词（点「生图」时自动写）" :
@@ -622,31 +622,33 @@
   /** 写出图提示词：优先按当前正文，正文为空时按上方内容。 */
   async function writeImagePrompt() {
     const text = imageSourceText();
-    const style = state.imageStyle, ratio = state.imageRatio;
+    const style = state.imageStyle, ratio = state.imageRatio, previousPrompt = state.imagePrompt;
     if (!text) throw new Error("先写好正文，或在「基于内容」里粘贴内容。");
     setStatus("正在按当前正文写出图提示词…");
     const result = await ai.request("image_prompt", { text, style, ratio });
     if (result === null) return false;
-    if (imageSourceText() !== text || state.imageStyle !== style || state.imageRatio !== ratio) {
+    if (imageSourceText() !== text || state.imageStyle !== style || state.imageRatio !== ratio || state.imagePrompt !== previousPrompt) {
       setStatus("正文或配图选项已变化，旧提示词未采用，请重新生成。", true); return false;
     }
     state.imagePrompt = result;
     state.imagePromptBasis = fingerprint(text);
     await saveSession();
     render();
-    return true;
+    return state.imagePrompt === result && state.imagePromptBasis === fingerprint(text);
   }
 
   /** 生图：没有提示词、或自动写的提示词基于之前的正文时，先按当前正文重写，再用「配图」的 API 和出图模型生成。 */
-  async function generateImage() {
+  async function generateImage(forceNewPrompt = false) {
     if (state.imagePending || ai.pending) return;
-    if ((!state.imagePrompt.trim() || imagePromptStale()) && !await writeImagePrompt()) return;
-    const basis = fingerprint(imageSourceText());
+    const needsPrompt = forceNewPrompt || !state.imagePrompt.trim() || imagePromptStale();
+    const basis = fingerprint(imageSourceText()), style = state.imageStyle, ratio = state.imageRatio;
     const id = crypto.randomUUID();
     state.imagePending = id;
     render();
-    setStatus("正在出图，通常 30 秒～2 分钟…");
     try {
+      if (needsPrompt && !await writeImagePrompt()) return;
+      if (state.imagePending !== id || basis !== fingerprint(imageSourceText()) || style !== state.imageStyle || ratio !== state.imageRatio) return;
+      setStatus("正在出图，通常 30 秒～2 分钟…");
       const result = await chrome.runtime.sendMessage({ type: "AI_IMAGE_GENERATE", id,
         input: { prompt: state.imagePrompt, style: state.imageStyle, ratio: state.imageRatio } });
       if (state.imagePending !== id || result?.cancelled) return;
@@ -663,6 +665,7 @@
     const id = state.imagePending;
     if (!id) return;
     state.imagePending = null;
+    if (ai.pending?.task === "image_prompt") ai.cancel();
     void chrome.runtime.sendMessage({ type: "AI_IMAGE_CANCEL", ids: [id] }).catch(() => {});
     render();
     setStatus("已取消出图。");
@@ -783,7 +786,8 @@
   $("publish").addEventListener("click", run(publish));
   $("save-draft").addEventListener("click", run(saveDraft));
   $("copy").addEventListener("click", run(copyText));
-  $("image-generate").addEventListener("click", run(generateImage));
+  $("image-compose").addEventListener("click", run(() => generateImage(true)));
+  $("image-generate").addEventListener("click", run(() => generateImage()));
   $("image-cancel").addEventListener("click", cancelImage);
   $("image-prompt").addEventListener("input", () => {
     state.imagePrompt = $("image-prompt").value;

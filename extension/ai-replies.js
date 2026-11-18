@@ -437,15 +437,26 @@
       toast(text);
       onAutoFillBlocked(s.editor,text,recoverable);
     }
-    function canAutoFill(s) {
-      if (document.hidden || recommendedReply(s.editor) !== s.autoReply || s.dialog.querySelector(attachment)) return false;
+    function focusAllowsFill(s) {
+      if (document.hasFocus && !document.hasFocus()) return canAutoFillUnfocused(s.editor);
+      if (window.getSelection()?.isCollapsed === false) return false;
       const active = document.activeElement;
-      const pageFocused = !document.hasFocus || document.hasFocus();
-      if (pageFocused && window.getSelection()?.isCollapsed === false) return false;
-      if (active === s.editor) return true;
-      if (!pageFocused) return canAutoFillUnfocused(s.editor);
-      // Clicking unfocusable text can leave the same composer open with focus on the body.
-      return active === document.body || active === document.documentElement || active === s.dialog;
+      if (active === s.editor || active === document.body || active === document.documentElement || active === s.dialog) return true;
+      // The reply trigger may retain focus behind the newly opened dialog.
+      if (active?.closest('[data-testid="reply"]') && s.targetId &&
+          targetArticle(s,s.targetId)?.contains(active)) return true;
+      // Keyboard activation leaves focus on Start/Continue. Both buttons belong to this timed run.
+      return Boolean(active?.matches(".xrc-timed-badge button, .xrc-timed-replies button") &&
+        (s.dialog.contains(active) || active.closest(".xrc-timed-badge")));
+    }
+    function fillConditionProblem(s) {
+      if (document.hidden) return "页面已隐藏。";
+      if (recommendedReply(s.editor) !== s.autoReply) return "当前回复对象或回复框已变化。";
+      if (s.dialog.querySelector(attachment)) return "请先处理当前回复的附件或投票。";
+      return "";
+    }
+    function canAutoFill(s) {
+      return !fillConditionProblem(s) && focusAllowsFill(s);
     }
     async function recommend(editor) {
       if (interactionBlocked())return;
@@ -456,16 +467,27 @@
       if (!s || s.editor!==editor || !valid(s)) {toast("未找到当前回复对象，请从帖子重新打开回复框。");return;}
       await applyRecommendation(s,false);
     }
-    function recommendationReady(s,automatic,before,version) {
-      if (!valid(s)) return false;
-      if (automatic && !canAutoFill(s)) {
-        autoFillBlocked(s,"AI 已返回，但当前焦点或回复条件不允许填入，请核对后继续。",true);
-        return false;
+    async function recommendationReady(s,automatic,before,version) {
+      // X can briefly focus another control while it opens or rerenders the composer.
+      // Keep the returned text for this bounded wait; never repeat the model request.
+      const until = performance.now() + 1200;
+      for (;;) {
+        if (!valid(s)) return false;
+        if (s.composing || s.version !== version || edit.read(s.editor) !== before) {
+          const text = "草稿已变化，保留你的新内容；本次推荐未填入。";
+          if (automatic) autoFillBlocked(s,text); else toast(text);
+          return false;
+        }
+        if (!automatic) return true;
+        const problem = fillConditionProblem(s);
+        if (problem) { autoFillBlocked(s,problem,true); return false; }
+        if (focusAllowsFill(s)) return true;
+        if (performance.now() >= until) {
+          autoFillBlocked(s,"焦点仍在其他控件、页面已失焦或有文字被选中，请回到当前回复框。",true);
+          return false;
+        }
+        await new Promise(resolve=>setTimeout(resolve,100));
       }
-      if (!s.composing && s.version===version && edit.read(s.editor)===before) return true;
-      const text="草稿已变化，保留你的新内容；本次推荐未填入。";
-      if(automatic)autoFillBlocked(s,text);else toast(text);
-      return false;
     }
     async function applyRecommendation(s,automatic) {
       if(!valid(s))return;
@@ -502,7 +524,7 @@
           result = await request(s,"generate","",input);
         }
         s.contextUsed = result.contextUsed;
-        if (!recommendationReady(s,automatic,before,version)) return;
+        if (!await recommendationReady(s,automatic,before,version) || !valid(s)) return;
         if (!result.ok) {
           if (result.cancelled) {
             if (automatic) autoFillBlocked(s,"AI 生成已中断。",true);
@@ -520,7 +542,7 @@
           const {postId,video} = input.context;
           const polished = await request(s,"polish",text,{post:input.post,context:{postId,video}});
           s.polishing = false;
-          if (!recommendationReady(s,automatic,before,version)) return;
+          if (!await recommendationReady(s,automatic,before,version) || !valid(s)) return;
           if (polished.cancelled) {
             if (automatic) autoFillBlocked(s,"AI 润色已中断。",true);
             return;

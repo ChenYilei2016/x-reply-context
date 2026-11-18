@@ -345,7 +345,9 @@ try {
   await chrome.evaluate(studio, `(() => {
     const style = document.getElementById("image-style");
     style.value = "news"; style.dispatchEvent(new Event("change"));
-    document.getElementById("image-generate").click();
+    const prompt = document.getElementById("image-prompt");
+    prompt.value = "已有的手写提示"; prompt.dispatchEvent(new Event("input"));
+    document.getElementById("image-compose").click();
   })()`);
   const shown = await waitFor(() => chrome.evaluate(studio,
     "!document.getElementById('image-result').hidden && document.getElementById('image-preview').naturalWidth === 1 && document.getElementById('image-meta').textContent"),

@@ -365,6 +365,16 @@ document.querySelector('#run-unfocused').onclick=async event=>{
   await wait(()=>!ai.busy(editor()));
   check('同页点击正文后仍填入原回复框',text()==='第一条候选甲'&&
    calls.length===beforeClick+1&&automaticFailures.length===failuresBeforeClick);
+  closeUI();open(0);await wait(()=>ai.busy(editor()));
+  const beforeWait=calls.length, failuresBeforeWait=automaticFailures.length;
+  document.querySelector('[data-testid=app-bar-close]').focus();
+  await sleep(delay+120);editor().focus();
+  await wait(()=>!ai.busy(editor()));
+  check('返回时短暂落在其他按钮，焦点恢复后沿用同一回复继续',text()==='第一条候选甲'&&calls.length===beforeWait&&automaticFailures.length===failuresBeforeWait);
+  closeUI();open(0);await wait(()=>ai.busy(editor()));
+  document.querySelectorAll('article [data-testid=reply]')[0].focus();
+  await wait(()=>!ai.busy(editor()));
+  check('原帖回复按钮保留焦点时仍填入该帖',text()==='第一条候选甲');
   focusNewEditor=false;focused=false;
   closeUI();allowUnfocusedFill=true;open(0);await wait(()=>ai.busy(editor()));focused=true;
   const button=document.querySelector('[data-testid=app-bar-close]');button.focus();
