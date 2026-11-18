@@ -111,7 +111,7 @@ test('润色等待域名授权时超时或取消立即结束，授权迟到也�
   await chrome.storage.local.set({aiConfig:{...config,polishEnabled:true,polishProfileId:'current'}});
   for (const mode of ['timeout','cancel']) {
     let expire,release;
-    scope.setTimeout=(callback,ms)=>{assert.equal(ms,8000);expire=callback;return 1;};
+    scope.setTimeout=(callback,ms)=>{assert.equal(ms,25000);expire=callback;return 1;};
     scope.clearTimeout=()=>{};
     const started=new Promise(resolve=>{
       chrome.permissions.contains=()=>new Promise(allow=>{release=allow;resolve();});

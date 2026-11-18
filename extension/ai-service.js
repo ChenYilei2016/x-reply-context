@@ -1,8 +1,7 @@
 (() => {
   "use strict";
   const LIMIT = 1024*1024;
-  const TIMEOUT = 25000;
-  const POLISH_TIMEOUT = 8000;
+  const REPLY_TIMEOUT = 25000;
   const INCOMPLETE_POLISH = "润色模型未完整返回回复。";
   const INCOMPLETE_REPLY = "模型回复未完整返回，未填入草稿，请重试。";
   const HTML_RESPONSE = "模型接口返回网页。请核对 Base URL，New API 中转站通常需要 /v1。";
@@ -349,7 +348,7 @@
           const error = queued ? "AI 请求等待超时，请稍后重试。" : "模型响应超时，请稍后重试。";
           resolve({ok:false,error,...(job.submittedContext ? {contextUsed:job.submittedContext} : {})});
           job.controller.abort();
-        },studio ? STUDIO_TIMEOUT : polishing ? POLISH_TIMEOUT : TIMEOUT);
+        },studio ? STUDIO_TIMEOUT : REPLY_TIMEOUT);
         jobs.set(key,job); waiting.push(job); drain();
       });
     }
