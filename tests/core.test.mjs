@@ -143,7 +143,7 @@ test("未知父帖、引用、自我串帖不冒充已经回复某个参与者",
   assert.equal(core.classify(state,"my_account","100").status,"not-reply");
 });
 
-test("缓存和证据保留 90 天、上限 20000 条，清理后回到待确认", () => {
+test("缓存和证据保留 90 天、帖子上限 20000 条，清理后回到待确认", () => {
   const state = core.createState();
   const start = 1000000000000;
   core.ingest(state,{ users,tweets:demoTweets },"my_account",start);

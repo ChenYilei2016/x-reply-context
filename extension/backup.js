@@ -10,7 +10,9 @@
     const [backup,metadata]=await Promise.all([request(transaction.objectStore('backups').get('manifest')),request(transaction.objectStore('metadata').get('state'))]);
     if(!backup)throw Error('未找到升级前备份。');
     const stats=metadata?.value?.statistics;
-    const limit=globalThis.XReplyContext.INTERACTION_LIMIT;
+    const core=globalThis.XReplyContext;
+    const limit=core.INTERACTION_LIMIT;
+    const backupRowLimit=["users","tweets","roots","replies","likes"].reduce((total,name)=>total+core.evidenceLimitFor(name),limit)+2;
     const atCapacity=stats&&(stats.factCount>=limit || stats.peopleCount>=limit);
     status.textContent=`备份时间：${new Date(backup.value.at).toLocaleString()}\n${stats?`已确认互动事实：${stats.factCount}/${limit.toLocaleString('en-US')} · ${stats.incomplete?'历史不完整，按下限显示':'本机已确认'}${atCapacity?' · 账本已达容量':''}`:'迁移尚未完成，旧备份仍保留。'}`;
     button.disabled=false;
@@ -25,7 +27,7 @@
         cursor.onsuccess=()=>{
           const row=cursor.result;if(!row)return;
           const text=JSON.stringify(row.value);bytes+=encoder.encode(text).byteLength;
-          if(++count>140002||bytes>64*1024*1024){transaction.abort();return;}
+          if(++count>backupRowLimit||bytes>64*1024*1024){transaction.abort();return;}
           chunks.push((count>1?',':'')+text);row.continue();
         };
       });

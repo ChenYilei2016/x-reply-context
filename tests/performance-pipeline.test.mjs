@@ -22,15 +22,26 @@ test('上限记录中的单次红心只标记本条；复用分类索引而不�
   assert.ok(['users','tweets','roots','replies','people'].every(name=>dirty[name].size===0));
 });
 
+test('4 万组回复满后仍保留新组，旧组按时间淘汰',()=>{
+  const now=Date.now(),state=performanceState(core,now), actor='90000000000000000000';
+  assert.equal(Object.keys(state.replies).length,40000);
+  const oldest=Object.keys(state.replies)[0];
+  state.replies[oldest].seenAt=now-10;
+  core.ingest(state,{tweets:[{id:'111',authorId:actor,conversationId:'110',parentId:'110',recipientId:'2',text:'new'}]},'me',now+1);
+  assert.equal(Object.keys(state.replies).length,40000);
+  assert.equal(state.replies[oldest],undefined);
+  assert.equal(state.replies[actor+':110:2'].id,'111');
+});
+
 test('点赞热路径仍在过期或容量超限时维护上限并使分类缓存失效',()=>{
   const now=Date.now(),state=performanceState(core,now);
   const old=Object.values(state.likes)[0];
   core.classifyBatch(state,'me',[fixtureRootId(0)]);
   core.ingest(state,{likes:[{id:'111',account:'me',liked:true,observedAt:now+1}]},'me',now+1);
-  assert.equal(Object.keys(state.likes).length,20000);
+  assert.equal(Object.keys(state.likes).length,40000);
   assert.ok(state.likes[`${old.actorId}:111`]);
   core.ingest(state,{likes:[{id:'111',account:'me',liked:false,observedAt:now+core.RETENTION_MS+2}]},'me',now+core.RETENTION_MS+2);
-  assert.ok(Object.keys(state.likes).length<20000);
+  assert.ok(Object.keys(state.likes).length<40000);
   assert.equal(core.classifyBatch(state,'me',[fixtureRootId(0)])[0].likeEvidenceId,'');
 });
 

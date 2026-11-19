@@ -11,6 +11,9 @@ for (let i = 0; i < limit; i++) {
   const id = rootId(i),authorId = String(i%(limit-1)+2);
   state.tweets[id] = { id,authorId,conversationId:id,parentId:'',text:'fixture',seenAt:now };
   state.roots[id] = { id,authorId,seenAt:now };
+}
+for (let i = 0; i < core.EVIDENCE_LIMIT; i++) {
+  const id = rootId(i),authorId = String(i%(limit-1)+2);
   const conversationId = rootId(i%(limit-100));
   state.replies[`${me}:${conversationId}:${authorId}`] = {
     id:String(20000000000000000000n+BigInt(i)),actorId:me,recipientId:authorId,conversationId,text:'old reply',seenAt:now

@@ -3,6 +3,8 @@
   "use strict";
   const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
   const LIMIT = 20000;
+  const EVIDENCE_LIMIT = 40000;
+  const evidenceLimitFor = name => name === "likes" || name === "replies" ? EVIDENCE_LIMIT : LIMIT;
   const INTERACTION_LIMIT = 40000;
   const ACCOUNT_LIMIT = 20;
   const runtime = new WeakMap();
@@ -225,25 +227,26 @@
       state.likeSnapshotFloors[like.actorId] = {at:previous.at,inclusive:true};
     }
   }
-  function retainRecords(records, now,protectLikes = false) {
+  function retainRecords(records, now, name) {
     const entries = Object.entries(records);
     let previous = Infinity;
-    if (entries.length <= LIMIT && entries.every(([,value]) => {
+    const limit = evidenceLimitFor(name);
+    if (entries.length <= limit && entries.every(([,value]) => {
       const retained = value.seenAt >= now-RETENTION_MS && value.seenAt <= previous;
       previous = value.seenAt;
       return retained;
     })) return records;
     return Object.fromEntries(entries
       .filter(([, value]) => value.seenAt >= now - RETENTION_MS)
-      .sort((a,b) => (protectLikes ? Number(likeEvidence(b[1]))-Number(likeEvidence(a[1])) : 0) ||
-        b[1].seenAt - a[1].seenAt).slice(0,LIMIT));
+      .sort((a,b) => (name === "likes" ? Number(likeEvidence(b[1]))-Number(likeEvidence(a[1])) : 0) ||
+        b[1].seenAt - a[1].seenAt).slice(0,limit));
   }
 
   function prune(state, now) {
     let relationshipsChanged = false;
     for (const key of ["users", "tweets", "roots", "replies", "likes", "people"]) {
       if(key === "people" && state.statistics)continue;
-      const retained = retainRecords(state[key],now,key === "likes");
+      const retained = retainRecords(state[key],now,key);
       if (key !== "likes" && key !== "people" && retained !== state[key]) relationshipsChanged = true;
       if (retained !== state[key]) replace(state,key,retained);
     }
@@ -314,7 +317,7 @@
         }
       }
     }
-    replace(state,"people",retainRecords(people,now));
+    replace(state,"people",retainRecords(people,now,"people"));
   }
 
   function* interactionFacts(state) {
@@ -458,12 +461,17 @@
     if (relationshipsChanged) indexReplies(state);
     if(state.statistics && relationshipsChanged)collectInteractionFacts(state);
     // Timestamp-only observations preserve the existing indexes; expiry is a safe lower bound.
-    const maintenance = relationshipsChanged || now >= cache.expiry || cache.likeCount > LIMIT;
+    const maintenance = relationshipsChanged || now >= cache.expiry;
     const relationshipsPruned = maintenance ? prune(state,now) : false;
     if (!state.statistics && (relationshipsChanged || relationshipsPruned)) indexPeople(state,now);
     if (maintenance) {
       prepare(state);
       cache.users = null;
+      cache.lookups.clear();
+    } else if (cache.likeCount > EVIDENCE_LIMIT) {
+      // Only the like cache overflowed. Preserve the other tables and their dirty sets.
+      replace(state,"likes",retainRecords(state.likes,now,"likes"));
+      cache.likeCount = EVIDENCE_LIMIT;
       cache.lookups.clear();
     } else {
       for (const key of changedLikes) {
@@ -605,5 +613,5 @@
     }
   }
 
-  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, personStatsBatch, summarizePerson, findAccount, findOwnAccount, restoreAccountIdentities, id, handle, RETENTION_MS, LIMIT, INTERACTION_LIMIT, changes, saved, prepare, interactionFacts, interactionChanges, primeInteractions };
+  globalThis.XReplyContext = { extract, createState, ingest, classify, classifyBatch, personStatsBatch, summarizePerson, findAccount, findOwnAccount, restoreAccountIdentities, id, handle, RETENTION_MS, LIMIT, EVIDENCE_LIMIT, evidenceLimitFor, INTERACTION_LIMIT, changes, saved, prepare, interactionFacts, interactionChanges, primeInteractions };
 })();

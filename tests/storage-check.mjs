@@ -33,7 +33,7 @@ document.querySelector('#run').addEventListener('click',async event => {
     let started = performance.now();
     const state = await storage.load();core.prepare(state);
     metrics.migrationMs = performance.now()-started;
-    check('迁移保留原记录且各表有界',state.version === 1 && Object.keys(state.likes).length === core.LIMIT && Object.keys(state.people).length > 0);
+    check('迁移保留原记录且各表有界',state.version === 1 && Object.keys(state.likes).length === core.EVIDENCE_LIMIT && Object.keys(state.replies).length === core.EVIDENCE_LIMIT && Object.keys(state.people).length > 0);
     const key = Object.keys(state.likes)[0]; const likeId = state.likes[key].id;
     measure = true;
     started = performance.now();
@@ -45,7 +45,7 @@ document.querySelector('#run').addEventListener('click',async event => {
     measure = false;
     started = performance.now(); const reopened = await globalThis.XReplyStorage.create().load();
     metrics.coldReadMs = performance.now()-started;
-    check('重开数据库恢复新红心，不重新迁移旧快照',!reopened.likes[key].liked && legacyReads === 1 && legacy.likes[key].liked);
+    check('重开数据库恢复新红心，不重新迁移旧快照',Object.keys(reopened.replies).length===core.EVIDENCE_LIMIT && !reopened.likes[key].liked && legacyReads === 1 && legacy.likes[key].liked);
     core.ingest(state,{ likes:[{ id:likeId,account:'me',liked:true,observedAt:now+2,source:'mutation' }] },'me',now+2);
     abortWrite = true;
     let failed = false;
@@ -62,7 +62,7 @@ document.querySelector('#run').addEventListener('click',async event => {
     await storage.save(state);
     const guarded=await globalThis.XReplyStorage.create().load();core.prepare(guarded);
     const actor=core.findAccount(guarded,'me').id;
-    check('普通负快照不能挤掉满量的真实红心',!guarded.likes[actor+':555'] && Object.keys(guarded.likes).length===core.LIMIT);
+    check('普通负快照不能挤掉满量的真实红心',!guarded.likes[actor+':555'] && Object.keys(guarded.likes).length===core.EVIDENCE_LIMIT);
     check('旧快照时间保护与真实红心同时持久化',guarded.likeSnapshotFloors?.[actor]?.at===now+4 && guarded.likes[key].interactionEvidence===true);
     core.ingest(guarded,{likes:[{id:'555',account:'me',liked:true,observedAt:now+3,source:'snapshot'}]},'me',now+5);
     check('重开后迟到旧正快照仍不能误恢复',!guarded.likes[actor+':555']);

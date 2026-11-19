@@ -6,7 +6,7 @@
   function create() {
     let opening;
     const core=globalThis.XReplyContext;
-    const collectionLimit=name=>name==="people"?core.INTERACTION_LIMIT:core.LIMIT;
+    const collectionLimit=name=>name==="people"?core.INTERACTION_LIMIT:core.evidenceLimitFor(name);
     const snapshots=new Map(COLLECTIONS.map(name=>[name,new Map()]));
     const request=operation=>new Promise((resolve,reject)=>{
       operation.onsuccess=()=>resolve(operation.result);operation.onerror=()=>reject(operation.error);
