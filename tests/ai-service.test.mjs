@@ -442,3 +442,22 @@ test('两份设置并发保存只有一个成功，旧页面不能回滚接口�
  assert.equal((await service.handle({type:'AI_CONFIG_SAVE',config:current.config,revision:current.revision},sender)).ok,true);
  assert.equal((await service.handle({type:'AI_CONFIG_SAVE',config:old.config},sender)).ok,false,'缺少版本的旧页面也不能覆盖');
 });
+
+test('发帖转换使用成稿绑定，仅传正文，保留段落、标签、日语标点',async()=>{
+  let output='';
+  const {request,chrome,calls}=setup(async()=>new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:output}}]})));
+  const writing={id:'writing',name:'成稿',baseUrl:'https://writer.example/v1',apiKey:'fixture-writer',model:'writer'};
+  await chrome.storage.local.set({aiConfig:{enabled:false,activeProfileId:'reply',profiles:[{...config,id:'reply',name:'生成回复'},writing],
+    creationProfileIds:{drafts:'writing'},models:{drafts:'studio-model'},maxReplyLength:1}});
+  for (const [language,label,translation] of [['ja','日语','Google の発表です。\n\n続報です。'],['en','英语','An update from Google.']]) {
+    output='<reply>'+translation+'</reply>';
+    const result=await request(language,{kind:'translate',language,post:'谷歌的消息。',context:{image:'https://pbs.twimg.com/media/test.jpg'}});
+    assert.equal(result.text,translation);
+    const [url,options]=calls.at(-1),body=JSON.parse(options.body);
+    assert.equal(url,'https://writer.example/v1/chat/completions');assert.equal(options.headers.Authorization,'Bearer fixture-writer');
+    assert.equal(body.model,'studio-model');assert.match(body.messages[0].content,new RegExp(label));
+    assert.equal(body.messages[1].content,'谷歌的消息。');
+  }
+  assert.equal((await request('invalid',{kind:'translate',language:'xx'})).ok,false);
+  assert.equal(calls.length,2);
+});

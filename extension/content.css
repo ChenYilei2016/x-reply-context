@@ -293,3 +293,7 @@ article[data-xrc-notification-hidden],
   box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
 }
 .xrc-post-toast[data-error="true"] { background: #b42318; }
+
+.xrc-post-translate { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:4px 0; font:13px/1.5 system-ui,sans-serif; color:inherit; }
+.xrc-post-translate select { background:transparent; color:inherit; border:1px solid #8293a480; border-radius:16px; padding:3px 6px; font:inherit; cursor:pointer; }
+.xrc-post-translate [role="status"] { opacity:.8; }

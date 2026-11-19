@@ -33,6 +33,7 @@
   const classificationAccounts = new Map();
   let continuous;
   let aiReplies;
+  const translator = globalThis.XReplyPostTranslate?.create({message,accountHandle,connected});
   let refreshCycle;
   let timedReplies;
   let awakeTimer, awakeUntil=0, awakeRequest=0, awakeExpiresAt=0, awakeStatus="off";
@@ -364,7 +365,7 @@
       uiFrame = undefined;
       if (connected()) {
         homeFilter.syncKnown(); notificationFilter.syncKnown();
-        continuous?.refresh(); aiReplies?.refresh();timedReplies?.refresh();
+        continuous?.refresh(); aiReplies?.refresh();timedReplies?.refresh(); translator?.refresh();
       }
     });
   }
@@ -879,7 +880,7 @@
 
   async function refresh() {
     if (!connected() || document.hidden) return;
-    continuous?.refresh(); aiReplies?.refresh();timedReplies?.refresh();
+    continuous?.refresh(); aiReplies?.refresh();timedReplies?.refresh(); translator?.refresh();
     renderNetworkNotice();
     window.postMessage({ channel:CHANNEL,type:"NOTIFICATION_FILTER_CONTEXT" },location.origin);
     if (running) { again = true; return; }
@@ -1160,7 +1161,7 @@
   },error => console.warn("回过了：",error.message));
   const observer = new MutationObserver(records => {
     if (!connected()) return;
-    const owned = ".xrc-labels,.xrc-user-counts,.xrc-inline-author,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-people-filter,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice,.xrc-interaction-alert";
+    const owned = ".xrc-post-translate,.xrc-labels,.xrc-user-counts,.xrc-inline-author,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-people-filter,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice,.xrc-interaction-alert";
     const relevant = '[data-testid="primaryColumn"],[role="dialog"],[aria-modal="true"],a[data-testid="AppTabBar_Profile_Link"]';
     if (records.some(record => !record.target.closest?.(owned) &&
         (record.target.closest?.(relevant) || [...(record.addedNodes || []),...(record.removedNodes || [])]
