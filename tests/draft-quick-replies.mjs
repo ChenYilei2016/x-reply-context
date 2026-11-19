@@ -83,3 +83,30 @@ document.querySelector('#run').addEventListener('click',async () => {
   output.dataset.result = result.pass ? 'passed' : 'failed';
   output.textContent = JSON.stringify(result,null,2);
 });
+
+// Use the production language control and check Draft's controlled state as well as its DOM.
+document.querySelector('#translate-check').onclick=async()=>{
+  close();
+  const result=document.querySelector('#translate-result');
+  const draft='今天天气不错\n\n哈哈', translated='今日はいい天気ですね。\n\nハハ';
+  const dialog=document.createElement('div');dialog.setAttribute('role','dialog');
+  dialog.innerHTML='<div id="draft-root"></div><img alt="附件"><div data-testid="toolBar"><button data-testid="tweetButton">发帖</button></div>';
+  document.body.append(dialog);
+  const attachment=dialog.querySelector('img');
+  ReactDOM.render(React.createElement(Editor,{seed:draft}),dialog.firstChild);
+  const editor=dialog.querySelector('[contenteditable]');editor.dataset.testid='tweetTextarea_0';
+  let received, sends=0;
+  dialog.querySelector('button').onclick=()=>sends++;
+  const translator=XReplyPostTranslate.create({connected:()=>true,accountHandle:()=>'me',message:async request=>{
+    received=request.post;return {ok:true,text:translated};
+  }});
+  try {
+    translator.refresh();
+    const select=dialog.querySelector('select');select.value='ja';select.dispatchEvent(new Event('change'));
+    const until=performance.now()+3000;
+    while(select.disabled && performance.now()<until) await new Promise(resolve=>setTimeout(resolve,20));
+    const passed=received===draft && latestState===translated && XReplyEditor.readDraft(editor)===translated &&
+      attachment.isConnected && sends===0 && dialog.querySelector('[role=status]').textContent.includes('已转换');
+    result.textContent=passed?'通过':'失败';result.dataset.result=passed?'passed':'failed';
+  } finally { close();translator.refresh(); }
+};

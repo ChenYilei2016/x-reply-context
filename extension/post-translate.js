@@ -54,7 +54,7 @@
         const language = select.value;
         select.value = "";
         if (!language || s.pending) return;
-        const original = edit.read(s.editor), revision = s.revision, account = accountHandle();
+        const original = edit.readDraft(s.editor), revision = s.revision, account = accountHandle();
         if (!original.trim()) { status.textContent = "先输入要翻译的正文"; return; }
         const valid = () => current === s && connected() && !document.hidden && accountHandle() === account &&
           composer()?.editor === s.editor && s.revision === revision;
@@ -65,9 +65,9 @@
         try {
           const result = await message({type:"AI_REQUEST",kind:"translate",id,language,post:original,draft:""});
           if (!result?.ok) throw new Error(result?.error || "转换已取消");
-          if (!valid() || edit.read(s.editor) !== original) {status.textContent = "草稿或页面已变化，保留当前正文";return;}
-          const ok = await edit.write(s.editor,result.text,{replace:true,expected:original,valid,signal:s.listeners.signal});
-          status.textContent = ok ? "已转换，可继续编辑" : "编辑器已变化，请核对正文";
+          if (!valid() || edit.readDraft(s.editor) !== original) {status.textContent = "草稿或页面已变化，保留当前正文";return;}
+          const ok = await edit.write(s.editor,result.text,{replace:true,readText:edit.readDraft,expected:original,valid,signal:s.listeners.signal});
+          status.textContent = ok ? "已转换，可继续编辑" : "未能确认译文已写入，请核对正文";
         } catch (error) { status.textContent = error.message; }
         finally { s.pending = ""; select.disabled = false; }
       },options);
