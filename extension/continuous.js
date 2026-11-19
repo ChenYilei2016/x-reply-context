@@ -8,7 +8,8 @@
   const MAX_AUTO_VIDEO_SKIPS = 3;
   const SEND_KEY_GAP_MS = 500;
   const FEED_LABELS = {profile:"个人主页",search:"搜索",detail:"帖子详情"};
-  const AI_LABELS = {generating:"生成中…",polishing:"润色中…",rewriting:"改写中…",writing:"填入中…"};
+  const FOCUS_WAIT_LABELS = {waitingFocus:"等待窗口获得焦点",waitingSelection:"等待取消文字选择",waitingControl:"等待焦点回到回复框"};
+  const AI_LABELS = {...FOCUS_WAIT_LABELS,generating:"生成中…",polishing:"润色中…",rewriting:"改写中…",writing:"填入中…"};
   const QUICK_REPLIES = [
     { label:"一起加油",phrases:[
       "一起加油好兄弟","一起加油鸭","一起加油🦆","一起加油",
@@ -824,8 +825,10 @@
       if(!state.ready){
         if(aiWorking){
           const phase=aiPhase(editor);
-          state.preparingDraft=phase || "writing";
-          state.waiting=`AI ${AI_LABELS[state.preparingDraft] || "准备草稿中…"}`;
+          // A prepared result waiting for the user is bounded by the run deadline.
+          state.waitingForFillFocus=Boolean(FOCUS_WAIT_LABELS[phase]);
+          if (!state.waitingForFillFocus) state.preparingDraft=phase || "writing";
+          state.waiting=`AI ${AI_LABELS[phase] || "准备草稿中…"}`;
         }else if(hasText){
           state.preparingDraft="waiting-editor";
           state.waiting="等待 X 回复按钮可用";

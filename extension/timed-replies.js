@@ -201,7 +201,8 @@
     function finishAtLimit(reason) {
       const state=readState();
       if (!state?.settling) {
-        budgetStop(reason);
+        if (state?.waitingForFillFocus) stop(reason);
+        else budgetStop(reason);
         return;
       }
       if (!stateForRun(state)) return;

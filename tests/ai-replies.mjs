@@ -35,7 +35,7 @@ timed=XReplyTimedReplies.create({storage:{local:{get:async()=>({})},onChanged:{a
 const guard=XReplyInteractionAlert.create({accountHandle,onPause:()=>{ai?.pause();flow?.pauseForAlert();},onRelease:()=>flow?.stop()});
 ai=XReplyAIReplies.create({interactionBlocked:()=>guard.blocked(),accountHandle,tweetId,connected:()=>true,message,requestRefresh,
   replyPostId:editor=>flow?.replyPostId(editor),rootOwnership:editor=>flow?.rootOwnership(editor)||"unknown",
-  recommendedReply:editor=>flow?.recommendedReply(editor),canAutoFillUnfocused:()=>allowUnfocusedFill,
+  recommendedReply:editor=>flow?.recommendedReply(editor),canAutoFillUnfocused:editor=>allowUnfocusedFill || flow?.canAutoFillUnfocused(editor),
   onAutoFillBlocked:(editor,reason,recoverable)=>{
     automaticFailures.push(reason);
     if (!flow?.recommendedReply(editor)) return;
@@ -352,10 +352,20 @@ document.querySelector('#run-unfocused').onclick=async event=>{
   check('可见失焦仍完整填入草稿，只请求一次',text()==='第一条候选甲'&&calls.length===count+1);
   closeUI();open(1);await wait(()=>ai.busy(editor()));await wait(()=>!ai.busy(editor()));
   check('下一对象沿用同一能力，内容与目标不串',text()==='第二条候选甲'&&calls.length===count+2);
-  closeUI();allowUnfocusedFill=false;const blockedBefore=automaticFailures.length;open(0);await wait(()=>ai.busy(editor()));await wait(()=>!ai.busy(editor()));
-  check('没有本轮失焦授权时仍拒绝自动填入',text()===''&&automaticFailures.length===blockedBefore+1);
-  const noRetry=calls.length;for(let i=0;i<30;i++)ai.refresh();await sleep(100);
-  check('受阻后页面刷新调度不重复请求模型',calls.length===noRetry&&!ai.busy(editor()));
+  closeUI();allowUnfocusedFill=false;
+  const timedSetting=enabled=>listeners.forEach(fn=>fn({timedReplies:{newValue:{enabled,allowVisibleUnfocused:true,minSeconds:60,maxSeconds:60,maxMinutes:2}}},'local'));
+  timedSetting(true);
+  const blockedBefore=automaticFailures.length, beforeStart=calls.length;
+  open(0);await wait(()=>ai.phase(editor())==='waitingFocus');await sleep(1400);
+  check('开始本轮前失焦保留已生成结果',text()===''&&automaticFailures.length===blockedBefore);
+  timed.start();await wait(()=>!ai.busy(editor()));
+  check('启动允许可见失焦的本轮后沿用当前结果',timed.isRunning()&&text()==='第一条候选甲'&&calls.length===beforeStart+1);
+  timed.stop();
+  closeUI();focused=true;open(0);await wait(()=>ai.busy(editor()));timed.start();
+  document.querySelector('[data-testid=app-bar-close]').focus();await wait(()=>ai.phase(editor())==='waitingControl');
+  timed.pause();editor().focus();await sleep(250);
+  check('手动暂停取消等待，恢复焦点也不会填入旧结果',timed.isPaused()&&!ai.busy(editor())&&text()==='');
+  timed.stop();timedSetting(false);
   closeUI();focused=true;focusNewEditor=true;
   const beforeClick=calls.length,failuresBeforeClick=automaticFailures.length;
   open(0);await wait(()=>ai.busy(editor()));
@@ -378,8 +388,18 @@ document.querySelector('#run-unfocused').onclick=async event=>{
   focusNewEditor=false;focused=false;
   closeUI();allowUnfocusedFill=true;open(0);await wait(()=>ai.busy(editor()));focused=true;
   const button=document.querySelector('[data-testid=app-bar-close]');button.focus();
-  const failed=automaticFailures.length;await wait(()=>!ai.busy(editor()));
-  check('页面重新获焦但用户在其他控件，不抢输入焦点且提示阻塞',text()===''&&document.activeElement===button&&automaticFailures.length===failed+1);
+  const failed=automaticFailures.length, beforeFocus=calls.length;
+  await wait(()=>ai.phase(editor())==='waitingControl');await sleep(1400);
+  check('其他控件持续获焦时保留结果，等待期间不抢焦点',text()===''&&document.activeElement===button&&automaticFailures.length===failed);
+  editor().focus();await wait(()=>!ai.busy(editor()));
+  check('回到输入框自行填入，未重调模型',text()==='第一条候选甲'&&calls.length===beforeFocus);
+  closeUI();open(0);await wait(()=>ai.busy(editor()));
+  const range=document.createRange();range.selectNodeContents(document.querySelector('.dialog [data-testid=tweetText]'));
+  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+  await wait(()=>ai.phase(editor())==='waitingSelection');await sleep(1400);
+  check('等待期间保留选区和空草稿',!selection.isCollapsed&&text()==='');
+  selection.removeAllRanges();editor().focus();await wait(()=>!ai.busy(editor()));
+  check('解除选区后自动填入',text()==='第一条候选甲'&&automaticFailures.length===failed);
   closeUI();focused=false;open(0);await wait(()=>ai.busy(editor()));await input('保留我的手写内容');
   await wait(()=>!ai.busy(editor()));check('模型返回不覆盖已变化的草稿',text()==='保留我的手写内容');
   closeUI();open(0);await wait(()=>text().length>0);const partial=text();hidden=true;document.dispatchEvent(new Event('visibilitychange'));await sleep(220);

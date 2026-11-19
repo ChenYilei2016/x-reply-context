@@ -397,6 +397,7 @@
         return;
       }
       if (current) {
+        current.checkFillFocus?.();
         const root=editor.closest('.DraftEditor-root');
         if (root && root!==current.root) {hidePreview(current);current.root=root;draw(current);}
         return; // Input/results update only this editor; no per-frame history/DOM scan.
@@ -437,17 +438,47 @@
       toast(text);
       onAutoFillBlocked(s.editor,text,recoverable);
     }
-    function focusAllowsFill(s) {
-      if (document.hasFocus && !document.hasFocus()) return canAutoFillUnfocused(s.editor);
-      if (window.getSelection()?.isCollapsed === false) return false;
+    function focusWaitPhase(s) {
+      const focused = !document.hasFocus || document.hasFocus();
+      if (!focused && !canAutoFillUnfocused(s.editor)) return "waitingFocus";
+      if (window.getSelection()?.isCollapsed === false) return "waitingSelection";
       const active = document.activeElement;
-      if (active === s.editor || active === document.body || active === document.documentElement || active === s.dialog) return true;
-      // The reply trigger may retain focus behind the newly opened dialog.
-      if (active?.closest('[data-testid="reply"]') && s.targetId &&
-          targetArticle(s,s.targetId)?.contains(active)) return true;
-      // Keyboard activation leaves focus on Start/Continue. Both buttons belong to this timed run.
-      return Boolean(active?.matches(".xrc-timed-badge button, .xrc-timed-replies button") &&
-        (s.dialog.contains(active) || active.closest(".xrc-timed-badge")));
+      if (!active || active === s.editor || active === document.body || active === document.documentElement || active === s.dialog) return "";
+      if (!focused && !active.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')) return "";
+      if (active.closest('[data-testid="reply"]') && s.targetId && targetArticle(s,s.targetId)?.contains(active)) return "";
+      if (active.matches(".xrc-timed-badge button, .xrc-timed-replies button") &&
+          (s.dialog.contains(active) || active.closest(".xrc-timed-badge"))) return "";
+      return "waitingControl";
+    }
+    // Keep one result on its composer. A focus event, a change to the draft, or
+    // starting the timed run can make the decision change without a new API call.
+    async function waitForFillFocus(s,expected,version) {
+      if (!focusWaitPhase(s)) return;
+      const {signal} = s.writeController ||= new AbortController();
+      if (signal.aborted) return;
+      const events = new AbortController();
+      try {
+        await new Promise(resolve => {
+          function check() {
+            if (signal.aborted || !valid(s) || s.composing || s.version !== version ||
+                edit.read(s.editor) !== expected || fillConditionProblem(s)) { resolve(); return; }
+            const phase = focusWaitPhase(s);
+            if (!phase) { resolve(); return; }
+            if (phase !== s.focusPhase) { s.focusPhase = phase; requestRefresh(); }
+          }
+          s.checkFillFocus = check;
+          for (const name of ["focus","blur"]) window.addEventListener(name,check,{capture:true,signal:events.signal});
+          for (const name of ["selectionchange","input","compositionstart"])
+            document.addEventListener(name,check,{capture:true,signal:events.signal});
+          signal.addEventListener("abort",resolve,{once:true,signal:events.signal});
+          check();
+        });
+      } finally {
+        events.abort();
+        s.checkFillFocus = null;
+        s.focusPhase = "";
+        requestRefresh();
+      }
     }
     function fillConditionProblem(s) {
       if (document.hidden) return "页面已隐藏。";
@@ -456,7 +487,7 @@
       return "";
     }
     function canAutoFill(s) {
-      return !fillConditionProblem(s) && focusAllowsFill(s);
+      return !fillConditionProblem(s) && !focusWaitPhase(s);
     }
     async function recommend(editor) {
       if (interactionBlocked())return;
@@ -468,26 +499,19 @@
       await applyRecommendation(s,false);
     }
     async function recommendationReady(s,automatic,before,version) {
-      // X can briefly focus another control while it opens or rerenders the composer.
-      // Keep the returned text for this bounded wait; never repeat the model request.
-      const until = performance.now() + 1200;
-      for (;;) {
-        if (!valid(s)) return false;
-        if (s.composing || s.version !== version || edit.read(s.editor) !== before) {
-          const text = "草稿已变化，保留你的新内容；本次推荐未填入。";
-          if (automatic) autoFillBlocked(s,text); else toast(text);
-          return false;
-        }
-        if (!automatic) return true;
+      if (automatic && valid(s) && !s.composing && s.version === version && edit.read(s.editor) === before && !fillConditionProblem(s))
+        await waitForFillFocus(s,before,version);
+      if (!valid(s)) return false;
+      if (s.composing || s.version !== version || edit.read(s.editor) !== before) {
+        const text = "草稿已变化，保留你的新内容；本次推荐未填入。";
+        if (automatic) autoFillBlocked(s,text); else toast(text);
+        return false;
+      }
+      if (automatic) {
         const problem = fillConditionProblem(s);
         if (problem) { autoFillBlocked(s,problem,true); return false; }
-        if (focusAllowsFill(s)) return true;
-        if (performance.now() >= until) {
-          autoFillBlocked(s,"焦点仍在其他控件、页面已失焦或有文字被选中，请回到当前回复框。",true);
-          return false;
-        }
-        await new Promise(resolve=>setTimeout(resolve,100));
       }
+      return true;
     }
     async function applyRecommendation(s,automatic) {
       if(!valid(s))return;
@@ -524,7 +548,7 @@
           result = await request(s,"generate","",input);
         }
         s.contextUsed = result.contextUsed;
-        if (!await recommendationReady(s,automatic,before,version) || !valid(s)) return;
+        if (!valid(s)) return;
         if (!result.ok) {
           if (result.cancelled) {
             if (automatic) autoFillBlocked(s,"AI 生成已中断。",true);
@@ -536,6 +560,7 @@
           }
           return;
         }
+        if (!await recommendationReady(s,automatic,before,version) || !valid(s)) return;
         let text = result.text;
         if (polishEnabled) {
           s.polishing = true;
@@ -586,6 +611,11 @@
       for (let index=0;index<characters.length;index++) {
         let char=characters[index];
         while (char.endsWith("\n") && index+1<characters.length) char+=characters[++index];
+        if (automatic && focusWaitPhase(s)) {
+          const version=s.version;
+          await waitForFillFocus(s,expected,version);
+          if (version!==s.version) return false;
+        }
         if (!canType() || edit.read(s.editor)!==expected) return false;
         const ok=await edit.write(s.editor,char,{expected,valid:canType,signal});
         if (!ok) {if(canType()&&!automatic)toast("AI 填入已停止，请核对草稿；不会重复填入。");return false;}
@@ -699,6 +729,7 @@
       if(!enabled)return "";
       const paused=pausedEditors.has(editor)||autoPreparations.get(current?.editor===editor?current.autoReply:recommendedReply(editor))?.paused;
       if (!current || current.editor!==editor) return paused?"paused":"";
+      if (current.focusPhase) return current.focusPhase;
       if (current.writing) return "writing";
       if (current.rewriting) return "rewriting";
       if (current.polishing) return "polishing";
