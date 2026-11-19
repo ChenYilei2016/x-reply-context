@@ -469,20 +469,26 @@
       if (!target || s.account !== account || target.id !== targetId || !requestId ||
           target.replyRequestId !== requestId || !sameSessionPage(s)) return;
       if (s.attempt && (s.attempt.requestId !== requestId || s.attempt.settled)) return;
-      return release => {
-        if (s.current !== target || s.phase !== "alert-paused" || !sameSessionPage(s) || document.hidden) return false;
+      function skip(automatic,release) {
+        if (automatic && (!s.attempt || !s.afterReply || s.afterReply.cancelled || !autoSkipAllowed() ||
+            s.afterReply.timed && !timedReplies?.isRunning?.())) return false;
+        if (s.current !== target || s.phase !== (automatic ? "sending" : "alert-paused") || !sameSessionPage(s) || document.hidden) return false;
         const dialog = composer();
         const previewId = dialog && tweetId(dialog);
         if (closeConfirmation() || dialog && (dialog !== target.dialog || !singleReply(dialog) || target.composing ||
             previewId && previewId !== target.id || target.quickPending || draftBusy(s) || !enabled(dialog.querySelector(CLOSE)))) return false;
-        release();
+        if (automatic && dialog && (hasAttachments(dialog) || dialog.querySelector(EDITOR).innerText !== s.afterReply.draft)) return false;
+        clearTimeout(s.timeout);
+        release?.();
+        target.autoSkippedTimedUnavailable = automatic && s.afterReply.timed;
         s.attempt = null;
         s.afterReply = null;
         target.unavailable = true;
         if (dialog) closeForNext(s);
         else void advance(s);
         return true;
-      };
+      }
+      return {automatic:()=>skip(true), manual:release=>skip(false,release)};
     }
 
     function autoSkipAllowed() {
@@ -600,6 +606,10 @@
         if (!valid()) return false;
         if (s.current.autoSkippedVideo && (!autoSkipAllowed() || composer() || closeConfirmation())) {
           finish("页面状态已变化，已停止自动跳过。");
+          return false;
+        }
+        if (s.current.autoSkippedTimedUnavailable && (!timedReplies?.isRunning?.() || !timedPageAllowed())) {
+          finish("自动跳过已中断，请核对当前帖子后继续。");
           return false;
         }
         if (s.current.unavailable && (document.hidden || composer() || closeConfirmation())) {
@@ -1122,6 +1132,9 @@
       if (!currentSession(s)) { finish(); return; }
       const dialog = composer();
       if (s.phase === "closing") {
+        if (s.current.autoSkippedTimedUnavailable && (!timedReplies?.isRunning?.() || !timedPageAllowed())) {
+          finish("自动跳过已中断，请核对草稿后继续。"); return;
+        }
         if (s.current.autoSkippedVideo ? closeConfirmation() : saveDraftIfAsked(s)) return;
         if (!dialog) {
           if (s.hadDraft && !s.saveClicked) {

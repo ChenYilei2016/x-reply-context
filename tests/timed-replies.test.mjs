@@ -270,7 +270,7 @@ test('手动暂停清除计时器；继续保留次数和原截止时间，重�
 });
 test('失焦和后台事件重复出现只暂停一次，返回前台不自动恢复',async()=>{
  const env=setup();await flush();env.controller.start();env.advance(1000);
- env.document.hidden=true;env.events.get('blur')();env.events.get('visibilitychange')();
+ env.document.hidden=true;env.events.get('blur')();env.events.get('visibilitychange')();env.advance(1000);
  assert.equal(env.controller.isPaused(),true);assert.equal(env.interrupts.length,1);assert.equal(env.timers.size,0);
  env.controller.continueRun();assert.equal(env.timers.size,0);
  env.document.hidden=false;env.events.get('visibilitychange')();env.events.get('focus')();env.advance(15000);
@@ -334,7 +334,7 @@ test('可见失焦开关默认关闭；开启只忽略失焦，隐藏仍暂停�
   const env=setup({enabled:true,allowVisibleUnfocused:allow,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:1});
   let focused=true;env.document.hasFocus=()=>focused;await flush();
   assert.equal(env.scope.XReplyTimedReplies.normalize({}).allowVisibleUnfocused,false);
-  env.controller.start();focused=false;env.events.get('blur')();
+  env.controller.start();focused=false;env.events.get('blur')();env.advance(1000);
   assert.equal(env.controller.isPaused(),!allow);assert.equal(env.controller.pageAllowed(),allow);
   env.advance(3000);assert.equal(env.calls.length,allow?1:0);
   if(allow){
@@ -368,12 +368,12 @@ test('浮窗按焦点和可见性事件更新，已暂停时仍更新，不新�
  const env=setup({enabled:true,allowVisibleUnfocused:true,minSeconds:3,maxSeconds:10,maxAttempts:3,maxMinutes:1});
  let focused=true;env.document.hasFocus=()=>focused;await flush();
  const row=()=>env.document.body.children.at(-1).querySelector('.xrc-timed-badge-visibility');
- assert.equal(row().textContent,'页面可见 · 有焦点');assert.equal(env.timers.size,0);
- focused=false;env.events.get('blur')();assert.equal(row().textContent,'页面可见 · 已失焦');assert.equal(env.timers.size,0);
+ assert.equal(row().textContent,'当前：页面可见 · 有焦点');assert.equal(env.timers.size,0);
+ focused=false;env.events.get('blur')();assert.equal(row().textContent,'当前：页面可见 · 已失焦');assert.equal(env.timers.size,0);
  env.controller.start();env.controller.pause();env.document.hidden=true;env.events.get('visibilitychange')();
- assert.equal(row().textContent,'页面隐藏 · 已失焦');assert.equal(env.timers.size,0);
- env.document.hidden=false;env.events.get('visibilitychange')();assert.equal(row().textContent,'页面可见 · 已失焦');assert.equal(env.controller.isPaused(),true);
- focused=true;env.events.get('focus')();assert.equal(row().textContent,'页面可见 · 有焦点');assert.equal(env.timers.size,0);
+ assert.equal(row().textContent,'当前：页面隐藏 · 已失焦');assert.equal(env.timers.size,0);
+ env.document.hidden=false;env.events.get('visibilitychange')();assert.equal(row().textContent,'当前：页面可见 · 已失焦');assert.equal(env.controller.isPaused(),true);
+ focused=true;env.events.get('focus')();assert.equal(row().textContent,'当前：页面可见 · 有焦点');assert.equal(env.timers.size,0);
 });
 
 
@@ -389,4 +389,15 @@ test('后台和异常终止不调用继续准备钩子，钩子失败不发送',
  env.document.hidden=true;env.controller.continueRun();assert.equal(continued,0);
  env.document.hidden=false;env.controller.continueRun();assert.equal(continued,1);assert.equal(env.controller.isPaused(),true);assert.equal(env.timers.size,0);
  env.controller.stop('rate limit');env.controller.continueRun();assert.equal(continued,1);env.advance(20000);assert.equal(env.calls.length,0);
+});
+
+test('发送倒计时内短暂隐藏先挂起，恢复后重新等待，原截止和次数保持',async()=>{
+ const env=setup({enabled:true,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:1});
+ await flush();env.controller.start();env.advance(2900);
+ env.document.hidden=true;env.events.get('visibilitychange')();env.advance(500);
+ assert.equal(env.calls.length,0);assert.equal(env.controller.isPaused(),false);
+ env.document.hidden=false;env.events.get('visibilitychange')();env.advance(2999);
+ assert.equal(env.calls.length,0);env.advance(1);assert.equal(env.calls.length,1);
+ const ticket=env.controller.prepareRefresh('visibility-test');
+ assert.equal(ticket.attempts,1);assert.equal(ticket.expiresAt,1800000060000);
 });

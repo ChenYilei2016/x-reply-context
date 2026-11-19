@@ -230,12 +230,22 @@ document.querySelector('#alert-run').onclick=async event=>{
   current=await reset({replyMode:'unavailable'});
   document.querySelector('.xrc-flow-send').click();
   const skipOffer=()=>document.querySelector('.xrc-alert-next:not([hidden])');
-  await wait(skipOffer);
-  check('385 保留原草稿，等待用户选择是否跳过',dialog()?.dataset.target==='100'&&editor().innerText==='只用于本地检查'&&current.events.length===1);
-  skipOffer().click();
   await wait(()=>dialog()?.dataset.target==='200');
-  check('手动跳过 385 保存草稿，只打开下一条且不写评论或点赞记录',current.savedDraft==='只用于本地检查'&&
+  check('连续评论收到 385 自动保存草稿并进入下一条，不记成功也不点赞',current.savedDraft==='只用于本地检查'&&
    current.events.length===1&&current.replied.size===0&&current.liked.size===0&&!guard.blocked()&&editor().innerText==='');
+  guard.show(current.unavailable);
+  check('同一删帖回执重复到达不会暂停新目标',!guard.blocked()&&dialog()?.dataset.target==='200');
+  editor().textContent='下一份草稿';editor().dispatchEvent(new InputEvent('input',{bubbles:true}));schedule();await sleep(40);
+  document.querySelector('.xrc-flow-send').click();
+  await wait(()=>!dialog()&&document.querySelector('.xrc-flow-notice')?.textContent.includes('当前位置之后'));
+  check('连续两条均不可回复时各尝试一次，在列表末尾结束',current.events.length===2&&current.liked.size===0);
+  current=await reset({replyMode:'unavailable'});
+  timedSettingChanged({timedReplies:{newValue:{enabled:true,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:1}}},'local');
+  timed.start();
+  await wait(()=>dialog()?.dataset.target==='200',7000);
+  check('定时发送收到385后保持原轮次，仅消耗一次尝试',timed.isRunning()&&
+    document.querySelector('.xrc-timed-badge-detail').textContent.includes('1/3')&&!guard.blocked()&&current.liked.size===0);
+  timed.stop();
   current=await reset({replyMode:'unavailable'});
   dialog().querySelector('[data-testid=tweetButton]').click();
   await wait(skipOffer);

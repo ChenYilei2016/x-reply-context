@@ -2,6 +2,7 @@
 (() => {
   "use strict";
   const KEY="timedReplies";
+  const FOREGROUND_GRACE_MS=1000;
   const DRAFT_STALL_MS=60000;
   const defaults={enabled:false,allowVisibleUnfocused:false,minSeconds:3,maxSeconds:10,maxAttempts:500,maxMinutes:60};
   function normalize(raw) {
@@ -34,6 +35,7 @@
       confirmDraft=()=>false}) {
     let config={...defaults},loaded=false,run=null,paused=null,armed=null,timer=null,scheduledAt=0;
     let row=null,badge=null,caption="尚未开始",attempts=0,firing=false,stopped=false;
+    let foregroundWait=null;
     let handoff=null,restoring=null,restoreRequested=false,shownExpiry=0,shownEnd="";
     let restoreDenied=document.hidden,blurredBeforeLoad=false,screenCheck;
     const allowed=()=>pageAllowed(config);
@@ -60,7 +62,7 @@
         status.className='xrc-timed-badge-status';detail.className='xrc-timed-badge-detail';button.type='button';button.textContent='暂停本轮';
         button.addEventListener('mousedown',event=>event.preventDefault());button.addEventListener('click',toggleRun);
         visibility.className='xrc-timed-badge-visibility';visibility.setAttribute('aria-label','浏览器报告的页面状态');
-        visibility.title='按浏览器报告显示；完全遮挡可能被判定隐藏。隐藏始终暂停，允许可见失焦需在扩展弹窗开启。';
+        visibility.title='按浏览器报告显示；完全遮挡可能被判定隐藏。页面隐藏时立即停止发送倒计时，持续隐藏会暂停本轮。允许可见失焦可在扩展弹窗开启。';
         power.className='xrc-timed-badge-power';
         power.title='显示常亮申请的结果。macOS 负责执行闲置和锁屏规则。';
         useDraft.type='button';useDraft.className='xrc-timed-review-draft';useDraft.hidden=true;
@@ -77,7 +79,7 @@
       if(status.title!==caption)status.title=caption;
       updatePowerDisplay();
       const visibility=badge.querySelector('.xrc-timed-badge-visibility');
-      setText(visibility,`${document.hidden?'页面隐藏':'页面可见'} · ${!document.hasFocus||document.hasFocus()?'有焦点':'已失焦'}`);
+      setText(visibility,`当前：${document.hidden?'页面隐藏':'页面可见'} · ${!document.hasFocus||document.hasFocus()?'有焦点':'已失焦'}`);
       const hidden=String(document.hidden);if(visibility.dataset.hidden!==hidden)visibility.dataset.hidden=hidden;
       const expiresAt=run?.expiresAt||paused?.expiresAt||restoring?.ticket.expiresAt||(stopped?shownExpiry:0);
       if(expiresAt && expiresAt!==shownExpiry){shownExpiry=expiresAt;shownEnd=new Date(expiresAt).toLocaleTimeString([], {hour12:false});}
@@ -95,13 +97,39 @@
       if(badge)setText(badge.querySelector('.xrc-timed-badge-power'),powerStatus());
     }
     function clearTimer(){clearTimeout(timer);timer=null;scheduledAt=0;}
+    function visibilityReason() {
+      return document.hidden ? "Chrome 曾报告页面隐藏，返回后点击继续本轮" :
+        "页面可见但窗口曾失焦，当前设置要求焦点，点击继续本轮";
+    }
+    // During a countdown only: suspend the send timer immediately, then confirm visibility.
+    const nextSendAt = () => performance.now()+config.minSeconds*1000+Math.floor(Math.random()*((config.maxSeconds-config.minSeconds)*1000+1));
+    function holdCountdown() {
+      if (!run || !armed || handoff || firing) return false;
+      if (!allowed() && !foregroundWait) {
+        foregroundWait={until:performance.now()+FOREGROUND_GRACE_MS,reason:visibilityReason()};
+        clearScreenCheck();
+      }
+      if (!foregroundWait) return false;
+      if (performance.now()>=foregroundWait.until) {
+        pause(allowed()?foregroundWait.reason:visibilityReason());
+        return true;
+      }
+      if (!allowed()) {
+        caption="等待浏览器确认页面可见性与焦点";
+        schedule(Math.min(run.endAt,foregroundWait.until));paint();return true;
+      }
+      foregroundWait=null;
+      armed={...armed,at:nextSendAt()};
+      caption="页面已恢复，重新等待本条发送";
+      return false;
+    }
     function clearScreenCheck(){if(screenCheck){clearTimeout(screenCheck.timer);screenCheck=null;}}
     function halt(reason,{interrupt=true,cancel=true}={}) {
       if(interrupt)restoreDenied=true;
       if(!run&&!paused&&!restoring&&!handoff)return;
       const refreshId=handoff?.refreshId||restoring?.refreshId||run?.refreshId;
       clearScreenCheck();
-      run=null;paused=null;armed=null;handoff=null;restoring=null;restoreRequested=false;clearTimer();caption=reason;stopped=true;
+      foregroundWait=null;run=null;paused=null;armed=null;handoff=null;restoring=null;restoreRequested=false;clearTimer();caption=reason;stopped=true;
       keepAwake(0);
       if(interrupt)onInterrupt(reason);
       if(cancel&&refreshId)cancelRefresh(refreshId);
@@ -119,7 +147,7 @@
       if(readState()?.likePending){stop("点赞请求尚未确认，请核对后重新开始");return;}
       const refreshId=run.refreshId;
       clearScreenCheck();
-      paused={...run,refreshId:"",draftWait:null};run=null;armed=null;clearTimer();caption=reason;
+      foregroundWait=null;paused={...run,refreshId:"",draftWait:null};run=null;armed=null;clearTimer();caption=reason;
       keepAwake(0);
       onInterrupt(reason);
       if(refreshId)cancelRefresh(refreshId);
@@ -130,7 +158,7 @@
       const reason="Chrome 报告锁屏或屏保已启动";
       if(handoff||restoring){stop(reason+"，换批续接已取消");return;}
       if(run)pause(reason);
-      if(paused && /^页面(切到后台|失去焦点)/.test(caption)){caption=reason;paint();}
+      if(paused && /^(Chrome 曾报告页面隐藏|页面可见但窗口曾失焦|页面不在前台)/.test(caption)){caption=reason;paint();}
     }
     function checkPaused() {
       if(!paused)return;
@@ -262,6 +290,7 @@
         finishAtLimit(run.finishReason || "已到时长上限");return;
       }
       if(handoff){schedule(run.endAt);paint();return;}
+      if(holdCountdown())return;
       const state=stateForRun();if(!state)return;
       if(armed && (armed.id!==state.id || armed.draft!==state.draft || !state.ready)){
         stop("草稿或回复状态变化，已停止");return;
@@ -269,9 +298,8 @@
       if(screenCheck){paint();return;}
       if(!updateDraftWait(state))return;
       if(!armed && state.ready && state.id!==run.lastId) {
-        const delayMs=config.minSeconds*1000+Math.floor(Math.random()*((config.maxSeconds-config.minSeconds)*1000+1));
-        armed={id:state.id,draft:state.draft,at:performance.now()+delayMs};
-        caption=`本次等待${delayMs/1000}秒`;
+        armed={id:state.id,draft:state.draft,at:nextSendAt()};
+        caption=`本次等待${Math.round(armed.at-performance.now())/1000}秒`;
       } else if(!armed)caption=state.waiting || "等待已填好的草稿";
       const nextAt=Math.min(armed?.at ?? run.draftWait?.deadline ?? run.endAt,run.endAt);
       // Keep the earlier check while typing so each character does not reset the timer.
@@ -282,6 +310,7 @@
       timer=null;scheduledAt=0;
       if(!run)return;
       if(run.finishReason || performance.now()>=run.endAt || Date.now()>=run.expiresAt){refresh();return;}
+      if(holdCountdown())return;
       const state=stateForRun();if(!state)return;
       if(!armed || performance.now()<armed.at){refresh();return;}
       if(!state.ready || state.id!==armed.id || state.draft!==armed.draft){stop("草稿或回复状态变化，未发送");return;}
@@ -341,11 +370,11 @@
     }
     storage.onChanged.addListener((changes,area)=>{if(area==="local"&&changes[KEY])apply(changes[KEY].newValue);});
     void storage.local.get(KEY).then(saved=>{if(!loaded)apply(saved[KEY]);},()=>{loaded=true;caption="设置读取失败";paint();});
-    document.addEventListener("visibilitychange",()=>{if(document.hidden&&!handoff?.committed)pause("页面切到后台，返回后点击继续本轮");else if(!document.hidden){refresh();requestRefresh();}paint();});
+    document.addEventListener("visibilitychange",()=>{if(document.hidden&&!handoff?.committed){if(!holdCountdown())pause(visibilityReason());}else if(!document.hidden){refresh();requestRefresh();}paint();});
     window.addEventListener("focus",()=>{refresh();requestRefresh();});
     window.addEventListener("blur",()=>{
       if(!loaded){blurredBeforeLoad=true;return;}
-      if(!handoff?.committed&&!allowed())pause("页面失去焦点，返回后点击继续本轮");
+      if(!handoff?.committed&&!allowed()&&!holdCountdown())pause(visibilityReason());
       paint();
     });
     window.addEventListener("pagehide",()=>{
@@ -371,7 +400,7 @@
       }
       paint();
     }
-    return {start,stop,pause,screenLocked,updatePowerDisplay,continueRun,pageAllowed:allowed,allowsUnfocused:()=>config.allowVisibleUnfocused&&Boolean(run||restoring),isPaused:()=>Boolean(paused),isFinishing:()=>Boolean(run?.finishReason),
+    return {start,stop,pause,isRunning:()=>Boolean(run && !run.finishReason && performance.now()<run.endAt && Date.now()<run.expiresAt),screenLocked,updatePowerDisplay,continueRun,pageAllowed:allowed,allowsUnfocused:()=>config.allowVisibleUnfocused&&Boolean(run||restoring),isPaused:()=>Boolean(paused),isFinishing:()=>Boolean(run?.finishReason),
       refresh,render,prepareRefresh,validRefresh,commitRefresh,previewResume,canResume,restore,cancelFromRefresh};
   }
   async function installSettings(storage) {

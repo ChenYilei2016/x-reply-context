@@ -4,7 +4,7 @@
   const ACTIONS={CreateTweet:"评论",CreateNoteTweet:"长评论",FavoriteTweet:"点赞",UnfavoriteTweet:"取消点赞"};
   const CONTROLS='[data-testid="tweetButton"],[data-testid="tweetButtonInline"],[data-testid="like"],[data-testid="unlike"],.xrc-flow-send,.xrc-flow-heart,.xrc-flow-skip,.xrc-ai-recommend,.xrc-quick-reply';
   function create({accountHandle,onPause,onRelease,onUnavailableReply}) {
-    let active=null,panel;
+    let active=null,panel,lastAutoSkip="";
     function clear() {
       active=null;
       panel?.remove();
@@ -30,8 +30,12 @@
       if (canSkipTarget && active?.account === data.account && !active.skip) return;
       const signature=JSON.stringify([data.account,data.operation,rateLimited,status,code,data.reason,text,retry,
         canSkipTarget,canSkipTarget ? data.requestId : ""]);
-      if (active?.signature===signature) return;
+      if (active?.signature===signature || canSkipTarget && signature===lastAutoSkip) return;
       const skip = canSkipTarget ? onUnavailableReply?.(data) : undefined;
+      if (!active && skip?.automatic()) {
+        lastAutoSkip=signature;
+        return;
+      }
       const title=skip?"当前帖子不可回复":rateLimited?"X 限流提示，请停止连续操作":
         data.reason==="warning"?"X 返回警告，已暂停连续操作":"X 操作异常，已暂停连续操作";
       const detail=[ACTIONS[data.operation],status?`HTTP ${status}`:"",code?`错误码 ${code}`:""].filter(Boolean).join(" · ");
@@ -49,7 +53,7 @@
         next.type="button";next.className="xrc-alert-next";next.textContent="跳过此帖";
         next.addEventListener("click",()=>{
           if (!active?.skip || accountHandle() !== active.account) return;
-          if (!active.skip(clear)) help.textContent="请先确认当前回复框和草稿，再手动选择下一条。";
+          if (!active.skip.manual(clear)) help.textContent="请先确认当前回复框和草稿，再手动选择下一条。";
         });
         actions.append(next,ack);
         panel.append(heading,meta,message,wait,help,actions);(document.body||document.documentElement).append(panel);
