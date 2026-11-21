@@ -485,19 +485,29 @@
       onAutoFillBlocked(s.editor,text,recoverable);
     }
     function focusWaitPhase(s) {
-      const focused = !document.hasFocus || document.hasFocus();
-      if (!focused && !canAutoFillUnfocused(s.editor)) return "waitingFocus";
+      if (document.hasFocus && !document.hasFocus() && !canAutoFillUnfocused(s.editor)) return "waitingFocus";
       if (window.getSelection()?.isCollapsed === false) return "waitingSelection";
       const active = document.activeElement;
-      if (!active || active === s.editor || active === document.body || active === document.documentElement || active === s.dialog) return "";
-      // X can focus a non-interactive wrapper around the editor while opening the dialog.
+      if (!active || active === s.editor) return "";
+      const overlay = active.closest('[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]');
+      if (overlay && !overlay.contains(s.editor)) return "waitingOverlay";
+      if (active.isContentEditable || active.closest('textarea:not([readonly]),select,iframe,[role="textbox"],[role="combobox"],[role="spinbutton"]')) return "waitingInput";
+      if (active instanceof HTMLInputElement && !active.readOnly &&
+          !["button","submit","reset","image","checkbox","radio"].includes(active.type)) return "waitingInput";
+      // The writer places the caret in the verified reply editor before pasting.
+      return "";
+    }
+    function canDismissVideoComposer(s) {
+      if (!canAutoFill(s)) return false;
+      // Closing a composer also removes its controls. Keep that decision separate from placing text.
+      const active = document.activeElement;
+      if (!active || active === s.editor || active === document.body || active === document.documentElement || active === s.dialog) return true;
+      if (document.hasFocus && !document.hasFocus()) return !active.closest('input,textarea,select,[contenteditable="true"],[role="textbox"]');
       if (s.dialog.contains(active) && active.contains(s.editor) && active.tabIndex === -1 &&
-          !active.isContentEditable && active.matches('div:not([role]),section:not([role]),[role="group"],[role="presentation"],[role="none"]')) return "";
-      if (!focused && !active.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')) return "";
-      if (active.closest('[data-testid="reply"]') && s.targetId && targetArticle(s,s.targetId)?.contains(active)) return "";
-      if (active.matches(".xrc-timed-badge button, .xrc-timed-replies button") &&
-          (s.dialog.contains(active) || active.closest(".xrc-timed-badge"))) return "";
-      return "waitingControl";
+          active.matches('div:not([role]),section:not([role]),[role="group"],[role="presentation"],[role="none"]')) return true;
+      if (active.closest('[data-testid="reply"]') && s.targetId && targetArticle(s,s.targetId)?.contains(active)) return true;
+      return active.matches(".xrc-timed-badge button, .xrc-timed-replies button") &&
+        (s.dialog.contains(active) || Boolean(active.closest(".xrc-timed-badge")));
     }
     // Keep one result on its composer. A focus event, a change to the draft, or
     // starting the timed run can make the decision change without a new API call.
@@ -576,7 +586,7 @@
           await Promise.resolve();
           s.recommending = false;
           if (!valid(s)) return;
-          if (canAutoFill(s) && !s.composing && !edit.busy(editor) && !edit.read(editor).trim() && skipVideo(editor)) return;
+          if (canDismissVideoComposer(s) && !s.composing && !edit.busy(editor) && !edit.read(editor).trim() && skipVideo(editor)) return;
         }
         const reason = videoOnly ? "这条只有视频，可点「跳过」继续。" :
           includeImage ? "本帖暂未取得可用文字或照片，可点「跳过」继续。" : "本帖缺少文字，可勾选「带图」重试，或点「跳过」。";

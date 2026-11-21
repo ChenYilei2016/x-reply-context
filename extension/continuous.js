@@ -8,7 +8,7 @@
   const MAX_AUTO_VIDEO_SKIPS = 3;
   const SEND_KEY_GAP_MS = 500;
   const FEED_LABELS = {profile:"个人主页",search:"搜索",detail:"帖子详情"};
-  const FOCUS_WAIT_LABELS = {waitingFocus:"等待窗口获得焦点",waitingSelection:"等待取消文字选择",waitingControl:"等待焦点回到回复框"};
+  const FOCUS_WAIT_LABELS = {waitingFocus:"等待窗口获得焦点",waitingSelection:"等待取消文字选择",waitingInput:"等待结束其他输入",waitingOverlay:"等待关闭其他弹层"};
   const AI_LABELS = {...FOCUS_WAIT_LABELS,generating:"生成中…",polishing:"润色中…",rewriting:"改写中…",writing:"填入中…"};
   const QUICK_REPLIES = [
     { label:"一起加油",phrases:[
