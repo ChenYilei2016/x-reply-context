@@ -68,6 +68,47 @@ test('草稿/目标/账号/会话或异常状态变化立即停止，不自行�
   assert.equal(env.calls.length,0);assert.equal(env.timers.size,0);env.state.reason='';env.state.ready=true;env.controller.refresh();assert.equal(env.timers.size,0);
  }
 });
+const nativeSubmitWait={ready:false,preparingDraft:'waiting-native-submit',waiting:'等待 X 回复按钮可用'};
+test('同一草稿的 X 回复按钮暂时禁用，恢复后完整等待，迟到的核锁结果不能提前发送',async()=>{
+ for(const detected of ['refresh','tick','unlock','pending-unlock']){
+  let releaseScreen,checks=0;
+  const checkScreen=()=>++checks===1 ? new Promise(resolve=>{releaseScreen=resolve;}) : Promise.resolve(false);
+  const checking=detected.includes('unlock');
+  const env=setup({enabled:true,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:2},undefined,checking?checkScreen:undefined);
+  await flush();env.state.editor={};env.controller.start();
+  env.advance(checking?3000:2900);
+  Object.assign(env.state,nativeSubmitWait);
+  if(detected==='tick')env.advance(100);
+  else if(detected==='unlock'){releaseScreen(false);await flush();}
+  else env.controller.refresh();
+  assert.equal(env.controller.isRunning(),true,detected);
+  env.advance(300);
+  Object.assign(env.state,{ready:true,preparingDraft:''});env.controller.refresh();
+  if(detected==='pending-unlock'){releaseScreen(false);await flush();}
+  env.advance(2999);assert.equal(env.calls.length,0,detected);
+  env.advance(1);await flush();assert.equal(env.calls.length,1,detected);
+  env.advance(4000);assert.equal(env.calls.length,1,detected);
+ }
+});
+test('等待 X 回复按钮时校验草稿、目标、编辑器、无进展时限和本轮截止',async()=>{
+ for(const change of ['draft','id','editor','other-condition','stall','end']){
+  const env=setup({enabled:true,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:change==='end'?1:2});
+  await flush();env.state.editor={};env.controller.start();env.advance(1000);
+  Object.assign(env.state,nativeSubmitWait);env.controller.refresh();
+  if(change==='stall'||change==='end'){
+   // Rechecking the same disabled button must not extend either deadline.
+   env.advance(30000);env.controller.refresh();env.advance(30000);
+  }else{
+   if(change==='other-condition')env.state.preparingDraft='writing';
+   else env.state[change]=change==='editor'?{}:'changed';
+   env.controller.refresh();
+  }
+  assert.equal(env.controller.isRunning(),false,change);
+  assert.equal(env.controller.isPaused(),change==='stall',change);
+  env.state.ready=true;env.controller.refresh();env.advance(3000);
+  assert.equal(env.calls.length,0,change);
+ }
+});
 test('关闭设置、后台、失焦、离页及手动输入取消计时',async()=>{
  for(const action of ['settings','visibilitychange','blur','pagehide','input','compositionstart']){
   const env=setup();await flush();env.controller.start();

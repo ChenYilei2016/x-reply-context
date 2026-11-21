@@ -49,7 +49,8 @@ function open(target,current){
     if(current.replyMode==='save-failed'){reject(new Error('reply save failed'));return;}
     current.replied.add(target);current.events.push({kind:'reply-saved',id:target,at:performance.now()});resolve();
    },current.replySaveDelay));
-   modal.remove();history.replaceState(null,'','/home');schedule();
+   if(current.holdSentComposer) current.dismissSentComposer=closeModal;
+   else closeModal();
    void flow.receiveReply({type:'REPLY_RESULT',account:'me',parentId:target,startedAt,requestId,status:'sent',batch:{users:[{id:'1',handle:'me'}],tweets:[{id:'999',authorId:'1',parentId:target}]}},saved);
   },current.replyDelay);
 
@@ -58,7 +59,7 @@ function open(target,current){
 }
 async function reset(options={}){
  flow.stop();dialog()?.remove();account='me';randomSkipLike=options.randomSkipLike===true;history.replaceState(null,'','/home');
- const current=run={events:[],liked:new Set(options.liked?['100']:[]),replied:new Set(),mode:options.mode||'success',saveDelay:options.saveDelay||0,replyMode:options.replyMode||'success',replySaveDelay:options.replySaveDelay||0,replyDelay:options.replyDelay||30};
+ const current=run={events:[],liked:new Set(options.liked?['100']:[]),replied:new Set(),mode:options.mode||'success',saveDelay:options.saveDelay||0,replyMode:options.replyMode||'success',replySaveDelay:options.replySaveDelay||0,replyDelay:options.replyDelay||30,holdSentComposer:options.holdSentComposer};
  document.querySelector('#cards').replaceChildren();
  for(const id of options.ids || ['100','200']){
   const article=document.createElement('article');article.dataset.testid='tweet';article.dataset.id=id;
@@ -97,6 +98,20 @@ document.querySelector('#run').onclick=async event=>{
   check('评论成功保存后至少等待300ms才点赞，点赞保存后进入下一条，连点不重复',
    actions.filter(e=>e.kind==='send').length===1&&actions.filter(e=>e.kind==='like').length===1&&
    actions[0].kind==='send'&&liked.at-replySaved.at>=290&&likeSaved.at>=liked.at&&current.liked.has('100'));
+  current=await reset({holdSentComposer:true});send();
+  await wait(()=>dialog()?.querySelector('.xrc-flow-status')?.textContent.includes('稍候点赞'));
+  editor().click();current.dismissSentComposer();await sleep(850);
+  check('收尾时点进编辑器仍可接管，取消后续点赞和跳转',!dialog()&&current.replied.has('100')&&!current.events.some(e=>e.kind==='like'));
+  current=await reset({holdSentComposer:true});send();
+  await wait(()=>dialog()?.querySelector('.xrc-flow-status')?.textContent.includes('稍候点赞'));
+  const other=document.createElement('div');other.role='dialog';
+  other.innerHTML='<div contenteditable="true" data-testid="tweetTextarea_0">另一份草稿</div><button data-testid="tweetButton">回复</button>';
+  document.body.append(other);
+  try {
+    await sleep(850);current.dismissSentComposer();await sleep(100);
+    check('收尾期间出现第二个可见回复框不会被当成已关闭，不点赞或跳转',
+      !dialog()&&current.replied.has('100')&&!current.liked.size&&!current.events.some(e=>e.kind==='like')&&other.isConnected);
+  } finally { other.remove(); }
   const startAtThird={ids:['100','200','300','400'],startAt:'300'};
   current=await reset(startAtThird);send();await wait(()=>dialog()?.dataset.target==='400');
   check('从第三条评论点赞后打开第四条',current.replied.has('300')&&current.liked.has('300'));
@@ -299,7 +314,7 @@ document.querySelector('#timed-run').onclick=async event=>{
  const check=(name,ok)=>{checks.push({name,ok:Boolean(ok)});if(!ok)throw Error(name);};
  result.dataset.result='running';
  try {
-  const current=await reset();
+  const current=await reset({holdSentComposer:true});
   check('配置默认关闭，不会自行开始',document.querySelector('.xrc-timed-replies button').disabled&&current.events.length===0);
   timedSettingChanged({timedReplies:{newValue:{enabled:true,minSeconds:10,maxSeconds:10,maxAttempts:1,maxMinutes:1}}},'local');
   await wait(()=>!document.querySelector('.xrc-timed-replies button').disabled);
@@ -307,6 +322,10 @@ document.querySelector('#timed-run').onclick=async event=>{
   const start=performance.now();document.querySelector('.xrc-timed-replies button').click();
   await wait(()=>document.querySelector('.xrc-timed-replies span').textContent.includes('等待10秒'));
   check('手动开始仅计时，控件行高固定',current.events.length===0&&document.querySelector('.xrc-timed-replies').getBoundingClientRect().height===height);
+  await wait(()=>dialog()?.querySelector('.xrc-flow-status')?.textContent.includes('稍候点赞'),16000);
+  dialog().querySelector('p').click();
+  check('回复已保存时点击仍可见的原帖正文，会继续等待点赞',dialog().querySelector('.xrc-flow-status').textContent.includes('稍候点赞'));
+  current.dismissSentComposer();
   await wait(()=>dialog()?.dataset.target==='200',16000);
   const sends=current.events.filter(e=>e.kind==='send');
   check('实际等待至少10秒才复用评论点赞流程，并只触发一次',sends.length===1&&sends[0].at-start>=9900&&current.replied.has('100')&&current.liked.has('100'));

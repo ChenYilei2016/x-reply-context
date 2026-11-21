@@ -24,7 +24,7 @@ export async function checkQuickReplies() {
     const height = quick.getBoundingClientRect().height;
     editor.focus(); document.execCommand('insertText',false,'保留我的草稿');
     // The tooltip is the user-visible list of choices; verify insertion against that contract.
-    const groups = buttons.map(button => button.title.match(/^随机填入：(.*?)，末尾随机/)[1].split(' / '));
+    const groups = buttons.map(button => button.title.match(/^随机填入日语：(.*?)，末尾随机/)[1].split(' / '));
     const endings = ['...','!','!!!','!!'];
     let samples = 0;
     for (const [index,phrases] of groups.entries()) {

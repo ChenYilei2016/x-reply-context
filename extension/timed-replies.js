@@ -104,7 +104,7 @@
     // During a countdown only: suspend the send timer immediately, then confirm visibility.
     const nextSendAt = () => performance.now()+config.minSeconds*1000+Math.floor(Math.random()*((config.maxSeconds-config.minSeconds)*1000+1));
     function holdCountdown() {
-      if (!run || !armed || handoff || firing) return false;
+      if (!run || !armed || armed.at===null || handoff || firing) return false;
       if (!allowed() && !foregroundWait) {
         foregroundWait={until:performance.now()+FOREGROUND_GRACE_MS,reason:visibilityReason()};
         clearScreenCheck();
@@ -186,7 +186,7 @@
           if(paused===owner){caption="草稿或回复对象已变化，请重新核对。";paint();}
           return;
         }
-        reviewedDraft=state.draft.replace(/\n$/,"");
+        reviewedDraft=state.draft;
       }
       let problem;
       try {problem=onContinue(state,reviewedDraft);}catch {problem="AI 恢复未确认，请检查草稿后手动推荐。";}
@@ -279,10 +279,28 @@
       }else if(wait.phase!==state.preparingDraft || wait.draft!==state.draft){
         wait.phase=state.preparingDraft;wait.draft=state.draft;wait.deadline=now+DRAFT_STALL_MS;
       }else if(now>=wait.deadline){
-        pause("草稿 60 秒没有进展。核对草稿后点击「继续本轮」。");
+        const reason=state.preparingDraft==="waiting-native-submit" ? "X 回复按钮已连续 60 秒不可用。" : "草稿 60 秒没有进展。";
+        pause(reason+"核对草稿后点击「继续本轮」。");
         return false;
       }
       return true;
+    }
+    function countdownReady(state) {
+      const unchanged=state.id===armed.id && state.editor===armed.editor && state.draft===armed.draft;
+      if (unchanged && state.ready) return true;
+      if (!unchanged || state.preparingDraft!=="waiting-native-submit") {
+        stop("草稿或回复状态变化，已停止");
+        return false;
+      }
+      // Keep the draft identity, discard its send time and any pending unlock check.
+      armed.at=null;
+      clearScreenCheck();
+      if (updateDraftWait(state)) {
+        caption=state.waiting;
+        schedule(Math.min(run.draftWait.deadline,run.endAt));
+        paint();
+      }
+      return false;
     }
     function refresh() {
       finishRestore();checkPaused();
@@ -293,13 +311,11 @@
       if(handoff){schedule(run.endAt);paint();return;}
       if(holdCountdown())return;
       const state=stateForRun();if(!state)return;
-      if(armed && (armed.id!==state.id || armed.draft!==state.draft || !state.ready)){
-        stop("草稿或回复状态变化，已停止");return;
-      }
+      if(armed && !countdownReady(state))return;
       if(screenCheck){paint();return;}
       if(!updateDraftWait(state))return;
-      if(!armed && state.ready && state.id!==run.lastId) {
-        armed={id:state.id,draft:state.draft,at:nextSendAt()};
+      if((!armed || armed.at===null) && state.ready && state.id!==run.lastId) {
+        armed={id:state.id,editor:state.editor,draft:state.draft,at:nextSendAt()};
         caption=`本次等待${Math.round(armed.at-performance.now())/1000}秒`;
       } else if(!armed)caption=state.waiting || "等待已填好的草稿";
       const nextAt=Math.min(armed?.at ?? run.draftWait?.deadline ?? run.endAt,run.endAt);
@@ -313,8 +329,8 @@
       if(run.finishReason || performance.now()>=run.endAt || Date.now()>=run.expiresAt){refresh();return;}
       if(holdCountdown())return;
       const state=stateForRun();if(!state)return;
-      if(!armed || performance.now()<armed.at){refresh();return;}
-      if(!state.ready || state.id!==armed.id || state.draft!==armed.draft){stop("草稿或回复状态变化，未发送");return;}
+      if(armed && !countdownReady(state))return;
+      if(!armed || armed.at===null || performance.now()<armed.at){refresh();return;}
       if(checkScreenLock){void confirmUnlocked();return;}
       fire(state);
     }
@@ -333,7 +349,7 @@
       if(performance.now()>=owner.endAt || Date.now()>=owner.expiresAt){refresh();return;}
       const state=stateForRun();
       if(!state)return;
-      if(!state.ready || state.id!==target.id || state.draft!==target.draft){stop("草稿或回复状态变化，未发送");return;}
+      if(!countdownReady(state))return;
       fire(state);
     }
     function fire(state) {

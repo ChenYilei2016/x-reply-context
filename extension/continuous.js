@@ -12,23 +12,19 @@
   const AI_LABELS = {...FOCUS_WAIT_LABELS,generating:"生成中…",polishing:"润色中…",rewriting:"改写中…",writing:"填入中…"};
   const QUICK_REPLIES = [
     { label:"一起加油",phrases:[
-      "一起加油好兄弟","一起加油鸭","一起加油🦆","一起加油",
-      "一起加油呀","一起加油啊","一起加油啦","一起加油哇"
+      "一緒に頑張ろう","一緒に頑張ろ","お互い頑張ろう","お互い頑張ろ",
+      "一緒に頑張ろうね","お互い頑張ろうね","一緒に頑張ろうぜ","一緒に頑張っていこ"
     ] },
-    { label:"哈哈",phrases:[
-      "哈哈","嘿嘿","哈哈哈","嘿嘿嘿"
-    ] },
+    { label:"哈哈",phrases:["あはは","ふふっ","あははは","へへっ"] },
     { label:"难受啊",phrases:[
-      "难受啊","难顶呀","太难了","难受呀",
-      "难顶啊","太难了呀"
+      "しんどいね","きついなあ","つらいね","それはきつい","しんどいなあ","それはつらいね"
     ] },
     { label:"太卷了",phrases:[
-      "太卷了","别卷了","卷不动了","太卷了呀",
-      "太卷了啊","别卷啦","别卷了呀","卷不动啦",
-      "卷不动了呀"
+      "みんな頑張りすぎ","そこまでやるのか","もうついていけないよ","そんなに頑張らなくても",
+      "みんな本気すぎる","さすがに追いつけない","ちょっと頑張りすぎだよ","競争激しすぎ","もうちょいのんびりいこうよ"
     ] },
-    { label:"可爱捏",phrases:["可爱捏"] },
-    { label:"不许色色",phrases:["不许色色"] }
+    { label:"可爱捏",phrases:["かわいいね"] },
+    { label:"不许色色",phrases:["えっちなのはダメだよ"] }
   ];
   const ENDINGS = ["...","!","!!!","!!"];
   const pick = values => values[Math.floor(Math.random()*values.length)];
@@ -71,6 +67,7 @@
   }
 
   function create({ accountHandle,tweetId,columnSelector,message,renderLabels,renderPersonStats = () => {},requestRefresh,refreshCycle,timedReplies,skipAuthors,randomSkipLikeEnabled = () => false,interactionBlocked = () => false,connected = () => true,aiBusy = () => false,aiRecommend,aiPhase = () => "",aiDraftProblem = () => "",aiFillRecommendedEnabled = () => false,renderAiOptions }) {
+    const edit = globalThis.XReplyEditor;
     let session;
     let notice;
     let noticeTimer;
@@ -83,8 +80,13 @@
     let contextRevision = 0;
     let lastSendKeyAt = -Infinity;
 
+    function activeComposer() {
+      const dialog = globalThis.XReplyEditor.activeReplyEditor()?.closest(COMPOSER);
+      return dialog?.querySelector(SEND) && visible(dialog) ? dialog : null;
+    }
     function composer() {
-      return Array.from(document.querySelectorAll(COMPOSER))
+      // A closing or ambiguous composer still occupies the page and must block advancement.
+      return activeComposer() || Array.from(document.querySelectorAll(COMPOSER))
         .find(node => visible(node) && node.querySelector(EDITOR) && node.querySelector(SEND));
     }
 
@@ -274,7 +276,7 @@
     }
 
     function finish(text = "",{preserveTimed=false}={}) {
-      if(!preserveTimed)timedReplies?.stop("连续回复已结束");
+      if(!preserveTimed)timedReplies?.stop(text || "连续回复已结束");
       const previous = session;
       session = undefined;
       openingId = "";
@@ -476,9 +478,9 @@
         if (s.current !== target || s.phase !== (automatic ? "sending" : "alert-paused") || !sameSessionPage(s) || document.hidden) return false;
         const dialog = composer();
         const previewId = dialog && tweetId(dialog);
-        if (closeConfirmation() || dialog && (dialog !== target.dialog || !singleReply(dialog) || target.composing ||
+        if (closeConfirmation() || dialog && (dialog !== target.dialog || activeComposer() !== dialog || !singleReply(dialog) || target.composing ||
             previewId && previewId !== target.id || target.quickPending || draftBusy(s) || !enabled(dialog.querySelector(CLOSE)))) return false;
-        if (automatic && dialog && (hasAttachments(dialog) || dialog.querySelector(EDITOR).innerText !== s.afterReply.draft)) return false;
+        if (automatic && dialog && (hasAttachments(dialog) || edit.read(dialog.querySelector(EDITOR)) !== s.afterReply.draft)) return false;
         clearTimeout(s.timeout);
         release?.();
         target.autoSkippedTimedUnavailable = automatic && s.afterReply.timed;
@@ -499,7 +501,7 @@
     function skipVideo(editor) {
       const s = session;
       const target = recommendedReply(editor);
-      if (!target || composer() !== target.dialog || target.dialog.querySelector(EDITOR) !== editor ||
+      if (!target || activeComposer() !== target.dialog || target.dialog.querySelector(EDITOR) !== editor ||
           target.heartPending || !autoSkipAllowed() || (s.videoSkips || 0) >= MAX_AUTO_VIDEO_SKIPS) return false;
       return closeForNext(s,{autoVideo:true});
     }
@@ -717,9 +719,9 @@
       if (!currentSession(s) || s.afterReply !== operation || s.current !== operation.current ||
           operation.cancelled || document.hidden || operation.timed && !timedPageAllowed()) return false;
       const dialog = composer();
-      if (dialog && dialog !== s.current.dialog) return false;
+      if (dialog && (dialog !== s.current.dialog || activeComposer() !== dialog)) return false;
       if (dialog && (s.current.composing || s.current.quickPending || draftBusy(s))) return false;
-      const text = dialog?.querySelector(EDITOR)?.innerText || "";
+      const text = edit.read(dialog?.querySelector(EDITOR));
       return !text.trim() || text === operation.draft;
     }
 
@@ -814,14 +816,16 @@
       if(!timedPageAllowed())return {...state,pauseable:true,reason:"页面不在前台，返回后点击继续本轮"};
       if(s.phase!=="ready")return {...state,waiting:"等待本条处理完成"};
       const dialog=s.current.dialog,editor=dialog?.querySelector(EDITOR);
-      if(!dialog?.isConnected || composer()!==dialog || !editor)return {...state,reason:"回复框已变化，已停止"};
+      if(!dialog?.isConnected || activeComposer()!==dialog || !editor)return {...state,reason:"回复框已变化，已停止"};
       if(hasAttachments(dialog))return {...state,reason:"定时发送只支持纯文字，请手动处理附件或投票"};
-      state.editor=editor;state.draft=editor.innerText;
+      state.editor=editor;state.draft=edit.read(editor);
       const hasText=Boolean(state.draft.trim()), aiWorking=aiBusy(editor);
       state.draftProblem=aiWorking ? "" : aiDraftProblem(s.current,state.draft);
       state.draftNeedsReview=Boolean(hasText && state.draftProblem);
-      state.ready=Boolean(hasText && !state.draftProblem && !aiWorking && !s.current.composing && !s.current.quickPending && !draftBusy(s) &&
-        singleReply(dialog) && enabled(dialog.querySelector(SEND)));
+      const submit=dialog.querySelector(SEND);
+      const draftReady=hasText && !state.draftProblem && !aiWorking && !s.current.composing && !s.current.quickPending &&
+        !draftBusy(s) && singleReply(dialog);
+      state.ready=Boolean(draftReady && enabled(submit));
       if(!state.ready){
         if(aiWorking){
           const phase=aiPhase(editor);
@@ -830,8 +834,8 @@
           if (!state.waitingForFillFocus) state.preparingDraft=phase || "writing";
           state.waiting=`AI ${AI_LABELS[phase] || "准备草稿中…"}`;
         }else if(hasText){
-          state.preparingDraft="waiting-editor";
-          state.waiting="等待 X 回复按钮可用";
+          state.preparingDraft=draftReady && submit ? "waiting-native-submit" : "waiting-editor";
+          state.waiting=draftReady ? "等待 X 回复按钮可用" : "等待草稿就绪";
         }else if(aiFillRecommendedEnabled()){
           state.preparingDraft="preparing";
           state.waiting="等待 AI 准备草稿";
@@ -842,7 +846,8 @@
 
     function timedSend(expected) {
       const state=timedState();
-      if(!state.ready || state.reason || state.session!==expected.session || state.id!==expected.id || state.draft!==expected.draft)return false;
+      if(!state.ready || state.reason || state.session!==expected.session || state.id!==expected.id ||
+          state.editor!==expected.editor || state.draft!==expected.draft)return false;
       const button=state.session.current.dialog.querySelector('.xrc-flow-send');if(!enabled(button))return false;
       internalTimedSend=true;
       try {button.click();} finally {internalTimedSend=false;}
@@ -859,7 +864,7 @@
       if(!internalTimedSend)timedReplies?.stop("已转为手动发送");
       s.saveClicked = false;
       // Freeze one decision per send attempt; re-renders and setting changes must not reroll it.
-      s.afterReply = {current:s.current,draft:dialog.querySelector(EDITOR).innerText,cancelled:false,
+      s.afterReply = {current:s.current,draft:edit.read(dialog.querySelector(EDITOR)),cancelled:false,
         skipLike:randomSkipLikeEnabled() && Math.random()<0.5,timed:internalTimedSend};
       s.attempt = { parentId:s.current.id,clickedAt:Date.now(),requestId:"" };
       s.phase = "sending";
@@ -988,15 +993,15 @@
           draftBusy(s) || !singleReply(s.current.dialog)) return;
       const editor = s.current.dialog.querySelector(EDITOR);
       if (!editor || editor.getAttribute("aria-disabled") === "true") return;
-      const before = editor.innerText;
+      const before = edit.read(editor);
       const separator = before && !/\s$/.test(before) ? " " : "";
       const value = separator+pick(phrases)+pick(ENDINGS);
       const current = s.current;
       current.quickPending = true;
       requestRefresh();
       try {
-        const inserted = await globalThis.XReplyEditor.write(editor,value,{
-          expected:before.replace(/\n$/, ""),
+        const inserted = await edit.write(editor,value,{
+          expected:before,
           valid:() => currentSession(s) && s.current === current && !current.composing && !draftBusy(s)
         });
         if (!inserted) s.note = "快捷填入未完成，请直接在回复框输入。";
@@ -1039,7 +1044,7 @@
         const quickReplies = document.createElement("div");
         quickReplies.className = "xrc-quick-replies";
         quickReplies.setAttribute("role","group");
-        quickReplies.setAttribute("aria-label","快捷填入，不自动发送");
+        quickReplies.setAttribute("aria-label","日语快捷回复");
         for (const [index,{ label,phrases }] of QUICK_REPLIES.entries()) {
           const button = document.createElement("button");
           button.type = "button";
@@ -1047,7 +1052,7 @@
           caption.textContent=label;key.textContent=(/Mac/.test(globalThis.navigator?.platform || "")?"⌥":"Alt+")+(index+1);
           button.append(caption,key);button.setAttribute("aria-label",label);button.setAttribute("aria-keyshortcuts",`Alt+${index+1}`);
           button.className = "xrc-quick-reply";
-          button.title = `随机填入：${phrases.join(" / ")}，末尾随机加标点；追加到草稿末尾，不自动发送。快捷键：Option/Alt+${index+1}。`;
+          button.title = `随机填入日语：${phrases.join(" / ")}，末尾随机加标点。快捷键：Option/Alt+${index+1}。`;
           button.addEventListener("mousedown",event => event.preventDefault());
           button.addEventListener("click",() => fillQuickReply(s,phrases));
           quickReplies.append(button);
@@ -1151,6 +1156,7 @@
       }
       if (s.phase === "advancing" || s.phase === "paused" || s.phase === "draft-check" || s.phase === "refreshing") return;
       if (dialog && !s.current.dialog) {
+        if (activeComposer() !== dialog) return;
         if (s.feed === "detail") {
           const previewId = tweetId(dialog);
           if (previewId ? previewId !== s.current.id :
@@ -1236,10 +1242,13 @@
           searchKey(tab.getAttribute("href")) !== session.searchKey) finish();
       if (tab && session?.feed === "profile" && feedColumn(session)?.contains(tab) &&
           tabPath(tab) !== session.profile.path) finish();
-      if (postReplyPhase(session) && !internalHeart &&
-          (target?.closest('[data-testid="like"],[data-testid="unlike"]') ||
-           target?.closest(COMPOSER) && session.current.dialog?.contains(target) && !target.closest(".xrc-flow-send"))) {
-        stopAfterReply(session,"评论已发送，你已进行其他操作；后续点赞和跳转停止。");
+      if (postReplyPhase(session) && !internalHeart) {
+        const control = target?.closest('button,[role="button"],a[href],[role="link"],input,select,textarea,[contenteditable="true"]');
+        const composerAction = control && session.current.dialog?.contains(control) && enabled(control) &&
+          !control.closest(".xrc-flow-send,.xrc-timed-replies");
+        if (composerAction || target?.closest('[data-testid="like"],[data-testid="unlike"]')) {
+          stopAfterReply(session,"评论已发送，你已进行其他操作；后续点赞和跳转停止。");
+        }
       }
       const close = target?.closest(CLOSE);
       if (close && session && !internalClose && close.closest(COMPOSER) === composer()) { finish(); return; }

@@ -1,6 +1,8 @@
 (() => {
   "use strict";
   const EDITOR = '[role="dialog"] [contenteditable="true"][data-testid="tweetTextarea_0"]';
+  const ARTICLE = 'article[data-testid="tweet"]';
+  const TWEET_TEXT = '[data-testid="tweetText"]';
   // X adds one trailing media link per photo and may split the protocol onto its own line.
   const MEDIA_LINKS_AT_END = /(?:^|\s)(?:https?:\/\/\s*)?pic\.x\.com\/[a-z0-9]+(?:\s+(?:https?:\/\/\s*)?pic\.x\.com\/[a-z0-9]+)*\s*$/i;
   const VIDEO = '[data-testid="videoPlayer"],[data-testid="videoComponent"],video';
@@ -57,6 +59,7 @@
   function create({accountHandle,connected,message,requestRefresh,tweetId,replyPostId=()=>"",replyArticle=()=>null,rootOwnership=()=>"unknown",recommendedReply=()=>null,canAutoFillUnfocused=()=>false,onAutoFillBlocked=()=>{},skipVideo=()=>false,interactionBlocked=()=>false,readContext=(_account,postId)=>({postId})}) {
     const edit = globalThis.XReplyEditor;
     let enabled = false, autoComplete = false, current, target, notice, configEpoch = 0;
+    let openingEditors = [], openingObserver;
     let details;
     let fillRecommended = false, polishEnabled = false;
     let includeImage = false, imageReady = false, savingImage = false, imageRevision = 0;
@@ -66,6 +69,18 @@
     const pausedEditors=new WeakSet();
     let previews = new WeakMap(), conflicts = new WeakSet();
     const textOf = node => node?.innerText.trim() || "";
+    function watchOpeningEditors(editors = []) {
+      if (openingEditors.length === editors.length && editors.every((editor,i) => editor === openingEditors[i])) return;
+      openingObserver?.disconnect();
+      openingEditors = editors;
+      if (!editors.length) return;
+      // X may reveal an already mounted composer by changing only an ancestor's class or style.
+      openingObserver ||= new MutationObserver(requestRefresh);
+      for (const editor of editors) {
+        for (let node=editor;node;node=node.parentElement)
+          openingObserver.observe(node,{attributes:true,attributeFilter:["class","style","hidden"]});
+      }
+    }
     function hidePreview(s) {
       s?.ghost?.remove();
       s?.root?.classList.remove("xrc-ai-preview");
@@ -197,10 +212,21 @@
       const title = [reply?.polishOutcome,materials && `上次生成携带 ${materials}`].filter(Boolean).join(" · ");
       if (summary.title !== title) summary.title = title;
     }
+    function sameReplyPreview(s) {
+      if (s.quote && s.dialog.contains(s.quote) && s.quote.textContent === s.quoteText) return true;
+      if (!s.quote && !s.post) return true;
+      const replacement = s.dialog.querySelector(TWEET_TEXT);
+      if (!s.quote && !replacement) return true;
+      if (!replacement || !s.targetId || replyPostId(s.editor) !== s.targetId) return false;
+      const shownId = tweetId(s.dialog);
+      if ((shownId && shownId !== s.targetId) || postText(textOf(replacement)) !== postText(s.post)) return false;
+      s.quote = replacement;
+      s.quoteText = replacement.textContent;
+      return true;
+    }
     function valid(s) {
       return !interactionBlocked() && connected() && enabled && current === s && s.epoch === configEpoch && s.editor.isConnected &&
-        accountHandle() === s.account && document.querySelector(EDITOR) === s.editor &&
-        (!s.quote || s.quote.isConnected && s.quote.textContent === s.quoteText);
+        accountHandle() === s.account && edit.activeReplyEditor() === s.editor && sameReplyPreview(s);
     }
     function cancelRequests(s) {
       if (!s?.pending.size) return;
@@ -231,10 +257,11 @@
     function draftProblem(reply,draft) {
       const preparation = autoPreparations.get(reply);
       if (!preparation) return "";
-      if (draft.trim()) return needsDraftReview(preparation,draft.replace(/\n$/,"")) ? PARTIAL_DRAFT_HINT : "";
+      if (draft.trim()) return needsDraftReview(preparation,draft) ? PARTIAL_DRAFT_HINT : "";
       return preparation.failure || "";
     }
     function stop() {
+      watchOpeningEditors();
       closeDetails();
       const old = current; current = undefined;
       if (old) {
@@ -249,7 +276,7 @@
       requestRefresh();
     }
     function pause() {
-      const editor=current?.editor || document.querySelector(EDITOR);
+      const editor=current?.editor || edit.activeReplyEditor();
       if(editor){
         pausedEditors.add(editor);
         const reply=current?.autoReply || recommendedReply(editor);
@@ -264,7 +291,7 @@
     }
     // Continue uses the live reply and editor, never a snapshot of an old DOM node.
     function resumeAutomatic(editor,reviewedDraft) {
-      if(interactionBlocked() || !connected() || document.hidden || !editor?.isConnected || document.querySelector(EDITOR)!==editor)
+      if(interactionBlocked() || !connected() || document.hidden || !editor?.isConnected || edit.activeReplyEditor()!==editor)
         return "当前回复框不可用，请核对页面后继续。";
       const reply=recommendedReply(editor);
       if(!reply)return "尚未确认当前回复对象，请重新打开回复框。";
@@ -334,8 +361,11 @@
       if(!valid(s))return {ok:false,cancelled:true};
       const id = crypto.randomUUID();s.pending.add(id);requestRefresh();
       try {
-        return await message({type:"AI_REQUEST",id,kind,post:generation?.post ?? s.post,draft,rootOwnership:rootOwnership(s.editor),
+        const result = await message({type:"AI_REQUEST",id,kind,post:generation?.post ?? s.post,draft,rootOwnership:rootOwnership(s.editor),
           ...(generation ? {account:s.account,context:generation.context} : {})});
+        // Draft stores paragraph breaks as LF, including text pasted from a CRLF model response.
+        if (result.ok) result.text = result.text.replace(/\r\n?/g,"\n");
+        return result;
       }
       catch(error) {return {ok:false,error:error.message};}
       finally {s.pending.delete(id);requestRefresh();}
@@ -345,6 +375,14 @@
       if (captured?.isConnected && tweetId(captured) === postId) return captured;
       const current = replyArticle(s.editor);
       return current?.isConnected && tweetId(current) === postId ? current : null;
+    }
+    function cardPostText(editor,postId) {
+      const article = replyArticle(editor);
+      if (!article?.isConnected || article.querySelector("time")?.closest(ARTICLE) !== article ||
+          !globalThis.XReplyContinuous?.authorFromPostLink?.(article,postId)) return "";
+      const body = [...article.querySelectorAll(TWEET_TEXT)].find(node =>
+        node.closest(ARTICLE) === article && !article.contains(node.closest('[role="link"]:not(a)')));
+      return textOf(body);
     }
     function generationInput(s) {
       const postId = s.targetId || replyPostId(s.editor);
@@ -385,12 +423,12 @@
       if (details && !details.trigger.isConnected) closeDetails();
       if (interactionBlocked()) {pause();return;}
       if (!enabled || !connected() || document.hidden) return;
-      const editor = document.querySelector(EDITOR);
-      if (current && (current.editor !== editor || current.account !== accountHandle() ||
-          current.quote && (!current.quote.isConnected || current.quote.textContent !== current.quoteText))) {
+      const editors = document.querySelectorAll(EDITOR);
+      const editor = edit.activeReplyEditor(editors);
+      if (current && (current.editor !== editor || current.account !== accountHandle() || !sameReplyPreview(current))) {
         const nextTarget=target;stop();target=nextTarget;
       }
-      if (!editor) return;
+      if (!editor) {watchOpeningEditors(Array.from(editors));return;}
       if (conflict()) {
         if (current) stop();
         if (!conflicts.has(editor)) {conflicts.add(editor);toast("检测到 XReply，请先停用它再使用内置 AI，避免重复处理。");}
@@ -404,12 +442,20 @@
       }
       const dialog = editor.closest('[role="dialog"]'), root = editor.closest('.DraftEditor-root');
       if (!root || !dialog?.querySelector('[data-testid="tweetButton"]')) return;
-      const quote = dialog.querySelector('[data-testid="tweetText"]');
-      const post = textOf(quote);
+      const box = dialog.getBoundingClientRect();
+      if (!box.width || !box.height) {watchOpeningEditors([editor]);return;}
+      watchOpeningEditors();
+      const quote = dialog.querySelector(TWEET_TEXT);
+      let post = textOf(quote);
       const account = accountHandle();
       if (!account) return;
       const cached=previews.get(editor);
-      const liveId = replyPostId(editor) || (target?.account === account ? target.id : "");
+      const replyId = replyPostId(editor);
+      if (replyId && !postText(post)) {
+        const shownId = tweetId(dialog);
+        if (!shownId || shownId === replyId) post = cardPostText(editor,replyId) || post;
+      }
+      const liveId = replyId || (target?.account === account ? target.id : "");
       const reuse = cached?.account === account && cached.post === post && cached.epoch === configEpoch &&
         (liveId ? cached.targetId === liveId : cached.quote === quote);
       const targetId = liveId || (reuse ? cached.targetId : "");
@@ -444,6 +490,9 @@
       if (window.getSelection()?.isCollapsed === false) return "waitingSelection";
       const active = document.activeElement;
       if (!active || active === s.editor || active === document.body || active === document.documentElement || active === s.dialog) return "";
+      // X can focus a non-interactive wrapper around the editor while opening the dialog.
+      if (s.dialog.contains(active) && active.contains(s.editor) && active.tabIndex === -1 &&
+          !active.isContentEditable && active.matches('div:not([role]),section:not([role]),[role="group"],[role="presentation"],[role="none"]')) return "";
       if (!focused && !active.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')) return "";
       if (active.closest('[data-testid="reply"]') && s.targetId && targetArticle(s,s.targetId)?.contains(active)) return "";
       if (active.matches(".xrc-timed-badge button, .xrc-timed-replies button") &&
@@ -652,7 +701,7 @@
         event.preventDefault();event.stopImmediatePropagation();toast("请等待生成、填入或改写完成，再确认发送。");return;
       }
       if (article && !article.closest('[role="dialog"]')) {
-        const editor=document.querySelector(EDITOR);if(editor)pausedEditors.delete(editor);
+        const editor=edit.activeReplyEditor();if(editor)pausedEditors.delete(editor);
         if (current) stop(); // A new reply action invalidates even a reused editor with identical text.
         const id = tweetId(article), account = accountHandle();
         // X can unmount the timeline card before the reply editor is ready.

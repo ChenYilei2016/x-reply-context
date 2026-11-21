@@ -74,7 +74,7 @@ document.querySelector('#run').addEventListener('click',async () => {
   await new Promise(resolve => setTimeout(resolve,100));
   const currentEditor = document.querySelector('[data-testid="tweetTextarea_0"]');
   const expected = mode === 'blocked' ? '原稿' :
-    (mode === 'empty' || mode === 'rapid' ? '' : '原稿 ')+'一起加油好兄弟...';
+    (mode === 'empty' || mode === 'rapid' ? '' : '原稿 ')+'一緒に頑張ろう...';
   const result = {
     fixture:true,mode,expected,domText:currentEditor?.innerText,stateText:latestState,commands,sendCalls,
     status:document.querySelector('.xrc-flow-status')?.textContent

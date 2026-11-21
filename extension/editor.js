@@ -1,6 +1,15 @@
 (() => {
   "use strict";
-  const read = editor => editor?.innerText.replace(/\n$/,"") || "";
+  const REPLY_EDITOR = '[role="dialog"] [contenteditable="true"][data-testid="tweetTextarea_0"]';
+  function activeReplyEditor(candidates = document.querySelectorAll(REPLY_EDITOR)) {
+    let active = null;
+    for (const editor of candidates) {
+      if (!editor.checkVisibility({checkVisibilityCSS:true})) continue;
+      if (active) return null;
+      active = editor;
+    }
+    return active;
+  }
   function readDraft(editor) {
     if (!editor) return "";
     const visibleText = editor.innerText;
@@ -24,7 +33,7 @@
     });
   }
   const writing = new WeakSet();
-  async function insert(editor,text,{replace = false,readText = read,expected = readText(editor),valid = () => true,signal} = {}) {
+  async function insert(editor,text,{replace = false,readText = readDraft,expected = readText(editor),valid = () => true,signal} = {}) {
     if (signal?.aborted || !editor?.isConnected || !valid() || readText(editor) !== expected || editor.getAttribute("aria-disabled") === "true") return false;
     editor.focus({preventScroll:true});
     const range = document.createRange(); range.selectNodeContents(editor);
@@ -57,5 +66,5 @@
     try { return await insert(editor,text,options); }
     finally { writing.delete(editor); }
   }
-  globalThis.XReplyEditor = {read,readDraft,write,busy:editor => Boolean(editor && writing.has(editor))};
+  globalThis.XReplyEditor = {activeReplyEditor,read:readDraft,readDraft,write,busy:editor => Boolean(editor && writing.has(editor))};
 })();

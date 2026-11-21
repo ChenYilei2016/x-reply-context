@@ -3,7 +3,7 @@ const output=document.querySelector('#result');
 const listeners=[],calls=[],pending=new Map(),generations=new Map();
 let enabled=true,autoComplete=false,modelError=false,totalRequests=0,ai,flow,timed,frame,clearDraft,delay=1500,rewritten='改写后的短句',sent=0,likes=0;
 let fillRecommended=false, simulateSend=false, feedPath='/notifications',focusNewEditor=true,allowUnfocusedFill=false;
-let draftConfirmation=()=>false;
+let draftConfirmation=()=>false, generatedReply;
 const automaticFailures=[];
 const requestRefresh=()=>{if(frame)return;frame=requestAnimationFrame(()=>{frame=0;flow?.refresh();ai?.refresh();timed?.refresh();});};
 globalThis.chrome={storage:{onChanged:{addListener:fn=>listeners.push(fn)}}};
@@ -19,7 +19,8 @@ const message=async message=>{
     calls.push(message);totalRequests++;
     return new Promise(resolve=>{
       const same=(generations.get(message.post)||0)+1; if(message.kind==='generate')generations.set(message.post,same);
-      const text=message.kind==='rewrite'?rewritten:(message.post.includes('第二')?'第二条':'第一条')+['候选甲','候选乙','候选丙'][((same-1)%3)];
+      const text=message.kind==='rewrite' ? rewritten : generatedReply ??
+        (message.post.includes('第二')?'第二条':'第一条')+['候选甲','候选乙','候选丙'][((same-1)%3)];
       const timer=setTimeout(()=>{pending.delete(message.id);resolve(modelError?{ok:false,error:"模拟模型失败"}:{ok:true,text});},delay);
       pending.set(message.id,{timer,resolve});
     });
@@ -34,7 +35,7 @@ timed=XReplyTimedReplies.create({storage:{local:{get:async()=>({})},onChanged:{a
  onInterrupt:reason=>{ai?.pause();flow?.cancelTimedFollowup(reason);}});
 const guard=XReplyInteractionAlert.create({accountHandle,onPause:()=>{ai?.pause();flow?.pauseForAlert();},onRelease:()=>flow?.stop()});
 ai=XReplyAIReplies.create({interactionBlocked:()=>guard.blocked(),accountHandle,tweetId,connected:()=>true,message,requestRefresh,
-  replyPostId:editor=>flow?.replyPostId(editor),rootOwnership:editor=>flow?.rootOwnership(editor)||"unknown",
+  replyPostId:editor=>flow?.replyPostId(editor),replyArticle:editor=>flow?.replyArticle(editor),rootOwnership:editor=>flow?.rootOwnership(editor)||"unknown",
   recommendedReply:editor=>flow?.recommendedReply(editor),canAutoFillUnfocused:editor=>allowUnfocusedFill || flow?.canAutoFillUnfocused(editor),
   onAutoFillBlocked:(editor,reason,recoverable)=>{
     automaticFailures.push(reason);
@@ -116,15 +117,17 @@ document.querySelector('#run').addEventListener('click',async event=>{
     const noOpWrites=noOpWatch.takeRecords().length;noOpWatch.disconnect();
     check('空闲控件100次刷新不产生重复DOM变更',noOpWrites===0);
     const quickButtons=[...document.querySelectorAll('.xrc-quick-reply')];
-    check('六组词句与快捷键均显示',quickButtons.length===6&&quickButtons.every((b,i)=>b.getAttribute('aria-keyshortcuts')==='Alt+'+(i+1)&&b.textContent.endsWith(String(i+1))));
+    const labels=['一起加油','哈哈','难受啊','太卷了','可爱捏','不许色色'];
+    check('六组中文按钮与快捷键均显示',quickButtons.length===6&&quickButtons.every((b,i)=>
+      b.querySelector('span').textContent===labels[i]&&b.getAttribute('aria-keyshortcuts')==='Alt+'+(i+1)&&b.textContent.endsWith(String(i+1))));
     for(let i=0;i<6;i++) {
       await wait(()=>!quickButtons[i].disabled);
       const before=text();key(['¡','™','£','¢','∞','§'][i],{altKey:true,code:'Digit'+(i+1)});
       key('x',{altKey:true,code:'Digit'+(i+1),repeat:true});
       await wait(()=>text()!==before&&!quickButtons[i].disabled);
-      const phrases=quickButtons[i].title.match(/^随机填入：(.*?)，末尾随机/)[1].split(' / ');
+      const phrases=quickButtons[i].title.match(/^随机填入日语：(.*?)，末尾随机/)[1].split(' / ');
       const suffix=text().slice(before.length+(before?1:0));
-      check('Option '+(i+1)+'只填入对应词句一次',phrases.some(p=>['...','!','!!!','!!'].some(end=>suffix===p+end)));
+      check('Option '+(i+1)+'只填入对应日语一次',/[ぁ-んァ-ヶ]/u.test(suffix)&&phrases.some(p=>['...','!','!!!','!!'].some(end=>suffix===p+end)));
     }
     const quickText=text();
     editor().dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));key('6',{altKey:true,code:'Digit6'});
@@ -195,7 +198,7 @@ document.querySelector('#run').addEventListener('click',async event=>{
     document.querySelector('[data-testid=tweetButton]').click();key('Enter',{metaKey:true});
     check('填入中原生发送也被保护',sent===0);
     await wait(()=>!ai.busy(editor()));check('Tab只采用当前候选且不重复',text()==='第一条候选乙');
-      check('逐字填入使用已读取的自定义77ms间隔',configuredWaits===Array.from('第一条候选乙').length);
+      check('相邻字符之间使用已配置的77ms间隔',configuredWaits===Array.from('第一条候选乙').length-1);
     } finally {window.setTimeout=originalTimeout;}
     delay=150;rewritten='更短的回复';key('Tab',{altKey:true});await wait(()=>ai.busy(editor()));
     await wait(()=>!ai.busy(editor()));check('Option Tab改写替换一次（实际：'+text()+'）',text()==='更短的回复');
@@ -268,6 +271,50 @@ document.querySelector('#run-autofill').onclick=async event=>{
     await wait(()=>!editor());
     check('停顿后新按一次才发送第二条',sent===initialSends+2);
     await sleep(500);flow.stop();
+    count=calls.length;open(0);await wait(()=>pending.size===1);
+    const preview=()=>document.querySelector('.dialog [data-testid=tweetText]');
+    const requestId=calls.at(-1).id,job=pending.get(requestId);
+    preview().replaceWith(preview().cloneNode(true));ai.refresh();
+    preview().replaceWith(preview().cloneNode(true));
+    // Resolve in this task, before the extension's next render.
+    clearTimeout(job.timer);pending.delete(requestId);job.resolve({ok:true,text:'同帖结果'});
+    await wait(()=>!ai.busy(editor()));
+    check('同目标重建预览，刷新和模型先返回两种顺序都只填入原结果一次',text()==='同帖结果'&&calls.length===count+1);
+    closeUI();count=calls.length;open(0);await wait(()=>pending.size===1);
+    const changed=preview().cloneNode(true);changed.textContent='已修改的正文';preview().replaceWith(changed);
+    await wait(()=>!ai.busy(editor()));
+    check('正文确实变化时丢弃旧结果',text()===''&&calls.length===count+1);
+    closeUI();count=calls.length;open(0);
+    const quote=preview(),article=document.querySelector('article[data-testid=tweet]');
+    // An embedded quote precedes the target's own body in the card.
+    const embedded=document.createElement('div');embedded.setAttribute('role','link');
+    embedded.innerHTML='<div data-testid="tweetText">其他帖子</div>';
+    article.prepend(embedded);
+    try {
+      quote.remove();flow.refresh();ai.refresh();
+      check('弹框正文晚挂载时使用同帖自己的卡片正文',calls.length===count+1&&calls.at(-1).post==='第一条原帖');
+      document.querySelector('.dialog').prepend(quote);
+      await wait(()=>!ai.busy(editor()));
+      check('晚挂载的同一正文不会中断或重复生成',text()==='第一条候选甲'&&calls.length===count+1);
+    } finally { embedded.remove(); }
+    closeUI();
+    count=calls.length;open(0);
+    const visibleEditor=editor(),openingDialog=visibleEditor.closest('[role=dialog]');
+    const stale=document.createElement('div'),wrapper=document.createElement('div');
+    stale.role=wrapper.role='dialog';stale.hidden=true;
+    stale.innerHTML='<div contenteditable="true" data-testid="tweetTextarea_0"></div><button data-testid="tweetButton">旧框</button>';
+    openingDialog.before(stale,wrapper);wrapper.append(openingDialog);
+    try {
+      openingDialog.style.display='none';flow.refresh();ai.refresh();await sleep(180);
+      check('不可见的回复弹框不会抢先启动灰字或填入',calls.length===count);
+      stale.hidden=false;openingDialog.style.display='';flow.refresh();ai.refresh();
+      check('两个可见编辑器时拒绝自动生成',calls.length===count);
+      stale.hidden=true;
+      await wait(()=>XReplyEditor.read(visibleEditor)==='第一条候选甲'&&!ai.busy(visibleEditor));
+      check('前方残留隐藏旧框且新框带嵌套容器，仅新框填入一次',
+        calls.length===count+1&&flow.replyPostId(visibleEditor)==='100'&&!XReplyEditor.read(stale.firstChild));
+    } finally { stale.remove();wrapper.replaceWith(openingDialog); }
+    closeUI();
     delay=180;count=calls.length;open(0);await wait(()=>ai.busy(editor()));
     await input('我的草稿');await wait(()=>!ai.busy(editor()));
     check('等待模型时手写草稿不会被覆盖或追加',text()==='我的草稿'&&calls.length===count+1);
@@ -375,6 +422,12 @@ document.querySelector('#run-unfocused').onclick=async event=>{
   await wait(()=>!ai.busy(editor()));
   check('同页点击正文后仍填入原回复框',text()==='第一条候选甲'&&
    calls.length===beforeClick+1&&automaticFailures.length===failuresBeforeClick);
+  closeUI();open(0);await wait(()=>ai.busy(editor()));
+  const editorRoot=editor().closest('.DraftEditor-root');
+  editorRoot.tabIndex=-1;editorRoot.focus();
+  check('浏览器焦点停在当前编辑器的外层容器',document.hasFocus()&&document.activeElement===editorRoot);
+  await wait(()=>!ai.busy(editor()));
+  check('同一输入框的非交互容器获焦时完成填入',text()==='第一条候选甲');
   closeUI();open(0);await wait(()=>ai.busy(editor()));
   const beforeWait=calls.length, failuresBeforeWait=automaticFailures.length;
   document.querySelector('[data-testid=app-bar-close]').focus();
@@ -515,11 +568,24 @@ document.querySelector('#run-continue-ai').onclick=async event=>{
   } finally {
     window.requestAnimationFrame=nextFrame;
   }
+  closeUI();delay=50;generatedReply='今日は\r\n\r\n晴れですね';
+  const paragraph='今日は\n\n晴れですね';
+  open(0);await wait(()=>ai.busy(editor()));timed.start();await wait(()=>!ai.busy(editor()));
+  check('CRLF 与空段完整填入，正文和定时草稿一致',text()===paragraph&&flow.timedState().draft===paragraph&&flow.timedState().ready&&timed.isRunning());
+  closeUI();open(0);await wait(()=>ai.busy(editor()));timed.start();
+  const partialParagraph='今日は\n\n晴';
+  await wait(()=>text()===partialParagraph&&!XReplyEditor.busy(editor()));
+  timed.pause();timed.continueRun();
+  check('多段半稿继续前需要核对',timed.isPaused()&&flow.timedState().draftNeedsReview);
+  draftConfirmation=draft=>draft===partialParagraph;
+  document.querySelector('.xrc-timed-review-draft').click();
+  check('确认多段半稿按可见段落恢复',timed.isRunning()&&flow.timedState().ready&&text()===partialParagraph);
+  generatedReply=undefined;
   closeUI();open(0);await wait(()=>ai.busy(editor()));timed.start();timed.pause();fillRecommended=false;update();await sleep(70);
   const disabledCount=calls.length;timed.continueRun();await sleep(80);
   check('空草稿且自动填入关闭时明确保持暂停，不假装恢复成功',timed.isPaused()&&calls.length===disabledCount&&document.querySelector('.xrc-timed-badge-status').textContent.includes('空草稿尚未准备'));
   check('整个检查没有发送或点赞',sent===initialSent&&likes===initialLikes);
  }catch(error){checks.push({name:error.message,ok:false});}
- finally{timed.stop();closeUI();flow.stop();timedSetting(false);draftConfirmation=()=>false;modelError=fillRecommended=autoComplete=simulateSend=false;update();feedPath='/notifications';history.replaceState(null,'',feedPath);event.target.disabled=false;}
+ finally{generatedReply=undefined;timed.stop();closeUI();flow.stop();timedSetting(false);draftConfirmation=()=>false;modelError=fillRecommended=autoComplete=simulateSend=false;update();feedPath='/notifications';history.replaceState(null,'',feedPath);event.target.disabled=false;}
  result.dataset.result=checks.every(item=>item.ok)?'passed':'failed';result.textContent=JSON.stringify({fixture:true,checks},null,2);
 };
