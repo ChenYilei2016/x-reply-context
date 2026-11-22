@@ -220,7 +220,7 @@
       if (!connected()) throw new Error("扩展连接已失效，请刷新页面");
       if (payload.type === "TIMED_KEEP_AWAKE" && reply?.locked) return reply;
       if (payload.type === "AI_REQUEST" && (reply?.cancelled || reply?.contextUsed ||
-          reply?.code === "EMPTY_AI_OUTPUT" || reply?.code === "AI_OUTPUT_TOO_LONG")) return reply;
+          ["EMPTY_AI_OUTPUT","INCOMPLETE_AI_OUTPUT","AI_OUTPUT_TOO_LONG"].includes(reply?.code))) return reply;
       if (!reply?.ok) throw new Error(reply?.error || "扩展连接已断开，请刷新页面");
       return reply;
     } catch (error) {

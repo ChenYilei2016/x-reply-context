@@ -493,6 +493,20 @@ document.querySelector('#run-continue-ai').onclick=async event=>{
  try{
   closeUI();flow.stop();feedPath='/home';history.replaceState(null,'',feedPath);
   enabled=fillRecommended=true;autoComplete=simulateSend=false;delay=600;update();timedSetting(true);await sleep(50);
+  for(const failures of [1,2]){
+    const before=calls.length;open(0);await wait(()=>pending.size===1);timed.start();
+    const budget=document.querySelector('.xrc-timed-badge-detail').textContent;
+    for(let i=0;i<failures;i++){
+      await wait(()=>pending.size===1);
+      const [id,job]=pending.entries().next().value;clearTimeout(job.timer);pending.delete(id);
+      job.resolve({ok:false,code:'INCOMPLETE_AI_OUTPUT',error:'流式响应缺少结束标记。'});
+    }
+    await wait(()=>!ai.busy(editor()));
+    check('不完整回复最多重试一次，失败次数 '+failures,
+      calls.length===before+2&&document.querySelector('.xrc-timed-badge-detail').textContent===budget&&
+      (failures===1 ? timed.isRunning()&&text()==='第一条候选乙' : timed.isPaused()&&!text()));
+    timed.stop();closeUI();
+  }
   open(0);await wait(()=>ai.busy(editor()));timed.start();const initialDeadline=document.querySelector('.xrc-timed-badge-detail').textContent;
   document.querySelector('.xrc-timed-replies button').click();await sleep(70);
   check('手动暂停取消生成，保留空草稿与本轮预算',timed.isPaused()&&pending.size===0&&text()===''&&document.querySelector('.xrc-timed-badge-detail').textContent===initialDeadline);

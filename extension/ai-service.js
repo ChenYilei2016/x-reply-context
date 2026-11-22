@@ -5,7 +5,7 @@
   const POST_TEXT_LIMIT = 50000;
   const REPLY_TIMEOUT = 25000;
   const INCOMPLETE_POLISH = "润色模型未完整返回回复。";
-  const INCOMPLETE_REPLY = "模型回复未完整返回，未填入草稿，请重试。";
+  const INCOMPLETE_REPLY = "模型回复未完整返回。";
   const HTML_RESPONSE = "模型接口返回网页。请核对 Base URL，New API 中转站通常需要 /v1。";
   const CONNECTION_FAILURE = "无法连接模型接口。请检查网络、代理或 HTTPS 证书，并确认地址可直接访问。";
   const HTTP_FAILURES = {
@@ -62,7 +62,7 @@
     const opening = text.search(/<reply>/i);
     const start = opening + "<reply>".length;
     const closing = opening >= 0 ? text.slice(start).search(/<\/reply>/i) : -1;
-    if (closing < 0 && (opening >= 0 || /<\/reply>/i.test(text))) throw new Error(incompleteMessage);
+    if (closing < 0 && (opening >= 0 || /<\/reply>/i.test(text))) throw outputError("INCOMPLETE_AI_OUTPUT",incompleteMessage+"回复标签不成对。");
     let reply = text;
     if (closing >= 0) reply = text.slice(start,start+closing);
     else if (!translation) reply = text.replace(/<\/?[a-z][a-z0-9-]*>/gi,"");
@@ -94,7 +94,9 @@
     let bytes = 0, buffer = "", text = "", finished = false;
     const sse = /text\/event-stream/i.test(contentType);
     function completed(reason) {
-      if (reason != null && reason !== "stop") throw new Error(incompleteMessage);
+      if (reason === "length") throw outputError("INCOMPLETE_AI_OUTPUT",incompleteMessage+"接口报告已达到输出长度上限。");
+      if (reason === "content_filter") throw new Error("模型接口已过滤本次输出。");
+      if (reason != null && reason !== "stop") throw new Error(incompleteMessage+"接口未以普通文本回复结束。");
       return reason === "stop";
     }
     function line(value) {
@@ -126,7 +128,7 @@
       buffer += decoder.decode();
       if (sse) {
         if (!finished) finished = line(buffer.trim()) === true;
-        if (!finished) throw new Error(incompleteMessage);
+        if (!finished) throw outputError("INCOMPLETE_AI_OUTPUT",incompleteMessage+"流式响应缺少结束标记。");
       } else {
         const data = responseJson(buffer,"响应");
         if (data?.error) throw new Error("模型接口返回错误，请检查配置或额度。");
@@ -286,7 +288,7 @@
         if (job.cancelled) return {ok:false,cancelled:true};
         const message = job.timedOut ? "模型响应超时，请稍后重试。" : error instanceof TypeError || error instanceof SyntaxError ?
           "未能读取完整的模型响应，请检查网络和接口配置。" : error.message;
-        const code = !job.timedOut && ["EMPTY_AI_OUTPUT","AI_OUTPUT_TOO_LONG"].includes(error.code) ? error.code : undefined;
+        const code = !job.timedOut && ["EMPTY_AI_OUTPUT","INCOMPLETE_AI_OUTPUT","AI_OUTPUT_TOO_LONG"].includes(error.code) ? error.code : undefined;
         return {ok:false,error:message,code,...(job.submittedContext ? {contextUsed:job.submittedContext} : {})};
       } finally { clearTimeout(job.timer); }
     }

@@ -6,6 +6,7 @@
   // X adds one trailing media link per photo and may split the protocol onto its own line.
   const MEDIA_LINKS_AT_END = /(?:^|\s)(?:https?:\/\/\s*)?pic\.x\.com\/[a-z0-9]+(?:\s+(?:https?:\/\/\s*)?pic\.x\.com\/[a-z0-9]+)*\s*$/i;
   const VIDEO = '[data-testid="videoPlayer"],[data-testid="videoComponent"],video';
+  const retryableOutput = code => code === "EMPTY_AI_OUTPUT" || code === "INCOMPLETE_AI_OUTPUT";
   const PARTIAL_DRAFT_HINT = "AI 填入曾中断。核对后可选「使用当前草稿并继续」，也可编辑或清空草稿。";
   const postText = value => (value || "").replace(MEDIA_LINKS_AT_END, "").trim();
 
@@ -601,7 +602,7 @@
       try {
         let result = await request(s,"generate","",input);
         let retried = false;
-        if (result.code === "EMPTY_AI_OUTPUT" && !document.hidden && valid(s) && s.version === version &&
+        if (retryableOutput(result.code) && !s.composing && !document.hidden && valid(s) && s.version === version &&
             edit.read(editor) === before && (!automatic || canAutoFill(s))) {
           retried = true;
           result = await request(s,"generate","",input);
@@ -612,8 +613,8 @@
           if (result.cancelled) {
             if (automatic) autoFillBlocked(s,"AI 生成已中断。",true);
           } else {
-            const recoverable = result.code === "EMPTY_AI_OUTPUT" || result.code === "AI_OUTPUT_TOO_LONG";
-            const text = retried && result.code === "EMPTY_AI_OUTPUT" ? "AI：重试一次后仍返回空内容。" : `AI：${result.error}`;
+            const recoverable = retryableOutput(result.code) || result.code === "AI_OUTPUT_TOO_LONG";
+            const text = (retried ? "AI 重试一次后：" : "AI：") + result.error;
             if (automatic) autoFillBlocked(s,text,recoverable);
             else toast(text);
           }

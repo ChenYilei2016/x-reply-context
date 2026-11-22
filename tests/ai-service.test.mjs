@@ -414,15 +414,18 @@ test('OpenAI生成和改写发送选定reasoning_effort，默认/第三方省略
 test('生成和改写拒绝断流、截断原因及残缺reply标签，不将半稿返回前台',async()=>{
  const sse=data=>new Response(data,{headers:{'content-type':'text/event-stream'}});
  const json=choice=>new Response(JSON.stringify({choices:[choice]}),{headers:{'content-type':'application/json'}});
- for(const kind of ['generate','rewrite'])for(const response of [
-  ()=>sse('data: '+JSON.stringify({choices:[{delta:{content:'<reply>半句话'}}]})+'\n\n'),
-  ()=>sse('data: '+JSON.stringify({choices:[{delta:{content:'半句话'},finish_reason:'length'}]})+'\n\ndata: [DONE]\n\n'),
-  ()=>json({message:{content:'<reply>半句话'},finish_reason:'length'}),
-  ()=>json({message:{content:'<reply>半句话'},finish_reason:'stop'})
+ for(const kind of ['generate','rewrite'])for(const [response,reason] of [
+  [()=>sse('data: '+JSON.stringify({choices:[{delta:{content:'<reply>半句话'}}]})+'\n\n'),/缺少结束标记/],
+  [()=>sse('data: '+JSON.stringify({choices:[{delta:{content:'半句话'},finish_reason:'length'}]})+'\n\ndata: [DONE]\n\n'),/输出长度上限/],
+  [()=>json({message:{content:'<reply>半句话'},finish_reason:'length'}),/输出长度上限/],
+  [()=>json({message:{content:'<reply>半句话'},finish_reason:'stop'}),/标签不成对/]
  ]){
-  const {request}=setup(async()=>response());const result=await request('broken',{kind,draft:'已有草稿'});
-  assert.equal(result.ok,false);assert.equal(result.text,undefined);assert.match(result.error,/未完整返回/);
+  const {request}=setup(response);const result=await request('broken',{kind,draft:'已有草稿'});
+  assert.equal(result.ok,false);assert.equal(result.text,undefined);assert.match(result.error,reason);assert.equal(result.code,'INCOMPLETE_AI_OUTPUT');
  }
+ const filtered=setup(async()=>json({message:{content:'部分文字'},finish_reason:'content_filter'}));
+ const blocked=await filtered.request('filtered');
+ assert.equal(blocked.ok,false);assert.equal(blocked.code,undefined);assert.match(blocked.error,/过滤/);
  const {request}=setup(async()=>sse('data: '+JSON.stringify({choices:[{delta:{content:'<reply>完整回复</reply>'},finish_reason:'stop'}]})+'\n\n'));
  assert.equal((await request('complete')).text,'完整回复','stop结束不必等待连接关闭或额外DONE');
 });
