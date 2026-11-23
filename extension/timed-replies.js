@@ -189,7 +189,7 @@
         reviewedDraft=state.draft;
       }
       let problem;
-      try {problem=onContinue(state,reviewedDraft);}catch {problem="AI 恢复未确认，请检查草稿后手动推荐。";}
+      try {if(!state.waitingForCards)problem=onContinue(state,reviewedDraft);}catch {problem="AI 恢复未确认，请检查草稿后手动推荐。";}
       if(paused!==owner)return;
       if(problem){caption=problem;paint();return;}
       run=paused;paused=null;stopped=false;caption="继续本轮，等待草稿就绪";

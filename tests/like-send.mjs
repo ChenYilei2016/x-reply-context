@@ -393,6 +393,24 @@ document.querySelector('#timed-stop-run').onclick=async event=>{
   timed.start();await wait(()=>resolveNext,7000);
   timed.pause();holdNext=null;resolveNext();await sleep(120);
   check('暂停后迟到的查找结果不滚动或打开下一条',timed.isPaused()&&!dialog()&&selecting.events.filter(item=>item.kind==='send').length===1);
+  const waiting=await reset({ids:['100','200'],liked:true});
+  document.querySelector('article[data-id="200"] a').setAttribute('href','/me/status/200'); // Own reply, even before local evidence arrives.
+  timed.start();
+  await wait(()=>flow.timedState().waitingForCards,7000);
+  const budget=document.querySelector('.xrc-timed-badge-detail').textContent;
+  timed.pause();
+  document.querySelector('article[data-id="100"]').remove();
+  const anchor=document.querySelector('article[data-id="200"]');
+  for(const [id,position] of [['50','before'],['300','after']]){
+    const card=anchor.cloneNode(true);card.dataset.id=id;
+    card.querySelector('a').setAttribute('href','/peer/status/'+id);
+    card.querySelector('[data-testid=reply]').onclick=()=>open(id,waiting);anchor[position](card);
+  }
+  flow.refresh();
+  check('等待加载期间暂停，新卡片不会唤醒本轮',timed.isPaused()&&!dialog());
+  timed.continueRun();await wait(()=>dialog()?.dataset.target==='300');
+  check('原帖卸载后只接续已知位置下方的新帖，保留次数和截止时间',timed.isRunning()&&waiting.events.filter(e=>e.kind==='send').length===1&&
+    document.querySelector('.xrc-timed-badge-detail').textContent===budget);
   const media=await reset();
   timed.start();
   const poll=document.createElement('div');poll.dataset.testid='pollOption_1';dialog().append(poll);

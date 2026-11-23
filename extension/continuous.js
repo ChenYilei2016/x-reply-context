@@ -211,10 +211,14 @@
       return {id,article,authorHint:authorFromPostLink(article,id),followingIds};
     }
 
-    function cardsAfter(cards,target) {
+    function cardsAfter(cards,target,extendFromFollower=false) {
       const position = cardPosition(cards,target);
       // If X unmounts the current post, only continue with cards known to follow it.
-      return position >= 0 ? cards.slice(position+1) : cards.filter(([id]) => target.followingIds.has(id));
+      if (position >= 0) return cards.slice(position+1);
+      const following = cards.filter(([id]) => target.followingIds.has(id));
+      if (!extendFromFollower || !following.length) return following;
+      // A surviving downstream card anchors newly mounted rows even after X removes the original.
+      return following.concat(cards.slice(cards.indexOf(following.at(-1))+1));
     }
 
     function currentArticle(s) {
@@ -653,6 +657,10 @@
       const valid = () => currentSession(s) && s.phase==="advancing" && s.selection===selection;
       const canContinue = () => {
         if (!valid()) return false;
+        if (s.feedWait && (!timedReplies?.isRunning?.() || !timedPageAllowed() || composer() || closeConfirmation())) {
+          s.phase="waiting-cards";
+          return false;
+        }
         if (s.current.emptyDraftSkipReason && (!autoSkipAllowed() || composer() || closeConfirmation())) {
           finish("页面状态已变化，已停止自动跳过。");
           return false;
@@ -675,15 +683,16 @@
         if (skipAuthors && !await skipAuthors.ready()) throw new Error("跳过名单暂不可用，请刷新 X 后再试。");
         if (!canContinue()) return;
         const recommended = isRecommended(s);
-        const skipVideos = recommended && aiFillRecommendedEnabled();
+        const forwardCards = cards => cardsAfter(cards,s.current,Boolean(s.feedWait));
         const canOpen = ([id,article]) => !s.handled.has(id) && availableArticle(article) &&
           enabled(article.querySelector('[data-testid="reply"]')) &&
-          (!skipVideos || !globalThis.XReplyAIReplies?.videoOnlyArticle(article));
-        const nextIds = () => [...new Set(cardsAfter(mountedCards(s),s.current).filter(canOpen).map(([id]) => id))];
+          !(recommended && aiFillRecommendedEnabled() && globalThis.XReplyAIReplies?.videoOnlyArticle(article));
+        const candidateIds = rows => [...new Set(rows.filter(canOpen).map(([id]) => id))];
+        const nextIds = () => candidateIds(forwardCards(mountedCards(s)));
         let ids = nextIds();
         let next;
         // Only inspect mounted cards; classify locally in bounded batches.
-        const signature = recommended ? selectionSignature(ids,true) : "";
+        let signature = recommended ? selectionSignature(ids,true) : "";
         for (let pass = 0; pass < 2 && !next; pass++) {
           for (let offset = 0; offset < ids.length && !next; offset += 100) {
             const result = await message({ type:"CLASSIFY",account:s.account,ids:ids.slice(offset,offset+100) });
@@ -698,9 +707,9 @@
             const whitelist = gap == null ? undefined : skipAuthors?.whitelist(result.accountId);
             const cards = mountedCards(s);
             const detailRoot = s.feed === "detail" ? s.current.context?.rootId || s.detailId : "";
-            const match = cardsAfter(cards,s.current).find(([id,article]) => {
+            const match = forwardCards(cards).find(([id,article]) => {
               const row = byId.get(id);
-              return eligible(row) && (!detailRoot || row.rootId === detailRoot) &&
+              return eligible(row) && (!recommended || candidateAuthor(article,id,row)!==s.account) && (!detailRoot || row.rootId === detailRoot) &&
                 canOpen([id,article]) && allowedAuthor(skipped,article,id,row,gap,whitelist);
             });
             if (match) next = replyTarget(match[0],match[1],cards);
@@ -708,13 +717,36 @@
           if (next || !recommended || pass > 0) break;
           // Catch cards, settings or evidence that changed during the read, without polling.
           ids = nextIds();
-          if (selectionSignature(ids,true) === signature) break;
+          const latest = selectionSignature(ids,true);
+          if (latest === signature) break;
+          signature = latest;
+        }
+        if (!next && recommended && timedReplies?.isRunning?.() && timedPageAllowed() && !composer() && !closeConfirmation()) {
+          const wait = s.feedWait ||= {scrolls:0,lastTail:""};
+          const cards = mountedCards(s), following = forwardCards(cards);
+          if (following.length) s.current.followingIds = new Set(following.map(([id]) => id));
+          const tail = following.filter(([,node]) => availableArticle(node) && visible(node)).at(-1) || cards[cardPosition(cards,s.current)];
+          s.afterReply=null; // The previous reply and its like have already settled.
+          s.phase="waiting-cards";
+          s.note="等待下方出现符合条件的帖子，可向下浏览";
+          const tailId = following.at(-1)?.[0];
+          wait.changed = () => {
+            const rows=forwardCards(mountedCards(s));
+            return rows.at(-1)?.[0]!==tailId || selectionSignature(candidateIds(rows),true)!==signature;
+          };
+          if (tail && tail[0]!==wait.lastTail && wait.scrolls<3 && tail[1].getBoundingClientRect().bottom>window.innerHeight) {
+            wait.lastTail=tail[0];wait.scrolls++;
+            tail[1].scrollIntoView({block:"end",behavior:"instant"});
+          }
+          requestRefresh();
+          return;
         }
         if (!next) {
           finish("当前位置之后没有符合条件的已加载帖子。向下浏览后，可以从任一条重新开始。");
           return;
         }
         s.afterReply=null;
+        s.feedWait=null;
         s.current = next;
         s.phase = "opening";
         s.note = s.saveClicked ? "上一条已保存到 X 草稿。" : NEXT_NOTE;
@@ -845,6 +877,10 @@
     }
 
     function cancelTimedFollowup(reason) {
+      if (session?.feedWait && session.phase==="advancing") {
+        session.phase="waiting-cards";
+        session.selection=null;
+      }
       if(session?.afterReply?.timed)stopAfterReply(session,reason+"；已发出的评论请核对，不会继续点赞。");
     }
 
@@ -860,6 +896,7 @@
         return {...state,reason:"当前操作需要核对，已停止定时触发"};
       if(s.phase==="sent"&&!s.autoAdvance)return {...state,awaitingReview:true,reason:"本条已发送，请核对后进入下一条再继续"};
       if(!timedPageAllowed())return {...state,pauseable:true,reason:"页面不在前台，返回后点击继续本轮"};
+      if(s.phase==="waiting-cards")return {...state,waitingForCards:true,resumeReady:true,waiting:s.note};
       if(s.phase!=="ready")return {...state,waiting:s.phase==="closing" ? s.note : "等待本条处理完成"};
       const dialog=s.current.dialog,editor=dialog?.querySelector(EDITOR);
       if(!dialog?.isConnected || activeComposer()!==dialog || !editor)return {...state,reason:"回复框已变化，已停止"};
@@ -1184,6 +1221,10 @@
       if (interactionBlocked()) {if(s && s.phase!=="alert-paused")pauseForAlert();return;}
       if (!s) {void refreshCycle?.tick();return;}
       if (!currentSession(s)) { finish(); return; }
+      if (s.phase==="waiting-cards") {
+        if (timedReplies?.isRunning?.() && timedPageAllowed() && !composer() && !closeConfirmation() && s.feedWait.changed()) void selectNext(s);
+        return;
+      }
       const dialog = composer();
       if (s.phase === "closing") {
         if (s.current.skipRequiresTimedRun && (!timedReplies?.isRunning?.() || !timedPageAllowed())) {
