@@ -28,12 +28,16 @@ function open(target,current){
   if(current.unavailableCode==='461'){
    // Nested sheet, delayed mount and a remounted button while X is saving the draft.
    confirm.innerHTML='<h2>保存帖子？</h2><p>你可以保存此内容，以便之后从草稿发布。</p><button>保存</button><button>放弃</button>';
+   const settings=document.createElement('section');settings.role='dialog';
+   settings.innerHTML='<h2>帖子显示设置</h2><button>保存</button>';
+   settings.querySelector('button').onclick=()=>{current.wrongSave=true;};
+   document.body.prepend(settings);
    let saves=0;
    confirm.onclick=event=>{
     if(event.target.textContent==='放弃')throw Error('unexpected discard');
     current.saveClicks=++saves;
     event.target.replaceWith(event.target.cloneNode(true));schedule();
-    setTimeout(()=>{current.savedDraft=draft;confirm.remove();closeModal();},2200);
+    setTimeout(()=>{current.savedDraft=draft;confirm.remove();settings.remove();closeModal();},9800);
    };
    setTimeout(()=>{modal.append(confirm);schedule();},250);
   }else{
@@ -271,7 +275,11 @@ document.querySelector('#alert-run').onclick=async event=>{
   current=await reset({replyMode:'unavailable',unavailableCode:'461'});
   timedSettingChanged({timedReplies:{newValue:{enabled:true,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:1}}},'local');
   timed.start();
-  await wait(()=>dialog()?.dataset.target==='200',7000);
+  const deadline=document.querySelector('.xrc-timed-badge-detail').textContent.split('截止').pop();
+  await wait(()=>document.querySelector('.xrc-timed-badge-status')?.textContent.includes('等待 X 确认保存'),15000);
+  check('保存超过八秒时保留本轮，不点其他设置的保存',timed.isRunning()&&current.saveClicks===1&&!current.wrongSave&&
+    document.querySelector('.xrc-timed-badge-detail').textContent.endsWith(deadline));
+  await wait(()=>dialog()?.dataset.target==='200',5000);
   check('定时发送收到461后保持原轮次，仅消耗一次尝试',timed.isRunning()&&
     document.querySelector('.xrc-timed-badge-detail').textContent.includes('1/3')&&!guard.blocked()&&current.liked.size===0&&
     current.replied.size===0&&current.events.length===1&&current.saveClicks===1&&current.savedDraft==='只用于本地检查');
