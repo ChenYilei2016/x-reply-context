@@ -114,7 +114,13 @@
     try {
       for (;;) {
         signal.throwIfAborted();
-        const chunk = await reader.read();
+        let chunk;
+        try { chunk = await reader.read(); }
+        catch (error) {
+          signal.throwIfAborted();
+          if (sse && bytes) throw outputError("INCOMPLETE_AI_OUTPUT",incompleteMessage+"流式传输中断。");
+          throw error;
+        }
         if (chunk.done) break;
         bytes += chunk.value.byteLength;
         if (bytes > LIMIT) throw new Error("模型响应过大，已停止读取。");
@@ -267,7 +273,7 @@
           {...(profile.serviceTier==="auto"?{}:{service_tier:profile.serviceTier}),
             ...(profile.reasoningEffort==="auto"?{}:{reasoning_effort:profile.reasoningEffort})} : {temperature:step ? STUDIO_TEMPERATURE : 1.2};
         const body = JSON.stringify({
-          model:profile.model,messages:[{role:"system",content:prompt},{role:"user",content:userContent}],...processing,stream:true
+          model:profile.model,messages:[{role:"system",content:prompt},{role:"user",content:userContent}],...processing,stream:!(job.message.kind === "generate" && job.message.retryWithoutStream === true)
         });
         let response;
         try {

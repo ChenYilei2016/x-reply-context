@@ -954,7 +954,7 @@
     rootOwnership:editor=>continuous?.rootOwnership(editor) || "unknown",
     recommendedReply:editor=>continuous?.recommendedReply(editor),
     canAutoFillUnfocused:editor=>continuous?.canAutoFillUnfocused(editor)===true,
-    skipVideo:editor=>continuous?.skipVideo(editor)===true,
+    skipEmptyDraft:(editor,reason)=>continuous?.skipEmptyDraft(editor,reason)===true,
     onAutoFillBlocked:(editor,reason,recoverable)=>{
       if (!continuous?.recommendedReply(editor)) return;
       if (recoverable) timedReplies?.pause(`${reason} 可手动填写，或点击「继续本轮」再试。`);

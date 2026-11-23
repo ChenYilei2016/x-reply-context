@@ -37,6 +37,7 @@ const guard=XReplyInteractionAlert.create({accountHandle,onPause:()=>{ai?.pause(
 ai=XReplyAIReplies.create({interactionBlocked:()=>guard.blocked(),accountHandle,tweetId,connected:()=>true,message,requestRefresh,
   replyPostId:editor=>flow?.replyPostId(editor),replyArticle:editor=>flow?.replyArticle(editor),rootOwnership:editor=>flow?.rootOwnership(editor)||"unknown",
   recommendedReply:editor=>flow?.recommendedReply(editor),canAutoFillUnfocused:editor=>allowUnfocusedFill || flow?.canAutoFillUnfocused(editor),
+  skipEmptyDraft:(editor,reason)=>flow?.skipEmptyDraft(editor,reason),
   onAutoFillBlocked:(editor,reason,recoverable)=>{
     automaticFailures.push(reason);
     if (!flow?.recommendedReply(editor)) return;
@@ -501,10 +502,12 @@ document.querySelector('#run-continue-ai').onclick=async event=>{
       const [id,job]=pending.entries().next().value;clearTimeout(job.timer);pending.delete(id);
       job.resolve({ok:false,code:'INCOMPLETE_AI_OUTPUT',error:'流式响应缺少结束标记。'});
     }
+    if(failures===2)await wait(()=>flow.replyPostId(editor())==='200');
     await wait(()=>!ai.busy(editor()));
-    check('不完整回复最多重试一次，失败次数 '+failures,
-      calls.length===before+2&&document.querySelector('.xrc-timed-badge-detail').textContent===budget&&
-      (failures===1 ? timed.isRunning()&&text()==='第一条候选乙' : timed.isPaused()&&!text()));
+    check('不完整回复仅重试一次并使用非流式，失败次数 '+failures,
+      calls[before].retryWithoutStream!==true&&calls[before+1].retryWithoutStream===true&&calls.length===before+failures+1&&
+      document.querySelector('.xrc-timed-badge-detail').textContent===budget&&timed.isRunning()&&
+      text()===(failures===1?'第一条候选乙':'第二条候选甲'));
     timed.stop();closeUI();
   }
   open(0);await wait(()=>ai.busy(editor()));timed.start();const initialDeadline=document.querySelector('.xrc-timed-badge-detail').textContent;

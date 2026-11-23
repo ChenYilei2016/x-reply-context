@@ -5,7 +5,7 @@
   const SEND = '[data-testid="tweetButton"]';
   const CLOSE = '[data-testid="app-bar-close"]';
   const NEXT_NOTE = "从当前帖往下选择，略过已回复。";
-  const MAX_AUTO_VIDEO_SKIPS = 3;
+  const MAX_EMPTY_DRAFT_SKIPS = 3;
   const SEND_KEY_GAP_MS = 500;
   const FEED_LABELS = {profile:"个人主页",search:"搜索",detail:"帖子详情"};
   const FOCUS_WAIT_LABELS = {waitingFocus:"等待窗口获得焦点",waitingSelection:"等待取消文字选择",waitingInput:"等待结束其他输入",waitingOverlay:"等待关闭其他弹层"};
@@ -483,7 +483,7 @@
         if (automatic && dialog && (hasAttachments(dialog) || edit.read(dialog.querySelector(EDITOR)) !== s.afterReply.draft)) return false;
         clearTimeout(s.timeout);
         release?.();
-        target.autoSkippedTimedUnavailable = automatic && s.afterReply.timed;
+        target.skipRequiresTimedRun = automatic && s.afterReply.timed;
         s.attempt = null;
         s.afterReply = null;
         target.unavailable = true;
@@ -498,12 +498,13 @@
       return timedPageAllowed() && !timedReplies?.isPaused?.() && !timedReplies?.isFinishing?.();
     }
 
-    function skipVideo(editor) {
+    function skipEmptyDraft(editor,reason) {
+      if (reason !== "video" && (reason !== "incomplete" || !timedReplies?.isRunning?.())) return false;
       const s = session;
       const target = recommendedReply(editor);
       if (!target || activeComposer() !== target.dialog || target.dialog.querySelector(EDITOR) !== editor ||
-          target.heartPending || !autoSkipAllowed() || (s.videoSkips || 0) >= MAX_AUTO_VIDEO_SKIPS) return false;
-      return closeForNext(s,{autoVideo:true});
+          target.heartPending || closeConfirmation() || !autoSkipAllowed() || (s.emptyDraftSkips || 0) >= MAX_EMPTY_DRAFT_SKIPS) return false;
+      return closeForNext(s,{emptyDraftSkipReason:reason});
     }
 
     function draftBusy(s) {
@@ -524,7 +525,7 @@
         (visible(rewrite) && /^改写中/.test(rewrite.innerText.trim()));
     }
 
-    function closeForNext(s,{autoVideo=false}={}) {
+    function closeForNext(s,{emptyDraftSkipReason=""}={}) {
       if (!currentSession(s)) return false;
       if (draftBusy(s) || s.current.quickPending) { render(s); return false; }
       const dialog = s.current.dialog;
@@ -535,22 +536,26 @@
         return false;
       }
       s.hadDraft = hasDraft(dialog);
-      if (autoVideo && s.hadDraft) return false;
+      if (emptyDraftSkipReason && s.hadDraft) return false;
       s.saveClicked = false;
-      s.current.autoSkippedVideo = autoVideo;
-      if (autoVideo) s.videoSkips = (s.videoSkips || 0)+1;
+      s.current.emptyDraftSkipReason = emptyDraftSkipReason;
+      if (emptyDraftSkipReason === "incomplete") s.current.skipRequiresTimedRun = true;
+      if (emptyDraftSkipReason) s.emptyDraftSkips = (s.emptyDraftSkips || 0)+1;
       s.phase = "closing";
-      s.note = autoVideo ? "正在跳过纯视频…" : s.hadDraft ? "正在保存 X 草稿并跳过…" : "正在进入下一条…";
+      if (emptyDraftSkipReason === "incomplete") s.note = "AI 重试后回复仍不完整，正在跳过…";
+      else if (emptyDraftSkipReason === "video") s.note = "正在跳过纯视频…";
+      else s.note = s.hadDraft ? "正在保存 X 草稿并跳过…" : "正在进入下一条…";
       render(s);
       internalClose = true;
       try { close.click(); } finally { internalClose = false; }
       refresh();
-      if ((autoVideo || s.current.unavailable) && session === s && s.phase === "closing") {
+      if ((emptyDraftSkipReason || s.current.unavailable) && session === s && s.phase === "closing") {
         s.timeout = setTimeout(() => {
           if (!currentSession(s) || s.phase !== "closing") return;
           const note = "X 未确认关闭回复框，请手动处理后继续。";
           if (s.current.unavailable || composer() !== dialog) { finish(note); return; }
-          s.current.autoSkippedVideo = false;
+          s.current.emptyDraftSkipReason = "";
+          s.current.skipRequiresTimedRun = false;
           s.phase = "ready";
           s.note = note;
           timedReplies?.stop(s.note);
@@ -582,8 +587,8 @@
       if (interactionBlocked() || !currentSession(s) || s.phase === "advancing") return;
       if (s.phase === "refreshing") return;
       s.handled.add(s.current.id);
-      if (!s.current.autoSkippedVideo) s.videoSkips = 0;
-      if (!s.current.autoSkippedVideo && !s.current.unavailable &&
+      if (!s.current.emptyDraftSkipReason) s.emptyDraftSkips = 0;
+      if (!s.current.emptyDraftSkipReason && !s.current.unavailable &&
           refreshCycle?.due(s) && !timedReplies?.isPaused() && !timedReplies?.isFinishing?.()) {
         const refreshToken = s.refreshToken = {};
         s.phase="refreshing";clearNotice();
@@ -607,11 +612,11 @@
       const valid = () => currentSession(s) && s.phase==="advancing" && s.selection===selection;
       const canContinue = () => {
         if (!valid()) return false;
-        if (s.current.autoSkippedVideo && (!autoSkipAllowed() || composer() || closeConfirmation())) {
+        if (s.current.emptyDraftSkipReason && (!autoSkipAllowed() || composer() || closeConfirmation())) {
           finish("页面状态已变化，已停止自动跳过。");
           return false;
         }
-        if (s.current.autoSkippedTimedUnavailable && (!timedReplies?.isRunning?.() || !timedPageAllowed())) {
+        if (s.current.skipRequiresTimedRun && (!timedReplies?.isRunning?.() || !timedPageAllowed())) {
           finish("自动跳过已中断，请核对当前帖子后继续。");
           return false;
         }
@@ -1140,10 +1145,10 @@
       if (!currentSession(s)) { finish(); return; }
       const dialog = composer();
       if (s.phase === "closing") {
-        if (s.current.autoSkippedTimedUnavailable && (!timedReplies?.isRunning?.() || !timedPageAllowed())) {
+        if (s.current.skipRequiresTimedRun && (!timedReplies?.isRunning?.() || !timedPageAllowed())) {
           finish("自动跳过已中断，请核对草稿后继续。"); return;
         }
-        if (s.current.autoSkippedVideo ? closeConfirmation() : saveDraftIfAsked(s)) return;
+        if (s.current.emptyDraftSkipReason ? closeConfirmation() : saveDraftIfAsked(s)) return;
         if (!dialog) {
           if (s.hadDraft && !s.saveClicked) {
             s.phase = "draft-check";
@@ -1343,7 +1348,7 @@
         requestAnimationFrame(() => { if (session === s && !composer()) finish(); });
       }
     },true);
-    return { refresh,canAutoFillUnfocused,timedState,timedSend,cancelTimedFollowup,pauseForAlert,prepareUnavailableSkip,receiveReply,receiveLike,resumeRecommended,replyPostId,replyArticle,rootOwnership,recommendedReply,skipVideo,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
+    return { refresh,canAutoFillUnfocused,timedState,timedSend,cancelTimedFollowup,pauseForAlert,prepareUnavailableSkip,receiveReply,receiveLike,resumeRecommended,replyPostId,replyArticle,rootOwnership,recommendedReply,skipEmptyDraft,notify:text=>showNotice(text,null,true),stop:finish,invalidateContext:() => { contextRevision++; } };
   }
 
   globalThis.XReplyContinuous = { create,authorFromPostLink };

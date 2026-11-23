@@ -57,7 +57,7 @@
     return null;
   }
 
-  function create({accountHandle,connected,message,requestRefresh,tweetId,replyPostId=()=>"",replyArticle=()=>null,rootOwnership=()=>"unknown",recommendedReply=()=>null,canAutoFillUnfocused=()=>false,onAutoFillBlocked=()=>{},skipVideo=()=>false,interactionBlocked=()=>false,readContext=(_account,postId)=>({postId})}) {
+  function create({accountHandle,connected,message,requestRefresh,tweetId,replyPostId=()=>"",replyArticle=()=>null,rootOwnership=()=>"unknown",recommendedReply=()=>null,canAutoFillUnfocused=()=>false,onAutoFillBlocked=()=>{},skipEmptyDraft=()=>false,interactionBlocked=()=>false,readContext=(_account,postId)=>({postId})}) {
     const edit = globalThis.XReplyEditor;
     let enabled = false, autoComplete = false, current, target, notice, configEpoch = 0;
     let openingEditors = [], openingObserver;
@@ -358,11 +358,11 @@
       if (draft) {const prefix=document.createElement("span");prefix.textContent=draft;prefix.style.color="transparent";s.ghost.append(prefix);}
       s.ghost.append(document.createTextNode(label));s.drawn=signature;
     }
-    async function request(s,kind,draft = "",generation) {
+    async function request(s,kind,draft = "",generation,{retryWithoutStream=false}={}) {
       if(!valid(s))return {ok:false,cancelled:true};
       const id = crypto.randomUUID();s.pending.add(id);requestRefresh();
       try {
-        const result = await message({type:"AI_REQUEST",id,kind,post:generation?.post ?? s.post,draft,rootOwnership:rootOwnership(s.editor),
+        const result = await message({type:"AI_REQUEST",id,kind,...(retryWithoutStream ? {retryWithoutStream} : {}),post:generation?.post ?? s.post,draft,rootOwnership:rootOwnership(s.editor),
           ...(generation ? {account:s.account,context:generation.context} : {})});
         // Draft stores paragraph breaks as LF, including text pasted from a CRLF model response.
         if (result.ok) result.text = result.text.replace(/\r\n?/g,"\n");
@@ -498,7 +498,7 @@
       // The writer places the caret in the verified reply editor before pasting.
       return "";
     }
-    function canDismissVideoComposer(s) {
+    function canDismissEmptyComposer(s) {
       if (!canAutoFill(s)) return false;
       // Closing a composer also removes its controls. Keep that decision separate from placing text.
       const active = document.activeElement;
@@ -587,7 +587,7 @@
           await Promise.resolve();
           s.recommending = false;
           if (!valid(s)) return;
-          if (canDismissVideoComposer(s) && !s.composing && !edit.busy(editor) && !edit.read(editor).trim() && skipVideo(editor)) return;
+          if (canDismissEmptyComposer(s) && !s.composing && !edit.busy(editor) && !edit.read(editor).trim() && skipEmptyDraft(editor,"video")) return;
         }
         const reason = videoOnly ? "这条只有视频，可点「跳过」继续。" :
           includeImage ? "本帖暂未取得可用文字或照片，可点「跳过」继续。" : "本帖缺少文字，可勾选「带图」重试，或点「跳过」。";
@@ -605,7 +605,7 @@
         if (retryableOutput(result.code) && !s.composing && !document.hidden && valid(s) && s.version === version &&
             edit.read(editor) === before && (!automatic || canAutoFill(s))) {
           retried = true;
-          result = await request(s,"generate","",input);
+          result = await request(s,"generate","",input,{retryWithoutStream:true});
         }
         s.contextUsed = result.contextUsed;
         if (!valid(s)) return;
@@ -613,6 +613,11 @@
           if (result.cancelled) {
             if (automatic) autoFillBlocked(s,"AI 生成已中断。",true);
           } else {
+            if (automatic && retried && result.code === "INCOMPLETE_AI_OUTPUT" && !before.trim() &&
+                s.version === version && !s.composing && edit.read(editor) === before && canDismissEmptyComposer(s)) {
+              s.recommending=false;
+              if (skipEmptyDraft(editor,"incomplete")) return;
+            }
             const recoverable = retryableOutput(result.code) || result.code === "AI_OUTPUT_TOO_LONG";
             const text = (retried ? "AI 重试一次后：" : "AI：") + result.error;
             if (automatic) autoFillBlocked(s,text,recoverable);

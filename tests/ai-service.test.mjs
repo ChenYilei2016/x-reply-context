@@ -430,6 +430,21 @@ test('生成和改写拒绝断流、截断原因及残缺reply标签，不将半
  assert.equal((await request('complete')).text,'完整回复','stop结束不必等待连接关闭或额外DONE');
 });
 
+test('流式响应读到一半断开，重试可用同一接口的普通 JSON 拿到完整回复',async()=>{
+ let sent=false;
+ const {request,calls}=setup(async(_url,options)=>{
+  if(!JSON.parse(options.body).stream)return Response.json({choices:[{finish_reason:'stop',message:{content:'<reply>完整回复</reply>'}}]});
+  return new Response(new ReadableStream({pull(controller){
+   if(sent)controller.error(new TypeError('connection reset'));
+   else {sent=true;controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"半句"}}]}\n\n'));}
+  }}),{headers:{'content-type':'text/event-stream'}});
+ });
+ const partial=await request('partial');
+ assert.equal(partial.code,'INCOMPLETE_AI_OUTPUT');assert.equal(partial.text,undefined);
+ assert.equal((await request('again',{retryWithoutStream:true})).text,'完整回复');
+ assert.deepEqual(calls.map(([,options])=>JSON.parse(options.body).stream),[true,false]);
+});
+
 test('两份设置并发保存只有一个成功，旧页面不能回滚接口，失败后可读取新版本再保存',async()=>{
  const {service}=setup(),sender={url:'chrome-extension://test/ai-settings.html'};
  const first=structuredClone(await service.handle({type:'AI_CONFIG_GET'},sender)),old=structuredClone(first);
