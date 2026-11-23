@@ -538,6 +538,7 @@
       s.hadDraft = hasDraft(dialog);
       if (emptyDraftSkipReason && s.hadDraft) return false;
       s.saveClicked = false;
+      s.saveSheet = null;
       s.current.emptyDraftSkipReason = emptyDraftSkipReason;
       if (emptyDraftSkipReason === "incomplete") s.current.skipRequiresTimedRun = true;
       if (emptyDraftSkipReason) s.emptyDraftSkips = (s.emptyDraftSkips || 0)+1;
@@ -546,39 +547,63 @@
       else if (emptyDraftSkipReason === "video") s.note = "正在跳过纯视频…";
       else s.note = s.hadDraft ? "正在保存 X 草稿并跳过…" : "正在进入下一条…";
       render(s);
+      watchAutomaticClose(s);
       internalClose = true;
       try { close.click(); } finally { internalClose = false; }
       refresh();
-      if ((emptyDraftSkipReason || s.current.unavailable) && session === s && s.phase === "closing") {
-        s.timeout = setTimeout(() => {
-          if (!currentSession(s) || s.phase !== "closing") return;
-          const note = "X 未确认关闭回复框，请手动处理后继续。";
-          if (s.current.unavailable || composer() !== dialog) { finish(note); return; }
-          s.current.emptyDraftSkipReason = "";
-          s.current.skipRequiresTimedRun = false;
-          s.phase = "ready";
-          s.note = note;
-          timedReplies?.stop(s.note);
-          render(s);
-        },2000);
-      }
       return true;
     }
 
+    function watchAutomaticClose(s) {
+      const target = s.current;
+      if (!target.emptyDraftSkipReason && !target.unavailable) return;
+      clearTimeout(s.timeout);
+      const timer = s.timeout = setTimeout(() => {
+        if (!currentSession(s) || s.current !== target || s.phase !== "closing") return;
+        refresh(); // The sheet can mount or disappear without a notification from X.
+        if (session !== s || s.current !== target || s.phase !== "closing" || s.timeout !== timer) return;
+        const note = s.saveClicked ? "已点击保存，但 X 尚未关闭草稿，请核对后继续。" :
+          "X 未确认关闭回复框，请手动处理后继续。";
+        if (target.unavailable || composer() !== target.dialog) { finish(note); return; }
+        target.emptyDraftSkipReason = "";
+        target.skipRequiresTimedRun = false;
+        s.phase = "ready";
+        s.note = note;
+        timedReplies?.stop(note);
+        render(s);
+      },8000);
+    }
+
     function saveDraftIfAsked(s) {
-      const dialogs = Array.from(document.querySelectorAll(
-        '[data-testid="confirmationSheetDialog"],[role="dialog"],[role="alertdialog"]'));
-      for (const dialog of dialogs) {
-        if (!visible(dialog) || dialog.querySelector(EDITOR)) continue;
-        if (!/草稿|帖子|推文|貼文|draft|post|tweet/i.test(dialog.innerText)) continue;
-        const save = Array.from(dialog.querySelectorAll('button,[role="button"]')).find(button =>
-          visible(button) && /^(保存|保存草稿|儲存|儲存草稿|Save|Save draft)$/i.test(button.innerText.trim()));
-        if (enabled(save) && s.saveButton !== save) {
-          s.saveButton = save;
-          s.saveClicked = true;
+      if (s.saveClicked && visible(s.saveSheet)) return true;
+      const sheets = '[data-testid="confirmationSheetDialog"],[data-testid="sheetDialog"],[role="alertdialog"],[aria-modal="true"],[role="dialog"]';
+      const buttons = 'button,[role="button"],[data-testid="confirmationSheetConfirm"]';
+      const saveLabel = /^(保存|保存草稿|儲存|儲存草稿|Save|Save draft)$/i;
+      const draftPrompt = /草稿|保存帖子|儲存貼文|draft|save (?:this )?(?:post|tweet)/i;
+      function handle(sheet,save) {
+        if (!s.saveClicked && enabled(save)) {
+          s.saveSheet = sheet;
+          s.saveClicked = true; // One click per close attempt, even if X remounts the button.
+          watchAutomaticClose(s);
           save.click();
         }
         return true;
+      }
+      for (const sheet of document.querySelectorAll(sheets)) {
+        if (!visible(sheet) || sheet.querySelector(EDITOR) || !/草稿|帖子|推文|貼文|draft|post|tweet/i.test(sheet.innerText)) continue;
+        const save = Array.from(sheet.querySelectorAll(buttons)).find(button =>
+          visible(button) && saveLabel.test(button.innerText.trim()));
+        if (save) return handle(sheet,save);
+      }
+      // Some X layouts put the confirmation inside the composer or in a portal without a dialog role.
+      const candidates = new Set([...document.querySelectorAll('[data-testid="confirmationSheetConfirm"]'),
+        ...s.current.dialog.querySelectorAll(buttons)]);
+      for (const save of candidates) {
+        if (!saveLabel.test(save.innerText.trim()) || !visible(save)) continue;
+        for (let sheet=save.parentElement;sheet && sheet!==document.body && !sheet.querySelector(EDITOR);sheet=sheet.parentElement) {
+          if (draftPrompt.test(sheet.innerText) && Array.from(sheet.querySelectorAll(buttons)).some(button =>
+            /^(放弃|放棄|Discard)$/i.test(button.innerText.trim()) && visible(button))) return handle(sheet,save);
+        }
       }
       return false;
     }
@@ -1151,6 +1176,7 @@
         if (s.current.emptyDraftSkipReason ? closeConfirmation() : saveDraftIfAsked(s)) return;
         if (!dialog) {
           if (s.hadDraft && !s.saveClicked) {
+            if (s.current.unavailable) return; // Allow X to mount its save sheet after unmounting the editor.
             s.phase = "draft-check";
             showNotice("未确认 X 是否保存了草稿，请核对后再继续。",{
               label:"已确认，继续下一条",run:() => advance(s)

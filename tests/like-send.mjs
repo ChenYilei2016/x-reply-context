@@ -24,10 +24,24 @@ function open(target,current){
  modal.querySelector('[data-testid=app-bar-close]').onclick=()=>{
   const draft=modal.querySelector('[contenteditable]').innerText;
   if (current.replyMode!=='unavailable' || !draft.trim()) {closeModal();return;}
-  const confirm=document.createElement('div');confirm.role='alertdialog';
-  confirm.innerHTML='<p>保存草稿？</p><button>保存草稿</button>';
-  confirm.querySelector('button').onclick=()=>{current.savedDraft=draft;confirm.remove();closeModal();};
-  document.body.append(confirm);
+  const confirm=document.createElement('div');
+  if(current.unavailableCode==='461'){
+   // Nested sheet, delayed mount and a remounted button while X is saving the draft.
+   confirm.innerHTML='<h2>保存帖子？</h2><p>你可以保存此内容，以便之后从草稿发布。</p><button>保存</button><button>放弃</button>';
+   let saves=0;
+   confirm.onclick=event=>{
+    if(event.target.textContent==='放弃')throw Error('unexpected discard');
+    current.saveClicks=++saves;
+    event.target.replaceWith(event.target.cloneNode(true));schedule();
+    setTimeout(()=>{current.savedDraft=draft;confirm.remove();closeModal();},2200);
+   };
+   setTimeout(()=>{modal.append(confirm);schedule();},250);
+  }else{
+   confirm.role='alertdialog';confirm.innerHTML='<p>保存草稿？</p><button>保存草稿</button>';
+   confirm.querySelector('button').onclick=()=>{current.savedDraft=draft;confirm.remove();closeModal();};
+   closeModal();
+   setTimeout(()=>{document.body.append(confirm);schedule();},100);
+  }
  };
  modal.querySelector('[data-testid=tweetButton]').disabled=true;
  modal.querySelector('[contenteditable]').addEventListener('input',()=>{modal.querySelector('[data-testid=tweetButton]').disabled=!modal.querySelector('[contenteditable]').innerText.trim();});
@@ -260,7 +274,7 @@ document.querySelector('#alert-run').onclick=async event=>{
   await wait(()=>dialog()?.dataset.target==='200',7000);
   check('定时发送收到461后保持原轮次，仅消耗一次尝试',timed.isRunning()&&
     document.querySelector('.xrc-timed-badge-detail').textContent.includes('1/3')&&!guard.blocked()&&current.liked.size===0&&
-    current.replied.size===0&&current.events.length===1&&current.savedDraft==='只用于本地检查');
+    current.replied.size===0&&current.events.length===1&&current.saveClicks===1&&current.savedDraft==='只用于本地检查');
   timed.stop();
   current=await reset({replyMode:'unavailable'});
   dialog().querySelector('[data-testid=tweetButton]').click();

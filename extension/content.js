@@ -1162,7 +1162,7 @@
   const observer = new MutationObserver(records => {
     if (!connected()) return;
     const owned = ".xrc-post-translate,.xrc-labels,.xrc-user-counts,.xrc-inline-author,.xrc-continuous,.xrc-flow-notice,.xrc-notification-controls,.xrc-people-filter,.xrc-network-notice,.xrc-ai-ghost,.xrc-ai-notice,.xrc-interaction-alert";
-    const relevant = '[data-testid="primaryColumn"],[role="dialog"],[aria-modal="true"],a[data-testid="AppTabBar_Profile_Link"]';
+    const relevant = '[role="alertdialog"],[data-testid="confirmationSheetDialog"],[data-testid="sheetDialog"],[data-testid="confirmationSheetConfirm"],[data-testid="primaryColumn"],[role="dialog"],[aria-modal="true"],a[data-testid="AppTabBar_Profile_Link"]';
     if (records.some(record => !record.target.closest?.(owned) &&
         (record.target.closest?.(relevant) || [...(record.addedNodes || []),...(record.removedNodes || [])]
           .some(node => node.matches?.(relevant) || node.querySelector?.(relevant))))) {
