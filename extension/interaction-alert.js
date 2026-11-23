@@ -23,7 +23,7 @@
       const rateLimited=status===429 || /rate.?limit|too many requests|限流|操作过于频繁|频率限制/i.test(text);
       const code=typeof data.code==="string"?data.code.slice(0,40):"";
       const retry=typeof data.retryAfter==="string"?data.retryAfter.slice(0,100):"";
-      const canSkipTarget = data.targetUnavailable === true && status === 200 && code === "385" &&
+      const canSkipTarget = data.targetUnavailable === true && status === 200 && (code === "385" || code === "461") &&
         data.reason === "failed" && !rateLimited && !retry &&
         (data.operation === "CreateTweet" || data.operation === "CreateNoteTweet");
       // An unavailable post must never supersede an existing warning or rate-limit gate.

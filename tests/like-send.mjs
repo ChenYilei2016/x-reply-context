@@ -37,7 +37,7 @@ function open(target,current){
   setTimeout(()=>{
    if(current.replyMode==='unavailable') {
     current.unavailable={account:'me',operation:'CreateTweet',targetId:target,httpStatus:200,reason:'failed',
-     code:'385',message:'You attempted to reply to a Tweet that is deleted or not visible to you.',requestId,targetUnavailable:true};
+     code:current.unavailableCode,message:current.unavailableCode==='461'?'User is not permitted to engage with an outdated Tweet.':'You attempted to reply to a Tweet that is deleted or not visible to you.',requestId,targetUnavailable:true};
     guard.show(current.unavailable);
     void flow.receiveReply({type:'REPLY_RESULT',account:'me',parentId:target,startedAt,requestId,status:'failed'},null);
     return;
@@ -59,7 +59,7 @@ function open(target,current){
 }
 async function reset(options={}){
  flow.stop();dialog()?.remove();account='me';randomSkipLike=options.randomSkipLike===true;history.replaceState(null,'','/home');
- const current=run={events:[],liked:new Set(options.liked?['100']:[]),replied:new Set(),mode:options.mode||'success',saveDelay:options.saveDelay||0,replyMode:options.replyMode||'success',replySaveDelay:options.replySaveDelay||0,replyDelay:options.replyDelay||30,holdSentComposer:options.holdSentComposer};
+ const current=run={events:[],liked:new Set(options.liked?['100']:[]),replied:new Set(),mode:options.mode||'success',saveDelay:options.saveDelay||0,replyMode:options.replyMode||'success',unavailableCode:options.unavailableCode||'385',replySaveDelay:options.replySaveDelay||0,replyDelay:options.replyDelay||30,holdSentComposer:options.holdSentComposer};
  document.querySelector('#cards').replaceChildren();
  for(const id of options.ids || ['100','200']){
   const article=document.createElement('article');article.dataset.testid='tweet';article.dataset.id=id;
@@ -254,12 +254,13 @@ document.querySelector('#alert-run').onclick=async event=>{
   document.querySelector('.xrc-flow-send').click();
   await wait(()=>!dialog()&&document.querySelector('.xrc-flow-notice')?.textContent.includes('当前位置之后'));
   check('连续两条均不可回复时各尝试一次，在列表末尾结束',current.events.length===2&&current.liked.size===0);
-  current=await reset({replyMode:'unavailable'});
+  current=await reset({replyMode:'unavailable',unavailableCode:'461'});
   timedSettingChanged({timedReplies:{newValue:{enabled:true,minSeconds:3,maxSeconds:3,maxAttempts:3,maxMinutes:1}}},'local');
   timed.start();
   await wait(()=>dialog()?.dataset.target==='200',7000);
-  check('定时发送收到385后保持原轮次，仅消耗一次尝试',timed.isRunning()&&
-    document.querySelector('.xrc-timed-badge-detail').textContent.includes('1/3')&&!guard.blocked()&&current.liked.size===0);
+  check('定时发送收到461后保持原轮次，仅消耗一次尝试',timed.isRunning()&&
+    document.querySelector('.xrc-timed-badge-detail').textContent.includes('1/3')&&!guard.blocked()&&current.liked.size===0&&
+    current.replied.size===0&&current.events.length===1&&current.savedDraft==='只用于本地检查');
   timed.stop();
   current=await reset({replyMode:'unavailable'});
   dialog().querySelector('[data-testid=tweetButton]').click();

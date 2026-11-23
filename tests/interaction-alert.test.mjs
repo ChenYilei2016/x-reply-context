@@ -47,9 +47,11 @@ for(const transport of ['fetch','xhr']) {
   assert.equal((await observe({transport,switchAccount:true,status:403})).alerts.length,0);
  });
 }
-test('仅明确未发送的 HTTP 200 评论错误 385 可以跳过当前帖',async()=>{
- const error={code:385,message:'You attempted to reply to a Tweet that is deleted or not visible to you.'};
- for (const [transport,operation] of [['fetch','CreateTweet'],['xhr','CreateNoteTweet']]) {
+test('仅明确未发送的 HTTP 200 评论错误 385 或 461 可以跳过当前帖',async()=>{
+ for (const [transport,operation] of [['fetch','CreateTweet'],['xhr','CreateNoteTweet']]) for (const error of [
+  {code:385,message:'You attempted to reply to a Tweet that is deleted or not visible to you.'},
+  {code:'461',message:'User is not permitted to engage with an outdated Tweet.'}
+ ]) {
   const options={transport,operation,payload:{errors:[error]}};
   const {messages,alerts,requests}=await observe(options);
   const started=messages.find(message=>message.type==='REPLY_STARTED');

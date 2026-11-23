@@ -8,9 +8,9 @@
 
 一个 Chrome 扩展，帮你看清互动记录、逐条处理回复。写好后可以「评论点赞下条」，也可以打开「伴随主页」看看对方的帖子，原来的通知和草稿留在原处。
 
-**当前版本 0.37.7** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
+**当前版本 0.37.8** · Chrome 111+ · Manifest V3 · 本地存储 · 无运行依赖
 
-[**下载安装包**](dist/x-reply-context-0.37.7.zip) · [快速安装](#快速安装) · [功能一览](#功能一览) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
+[**下载安装包**](dist/x-reply-context-0.37.8.zip) · [快速安装](#快速安装) · [功能一览](#功能一览) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/ChenYilei2016/x-reply-context/issues)
 
 *A Chrome extension for X interaction context, user-confirmed reply-then-like, and a reusable native profile window.*
 
@@ -35,7 +35,7 @@
 
 ## 快速安装
 
-1. 下载并解压 [0.37.7 安装包](dist/x-reply-context-0.37.7.zip)。也可用 **Code → Download ZIP** 下载源码。
+1. 下载并解压 [0.37.8 安装包](dist/x-reply-context-0.37.8.zip)。也可用 **Code → Download ZIP** 下载源码。
 2. 在 Chrome 打开 `chrome://extensions`，开启右上角「开发者模式」。
 3. 点击「加载已解压的扩展程序」：安装包选择包含 `manifest.json` 的文件夹；源码选择 **`extension/`**。
 4. 完整刷新已打开的 X 页面。建议将「回过了」固定到工具栏，方便调整筛选开关。

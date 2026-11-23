@@ -121,7 +121,7 @@
       } else {
         status = warning.hasErrors && !createdId ? "failed" : "unknown";
         targetUnavailable = context.httpStatus === 200 && status === "failed" &&
-          warning.onlyError385 && !context.retryAfter;
+          warning.onlyUnavailableReplyErrors && !context.retryAfter;
         // Let the worker check the author ID for recording only. The reply flow still pauses on a partial receipt.
         if (!warning.hasErrors && evidence && (!user || user.handle === context.account)) replyEvidence = evidence;
       }
@@ -146,10 +146,10 @@
     const messages=entries.map(item=>typeof item === "string" ? item : item?.message)
       .filter(text=>typeof text === "string").map(text=>text.slice(0,240));
     const code=entries.find(item=>typeof item?.code === "number" || typeof item?.code === "string")?.code;
-    const onlyError385 = errors.length > 0 && entries.length === errors.length &&
+    const onlyUnavailableReplyErrors = errors.length > 0 && entries.length === errors.length &&
       errorGroups.every(items => !Array.isArray(items) || items.length <= 3) &&
-      errors.every(item => item?.code === 385 || item?.code === "385");
-    return {present:entries.length>0,hasErrors:errors.length>0,onlyError385,
+      errors.every(item => [385,"385",461,"461"].includes(item?.code));
+    return {present:entries.length>0,hasErrors:errors.length>0,onlyUnavailableReplyErrors,
       message:messages.join("；").slice(0,600),code:code===undefined?"":String(code).slice(0,40)};
   }
 
